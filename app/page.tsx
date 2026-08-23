@@ -155,7 +155,10 @@ export default function Home() {
           <p className="eyebrow">Connected speech trainer</p>
           <h1>Слушайте живую речь.<br />Выбирайте, что учить.</h1>
         </div>
-        <div className="header-total"><strong>{phrases.length}</strong><span>фраз в библиотеке</span></div>
+        <div className="header-tools">
+          <a className="integrations-link" href="/integrations">Integrations</a>
+          <div className="header-total"><strong>{phrases.length}</strong><span>фраз в библиотеке</span></div>
+        </div>
       </header>
 
       <nav className="tabs" aria-label="Разделы изучения" role="tablist">

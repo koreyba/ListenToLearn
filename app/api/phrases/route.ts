@@ -53,7 +53,7 @@ async function ensureData() {
   );
 }
 
-async function backfillTranslations() {
+async function backfillTranslations(request: Request) {
   const db = getD1();
   const missing = await db.prepare(`
     SELECT id, text
@@ -66,7 +66,7 @@ async function backfillTranslations() {
   try {
     for (let offset = 0; offset < missing.results.length; offset += 50) {
       const rows = missing.results.slice(offset, offset + 50);
-      const translations = await translateEnglishToRussian(rows.map((row) => row.text));
+      const translations = await translateEnglishToRussian(rows.map((row) => row.text), "", { request });
       await db.batch(rows.map((row, index) =>
         db.prepare(
           "UPDATE phrases SET translation = ? WHERE id = ? AND translation = ''",
@@ -78,16 +78,16 @@ async function backfillTranslations() {
   }
 }
 
-async function translationForPhrase(text: string, existing = "") {
+async function translationForPhrase(text: string, existing = "", request?: Request) {
   if (existing) return existing;
-  const [translation] = await translateEnglishToRussian([text]);
+  const [translation] = await translateEnglishToRussian([text], "", { request });
   return translation;
 }
 
-async function optionalTranslationForPhrase(text: string, existing = "") {
+async function optionalTranslationForPhrase(text: string, existing = "", request?: Request) {
   if (existing) return { text: existing, pending: false };
   try {
-    return { text: await translationForPhrase(text), pending: false };
+    return { text: await translationForPhrase(text, "", request), pending: false };
   } catch (error) {
     if (!(error instanceof DeepLError)) throw error;
     console.warn("Translation unavailable; continuing without it:", error.message);
@@ -99,10 +99,10 @@ function cleanText(value: unknown) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     await ensureData();
-    await backfillTranslations();
+    await backfillTranslations(request);
     const db = getD1();
     const result = await db.prepare(`
       SELECT id, text, pattern, ipa, translation, source_type, catalog_order, status, created_at, updated_at
@@ -133,7 +133,7 @@ export async function POST(request: Request) {
     ).bind(text).first<{ id: string; status: PhraseRow["status"]; translation: string }>();
     if (existing) {
       const status = existing.status === "pick" ? "to_learn" : existing.status;
-      const translation = await optionalTranslationForPhrase(text, existing.translation);
+      const translation = await optionalTranslationForPhrase(text, existing.translation, request);
       if (status !== existing.status || translation.text !== existing.translation) {
         await db.prepare(
           "UPDATE phrases SET status = ?, translation = ?, updated_at = ? WHERE id = ?"
@@ -148,7 +148,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const translation = await optionalTranslationForPhrase(text);
+    const translation = await optionalTranslationForPhrase(text, "", request);
     const id = `custom-${crypto.randomUUID()}`;
     const now = new Date().toISOString();
     await db.prepare(`
@@ -189,7 +189,7 @@ export async function PATCH(request: Request) {
     if (!phrase) return Response.json({ error: "Фраза не найдена." }, { status: 404 });
     const translation = status === "pick"
       ? { text: phrase.translation, pending: false }
-      : await optionalTranslationForPhrase(phrase.text, phrase.translation);
+      : await optionalTranslationForPhrase(phrase.text, phrase.translation, request);
     const result = await db.prepare(
       "UPDATE phrases SET status = ?, translation = ?, updated_at = ? WHERE id = ?"
     ).bind(status, translation.text, new Date().toISOString(), id).run();

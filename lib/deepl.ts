@@ -1,4 +1,9 @@
 import { env } from "cloudflare:workers";
+import {
+  hasIntegrationSession,
+  IntegrationSecretError,
+  readIntegrationSecret,
+} from "@/lib/integration-secrets";
 
 type TranslationResponse = {
   translations?: Array<{ text?: string }>;
@@ -23,16 +28,36 @@ export function cleanTranslationText(value: unknown) {
 export async function translateEnglishToRussian(
   texts: string[],
   context = "",
+  options: { request?: Request } = {},
 ): Promise<string[]> {
   const cleaned = texts.map(cleanTranslationText).filter(Boolean);
   if (!cleaned.length) return [];
 
-  const { DEEPL_API_KEY } = env as unknown as { DEEPL_API_KEY?: string };
-  if (!DEEPL_API_KEY) {
+  let apiKey: string | undefined;
+  let session = false;
+  if (options.request) {
+    try {
+      session = await hasIntegrationSession(options.request);
+    } catch (error) {
+      if (!(error instanceof IntegrationSecretError)) throw error;
+    }
+  }
+  if (session) {
+    const { DEEPL_API_KEY } = env as unknown as { DEEPL_API_KEY?: string };
+    apiKey = DEEPL_API_KEY;
+    if (!apiKey) {
+      try {
+        apiKey = (await readIntegrationSecret("deepl", options.request)) || undefined;
+      } catch (error) {
+        if (!(error instanceof IntegrationSecretError)) throw error;
+      }
+    }
+  }
+  if (!apiKey) {
     throw new DeepLError("Перевод временно не настроен.", "not_configured");
   }
 
-  const endpoint = DEEPL_API_KEY.endsWith(":fx")
+  const endpoint = apiKey.endsWith(":fx")
     ? "https://api-free.deepl.com/v2/translate"
     : "https://api.deepl.com/v2/translate";
 
@@ -43,7 +68,7 @@ export async function translateEnglishToRussian(
     response = await fetch(endpoint, {
       method: "POST",
       headers: {
-        Authorization: `DeepL-Auth-Key ${DEEPL_API_KEY}`,
+        Authorization: `DeepL-Auth-Key ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({

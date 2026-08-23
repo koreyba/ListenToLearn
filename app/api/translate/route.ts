@@ -23,6 +23,7 @@ export async function POST(request: Request) {
     const [translation] = await translateEnglishToRussian(
       [text],
       context && context !== text ? context : "",
+      { request },
     );
 
     return Response.json({ translation });

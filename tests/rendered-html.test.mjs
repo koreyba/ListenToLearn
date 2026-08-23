@@ -92,10 +92,13 @@ test("DeepL credentials stay in the shared server helper", async () => {
   );
 
   assert.match(helper, /env as unknown as \{ DEEPL_API_KEY\?: string \}/);
-  assert.match(helper, /Authorization: `DeepL-Auth-Key \$\{DEEPL_API_KEY\}`/);
+  assert.match(helper, /Authorization: `DeepL-Auth-Key \$\{apiKey\}`/);
   assert.match(helper, /target_lang: "RU"/);
   assert.match(helper, /AbortController/);
   assert.match(helper, /DEEPL_TIMEOUT_MS/);
+  assert.match(helper, /readIntegrationSecret\("deepl", options\.request\)/);
+  assert.match(helper, /hasIntegrationSession/);
+  assert.match(helper, /request\?: Request/);
 });
 
 test("learning phrases persist and render their translation", async () => {
@@ -114,4 +117,36 @@ test("learning phrases persist and render their translation", async () => {
   assert.match(route, /translationPending/);
   assert.match(route, /status != 'pick' AND translation = ''/);
   assert.match(page, /className="phrase-translation"/);
+});
+
+test("integrations keep provider keys server-side and expose only status", async () => {
+  const page = await readFile(
+    new URL("../app/integrations/page.tsx", import.meta.url),
+    "utf8",
+  );
+  const route = await readFile(
+    new URL("../app/api/integrations/route.ts", import.meta.url),
+    "utf8",
+  );
+  const crypto = await readFile(
+    new URL("../lib/integration-secrets.ts", import.meta.url),
+    "utf8",
+  );
+  const schema = await readFile(
+    new URL("../db/schema.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(page, /type="password"/);
+  assert.match(page, /fetch\("\/api\/integrations"/);
+  assert.match(route, /configured/);
+  assert.doesNotMatch(route, /return Response\.json\([^\n]*key/);
+  assert.match(crypto, /INTEGRATIONS_ENCRYPTION_KEY/);
+  assert.match(crypto, /AES-GCM/);
+  assert.match(crypto, /crypto\.subtle\.encrypt/);
+  assert.match(crypto, /crypto\.subtle\.decrypt/);
+  assert.match(schema, /export const integrationSecrets/);
+  assert.match(crypto, /createIntegrationSession/);
+  assert.match(crypto, /HttpOnly/);
+  assert.match(crypto, /SameSite=Lax/);
 });

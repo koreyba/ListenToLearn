@@ -27,3 +27,11 @@ export const phraseExamples = sqliteTable("phrase_examples", {
   uniqueIndex("idx_phrase_examples_phrase_provider_external")
     .on(table.phraseId, table.provider, table.externalId),
 ]);
+
+export const integrationSecrets = sqliteTable("integration_secrets", {
+  provider: text("provider").primaryKey(),
+  ciphertext: text("ciphertext").notNull(),
+  iv: text("iv").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});

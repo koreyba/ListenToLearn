@@ -6,74 +6,34 @@ description: Define monitoring strategy, metrics, alerts, and incident response
 
 # Monitoring & Observability
 
-## Key Metrics
-**What do we need to track?**
+## Production signals
 
-### Performance Metrics
-- Response time/latency
-- Throughput/requests per second
-- Resource utilization (CPU, memory, disk)
+- Workers & Pages: requests, CPU time, errors, deployments and startup time.
+- Access: redirect rate for protected paths and authentication failures.
+- D1: row counts and `changes`/`rows_written` for release checks; never print ciphertext.
+- Client: guest localStorage errors, failed Tatoeba loads and blocked guest translation messaging.
 
-### Business Metrics
-- User engagement metrics
-- Conversion/success rates
-- Feature usage
+## Final smoke evidence
 
-### Error Metrics
-- Error rates by type
-- Failed requests
-- Exception tracking
+Against `https://listen-to-learn.koreybadenis.workers.dev` after Worker version `f0fca2e8-75d3-46c7-b317-1c9f725c23d9`:
 
-## Monitoring Tools
-**What tools are we using?**
+- `/` returned `200`.
+- `/trainer.html` returned the expected `307` to `/trainer`; `/trainer` returned `200`; `/trainer/` also normalized to `/trainer`.
+- `/caption-navigation.js` returned `200`.
+- `/api/tatoeba?q=hello` returned `200` JSON.
+- `/login`, `/api/me`, `/api/phrases`, `/api/examples`, `/api/translate`, `/integrations` and `/api/integrations` returned Cloudflare Access `302` redirects.
+- D1 counts before and after public smoke were unchanged: `users=2`, `phrases=50`, `phrase_progress=51`, `phrase_examples=2`; both queries reported `rows_written=0` and `changed_db=false`.
 
-- Application monitoring (APM)
-- Infrastructure monitoring
-- Log aggregation
-- User analytics
+## Security and free-plan guardrails
 
-## Logging Strategy
-**What do we log and how?**
+- Public Worker routes are explicit; unknown paths remain fail-closed.
+- Guest storage contains only bounded phrase/example state, never Access JWTs, identity headers or provider keys.
+- Any unexpected guest write, D1 change, Access redirect on `/`/`/trainer`, or 5xx spike blocks further rollout.
+- No paid Cloudflare resource or anonymous persistent server storage was added.
 
-- Log levels and categories
-- Structured logging format
-- Log retention policy
-- Sensitive data handling
+## Incident response
 
-## Alerts & Notifications
-**When and how do we get notified?**
-
-### Critical Alerts
-- Alert 1: [Condition] → [Action]
-- Alert 2: [Condition] → [Action]
-
-### Warning Alerts
-- Alert 1: [Condition] → [Action]
-- Alert 2: [Condition] → [Action]
-
-## Dashboards
-**What do we visualize?**
-
-- System health dashboard
-- Business metrics dashboard
-- Custom views per team/role
-
-## Incident Response
-**How do we handle issues?**
-
-### On-Call Rotation
-- Schedule and contacts
-- Escalation path
-
-### Incident Process
-1. Detection and triage
-2. Investigation and diagnosis
-3. Resolution and mitigation
-4. Post-mortem and learning
-
-## Health Checks
-**How do we verify system health?**
-
-- Endpoint health checks
-- Dependency checks
-- Automated smoke tests
+1. Confirm the affected path and latest Worker version in Cloudflare.
+2. Check Access app destinations and Worker logs without exposing tokens or keys.
+3. Roll back the Worker or restore the previous Access destination set as appropriate.
+4. Re-run public/protected smoke and D1 row-count checks before reopening rollout.

@@ -51,13 +51,15 @@ Fresh proof: `npx tsc --noEmit` — exit 0; `node --test tests/guest-library.tes
 
 `public/trainer.html` uses the same guest library key for local To Learn promotion and saved Tatoeba/YouGlish examples. It only probes `/api/me` when the account hint exists; otherwise bootstrap is entirely local. Guest translation explains the Google/DeepL requirement without blocking phrase progression. The trainer's existing playback preferences remain under the anonymous or user-namespaced trainer key.
 
-Fresh proof: `npx tsc --noEmit`, `npm run lint` (0 errors, 2 pre-existing generated-file warnings), direct `vinext build`, `node --test tests/guest-library.test.mjs tests/guest-access.test.mjs tests/guest-ui.test.mjs tests/rendered-html.test.mjs`, and `git diff --check` passed.
+Fresh proof: `npx tsc --noEmit`, `npm run lint` (0 errors, 2 pre-existing generated-file warnings), direct `vinext build`, `node --test tests/*.test.mjs` (26 passed, 0 failed), Wrangler dry-run, and `git diff --check` passed.
+
+### Production rollout evidence
+
+The merged Worker is deployed at `f0fca2e8-75d3-46c7-b317-1c9f725c23d9`. Public `/` and `/trainer` returned `200`, the source `/trainer.html` normalized with `307`, Tatoeba returned `200`, protected APIs and Integrations returned Access `302`, and D1 row counts remained unchanged with zero rows written before/after the guest smoke.
 
 ### Pending implementation tasks
 
-- Apply the path-scoped Cloudflare Access configuration and read it back.
-- Preserve authenticated API and per-user storage behavior in live smoke.
-- Add live Cloudflare public/protected and D1 no-write evidence.
+- Optional: run a clean/incognito interactive browser pass for visual/UX confirmation.
 
 ## Integration Points
 

@@ -37,6 +37,9 @@ Cover 100% of new/changed server branches that can be checked with the repositor
 - [x] The save-example payload retains phrase ID, provider, external ID, caption, and attribution metadata.
 - [x] Word click translation exposes an adjacent `+ To Learn` action; selection actions remain available.
 - [x] The phrase-saving payload carries selected text, original caption context, and available translation.
+- [x] Desktop controls use a four-column compact toolbar; mobile uses a two-column grid and keeps the caption explanation outside the control groups.
+- [x] Caption controls, caption status, and repeat-caption are hidden for Tatoeba and restored for YouGlish; the Tatoeba toolbar reflows without an empty caption column.
+- [x] Icon-only example settings expose explicit accessible names and mobile touch targets remain at least 44px.
 - [x] The inline trainer script parses with `new Function` after all changes.
 
 ## Integration Tests
@@ -51,9 +54,9 @@ Cover 100% of new/changed server branches that can be checked with the repositor
 ## End-to-End / Manual Tests
 
 - [x] Desktop: controls, captions, translation, save actions, and status are visible beside a compact >=200px media frame; no control overlaps the media panel (1280px browser smoke; YouGlish widget itself remained external).
-- [x] Mobile: learning workspace appears before the media panel, controls are tappable, and captions/translation remain reachable without horizontal scrolling (390x844; `scrollWidth === clientWidth`).
+- [x] Mobile: learning workspace appears before the media panel, controls are tappable, and captions/translation remain reachable without horizontal scrolling (390x844; `scrollWidth === clientWidth`). The compact pass reduced the control grid from 490px to 218px and moved the media start from 1087px to about 700px while retaining 44px targets.
 - [x] Open a phrase, use Tatoeba, pause/replay controls, speed controls, and previous/next video (live local Worker/Tatoeba smoke; audio loaded with HTTP 206).
-- [x] Verify previous/next caption is visibly disabled for Tatoeba with an explanation; static contract also verifies no fake five-second behavior.
+- [x] Verify caption controls are hidden for Tatoeba and restored for YouGlish; static contract also verifies no fake five-second behavior.
 - [ ] For one phrase, save one YouGlish video and one Tatoeba audio item, reopen the phrase, switch to `Сохранённые`, and replay each item (Tatoeba completed; YouGlish end-to-end not run because provider playback is external).
 - [x] Change `Все`/`Сохранённые` and `Случайно`/`По порядку`, reload, and verify global preferences remain (Tatoeba order and saved mode smoke).
 - [ ] Click a caption word, check one successful contextual translation, use `+ To Learn`, and verify library context (word click and disabled save state verified; DeepL secret unavailable, so success path requires owner configuration).
@@ -83,7 +86,7 @@ Record the command output and the exact manual viewport/source/mode combinations
 
 ## Performance / Accessibility Checks
 
-- [x] New controls have visible focus styles, keyboard-capable native controls, disabled states, and Russian accessible labels.
+- [x] New controls have visible focus styles, keyboard-capable native controls, disabled states, and explicit English accessible labels.
 - [x] The media frame remains >=200px by >=200px and the learning controls are outside its DOM/content area.
 - [x] No added interaction introduces a second translation request for the same visible action; transient translation state is not persisted.
 
@@ -91,7 +94,7 @@ Record the command output and the exact manual viewport/source/mode combinations
 
 - `npx tsc --noEmit`: passed.
 - `npm run lint`: passed with two pre-existing warnings in generated `worker-configuration.d.ts`; no errors.
-- `node --test tests/rendered-html.test.mjs`: 9/9 passed.
+- `node --test tests/rendered-html.test.mjs`: 18/18 passed after the compact-toolbar and accessibility regression cases were added.
 - `./node_modules/.bin/vinext build`: passed.
 - `npm test`: wrapper blocked before build because `scripts/build-verified.sh` requires GNU `timeout` on this macOS host; direct equivalent checks passed.
 - `git diff --check`: passed.

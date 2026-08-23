@@ -136,7 +136,7 @@ export async function GET(request: Request) {
     `).bind(user.subject, user.subject).all<PhraseRow>();
     return Response.json({ phrases: result.results });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Не удалось загрузить фразы.";
+    const message = error instanceof Error ? error.message : "Could not load phrases.";
     return Response.json({ error: message }, { status: 500 });
   }
 }
@@ -151,8 +151,8 @@ export async function POST(request: Request) {
     const text = cleanText(payload.text);
     const context = cleanText(payload.context).slice(0, 1_000);
     const suppliedTranslation = cleanText(payload.translation).slice(0, 1_000);
-    if (!text) return Response.json({ error: "Введите фразу." }, { status: 400 });
-    if (text.length > 240) return Response.json({ error: "Фраза слишком длинная." }, { status: 400 });
+    if (!text) return Response.json({ error: "Enter a phrase." }, { status: 400 });
+    if (text.length > 240) return Response.json({ error: "The phrase is too long." }, { status: 400 });
 
     const db = getD1();
     const existing = await db.prepare(`
@@ -225,7 +225,7 @@ export async function POST(request: Request) {
     if (error instanceof DeepLError) {
       return Response.json({ error: error.message }, { status: error.code === "not_configured" ? 503 : 502 });
     }
-    const message = error instanceof Error ? error.message : "Не удалось добавить фразу.";
+    const message = error instanceof Error ? error.message : "Could not add the phrase.";
     return Response.json({ error: message }, { status: 500 });
   }
 }
@@ -240,7 +240,7 @@ export async function PATCH(request: Request) {
     const id = cleanText(payload.id);
     const status = cleanText(payload.status);
     if (!id || !statuses.has(status)) {
-      return Response.json({ error: "Некорректный статус фразы." }, { status: 400 });
+      return Response.json({ error: "Invalid phrase status." }, { status: 400 });
     }
 
     const db = getD1();
@@ -249,7 +249,7 @@ export async function PATCH(request: Request) {
       FROM phrases AS p
       WHERE p.id = ? AND (p.source_type = 'preset' OR p.owner_id = ?)
     `).bind(id, user.subject).first<{ text: string; translation: string }>();
-    if (!phrase) return Response.json({ error: "Фраза не найдена." }, { status: 404 });
+    if (!phrase) return Response.json({ error: "Phrase not found." }, { status: 404 });
 
     const translation = status === "pick"
       ? { text: phrase.translation, pending: false }
@@ -269,7 +269,7 @@ export async function PATCH(request: Request) {
     if (error instanceof DeepLError) {
       return Response.json({ error: error.message }, { status: error.code === "not_configured" ? 503 : 502 });
     }
-    const message = error instanceof Error ? error.message : "Не удалось изменить статус.";
+    const message = error instanceof Error ? error.message : "Could not update the phrase status.";
     return Response.json({ error: message }, { status: 500 });
   }
 }
@@ -281,7 +281,7 @@ export async function DELETE(request: Request) {
   try {
     await ensureData();
     const id = cleanText(new URL(request.url).searchParams.get("id"));
-    if (!id) return Response.json({ error: "Фраза не указана." }, { status: 400 });
+    if (!id) return Response.json({ error: "Phrase is required." }, { status: 400 });
 
     const db = getD1();
     const existing = await db.prepare(`
@@ -289,7 +289,7 @@ export async function DELETE(request: Request) {
       FROM phrases
       WHERE id = ? AND (source_type = 'preset' OR owner_id = ?)
     `).bind(id, user.subject).first<{ source_type: "preset" | "custom" }>();
-    if (!existing) return Response.json({ error: "Фраза не найдена." }, { status: 404 });
+    if (!existing) return Response.json({ error: "Phrase not found." }, { status: 404 });
 
     if (existing.source_type === "preset") {
       const now = new Date().toISOString();
@@ -303,7 +303,7 @@ export async function DELETE(request: Request) {
     }
     return Response.json({ ok: true });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Не удалось удалить фразу.";
+    const message = error instanceof Error ? error.message : "Could not delete the phrase.";
     return Response.json({ error: message }, { status: 500 });
   }
 }

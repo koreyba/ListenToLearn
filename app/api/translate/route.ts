@@ -21,8 +21,8 @@ export async function POST(request: Request) {
     const payload = (await request.json()) as { text?: unknown; context?: unknown };
     const text = cleanText(payload.text);
     const context = cleanText(payload.context).slice(0, 1_000);
-    if (!text) return Response.json({ error: "Выдели слово или фразу." }, { status: 400 });
-    if (text.length > 500) return Response.json({ error: "Для перевода выбери не больше 500 символов." }, { status: 400 });
+    if (!text) return Response.json({ error: "Select a word or phrase." }, { status: 400 });
+    if (text.length > 500) return Response.json({ error: "Select no more than 500 characters to translate." }, { status: 400 });
 
     const [translation] = await translateEnglishToRussian(
       [text],
@@ -37,9 +37,9 @@ export async function POST(request: Request) {
       const status = error.code === "not_configured" ? 503 : 502;
       const message = error.code === "not_configured"
         ? error.message
-        : "Не удалось получить перевод. Попробуй ещё раз.";
+        : "Could not get the translation. Try again.";
       return Response.json({ error: message }, { status });
     }
-    return Response.json({ error: "Не удалось получить перевод. Попробуй ещё раз." }, { status: 500 });
+    return Response.json({ error: "Could not get the translation. Try again." }, { status: 500 });
   }
 }

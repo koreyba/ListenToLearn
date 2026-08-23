@@ -123,10 +123,12 @@ On mobile the learning workspace is first and the media panel follows it. No app
 
 Controls are explicit:
 
-- `Предыдущая фраза` / `Следующая фраза` — caption-history controls.
-- `Предыдущее видео` / `Следующее видео` — provider track/example controls.
-- `Пауза`, `Повтор`, speed controls — current media controls.
-- `Все` / `Сохранённые`, `Случайно` / `По порядку` — global example settings.
+- Previous/next chevrons — caption-history controls inside the `Captions` group.
+- Previous/next track icons — provider track/example controls inside `Video & audio`.
+- Play/pause, replay, repeat, and speed controls — current media controls.
+- `All` / `Saved`, `Random` / `In order` — global example settings.
+
+The primary groups form one four-column icon toolbar on desktop and a two-column grid on mobile. The caption-navigation explanation sits below the toolbar instead of increasing one group’s height. Icon-only controls keep explicit English `aria-label` and `title` values; mobile source, example-setting, media-expand, and playback targets remain at least 44px high.
 
 ### Caption-history navigation
 
@@ -138,7 +140,7 @@ Controls are explicit:
 - YouGlish saved mode: the client traverses the phrase-bound saved video sequence and fetches the specific `query #external_id`.
 - Tatoeba all mode: the client traverses the fetched audio tracks, shuffled only in random mode.
 - Tatoeba saved mode: the client traverses phrase-bound saved audio IDs and retains attribution metadata.
-- Tatoeba has no caption timeline, so caption buttons remain unavailable for that source.
+- Tatoeba has no caption timeline, so the caption-navigation group, its status hint, and repeat-caption control are hidden for that source; YouGlish shows them.
 
 ### Translation and saving
 
@@ -162,7 +164,7 @@ Controls are explicit:
 ## Non-Functional Requirements
 
 - **Provider policy:** keep the YouGlish widget fully viewable at a minimum 200px by 200px; do not overlay controls over its content or hide its branding/ads. Preserve YouTube Terms and Google Privacy links already present.
-- **Accessibility:** all new controls are real buttons/selects, have Russian labels, use `aria-pressed`/`aria-label` where appropriate, expose disabled reasons through status text, and retain visible focus.
+- **Accessibility:** all new controls are real buttons/selects, have explicit English accessible names, use `aria-pressed`/`aria-label` where appropriate, expose disabled reasons through status text, and retain visible focus.
 - **Reliability:** stale Tatoeba/examples requests are ignored using existing request counters; missing DeepL does not block persistence; empty saved lists fall back explicitly.
 - **Performance:** no new client framework or provider request; only one translation request per visible action; local sort/order operations are bounded by the already loaded library/example list.
 - **Security:** context/translation are bounded server-side; no provider key moves to the browser; existing same-origin and server-only DeepL integration rules remain.

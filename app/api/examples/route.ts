@@ -81,9 +81,9 @@ export async function GET(request: Request) {
   try {
     await ensureExamples();
     const phraseId = cleanText(new URL(request.url).searchParams.get("phraseId"), 120);
-    if (!phraseId) return Response.json({ error: "Фраза не указана." }, { status: 400 });
+    if (!phraseId) return Response.json({ error: "Phrase is required." }, { status: 400 });
     if (!await visiblePhrase(user.subject, phraseId)) {
-      return Response.json({ error: "Фраза не найдена." }, { status: 404 });
+      return Response.json({ error: "Phrase not found." }, { status: 404 });
     }
 
     const result = await getD1().prepare(`
@@ -97,7 +97,7 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error("Examples GET failed:", error);
-    return Response.json({ error: "Не удалось загрузить сохранённые примеры." }, { status: 500 });
+    return Response.json({ error: "Could not load saved examples." }, { status: 500 });
   }
 }
 
@@ -119,12 +119,12 @@ export async function POST(request: Request) {
       ? /^[A-Za-z0-9_-]{6,20}$/.test(externalId)
       : provider === "tatoeba" && /^\d+$/.test(externalId);
     if (!phraseId || !query || !validExternalId) {
-      return Response.json({ error: "Не удалось определить текущий пример." }, { status: 400 });
+      return Response.json({ error: "Could not determine the current example." }, { status: 400 });
     }
 
     const db = getD1();
     const phrase = await visiblePhrase(user.subject, phraseId);
-    if (!phrase) return Response.json({ error: "Фраза не найдена." }, { status: 404 });
+    if (!phrase) return Response.json({ error: "Phrase not found." }, { status: 404 });
     const phraseStatus = phrase.status === "pick" ? "to_learn" : phrase.status;
     const now = new Date().toISOString();
     const statements = [];
@@ -170,7 +170,7 @@ export async function POST(request: Request) {
     return Response.json({ id, created: true, phraseStatus }, { status: 201 });
   } catch (error) {
     console.error("Examples POST failed:", error);
-    return Response.json({ error: "Не удалось сохранить пример." }, { status: 500 });
+    return Response.json({ error: "Could not save the example." }, { status: 500 });
   }
 }
 
@@ -181,15 +181,15 @@ export async function DELETE(request: Request) {
   try {
     await ensureExamples();
     const id = cleanText(new URL(request.url).searchParams.get("id"), 120);
-    if (!id) return Response.json({ error: "Пример не указан." }, { status: 400 });
+    if (!id) return Response.json({ error: "Example is required." }, { status: 400 });
     const result = await getD1()
       .prepare("DELETE FROM phrase_examples WHERE id = ? AND user_id = ?")
       .bind(id, user.subject)
       .run();
-    if (!result.meta.changes) return Response.json({ error: "Сохранённый пример не найден." }, { status: 404 });
+    if (!result.meta.changes) return Response.json({ error: "Saved example not found." }, { status: 404 });
     return Response.json({ ok: true });
   } catch (error) {
     console.error("Examples DELETE failed:", error);
-    return Response.json({ error: "Не удалось удалить сохранённый пример." }, { status: 500 });
+    return Response.json({ error: "Could not delete the saved example." }, { status: 500 });
   }
 }

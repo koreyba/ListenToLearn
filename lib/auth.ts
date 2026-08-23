@@ -14,7 +14,7 @@ export function getAuthenticatedUser(request: Request) {
 
 export function unauthorizedResponse() {
   return Response.json(
-    { error: "Войди через Google, чтобы использовать приложение." },
+    { error: "Sign in with Google to use the app." },
     {
       status: 401,
       headers: {

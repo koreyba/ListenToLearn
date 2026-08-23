@@ -1,11 +1,11 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="color-scheme" content="dark" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
-  <title>Тренажёр связной английской речи</title>
+  <title>Connected Speech Trainer</title>
   <style>
     :root {
       --bg: #0f1115;
@@ -64,7 +64,7 @@
 
     button {
       cursor: pointer;
-      min-height: 42px;
+      min-height: 44px;
       padding: 9px 12px;
     }
 
@@ -75,7 +75,7 @@
     }
 
     .app {
-      width: min(1120px, 100%);
+      width: min(1240px, 100%);
       margin: 0 auto;
       padding: 0 12px 40px;
     }
@@ -83,8 +83,8 @@
     .viewer-header {
       display: flex;
       align-items: center;
-      gap: 16px;
-      padding: 18px 0 14px;
+      gap: 12px;
+      padding: 12px 0 10px;
     }
 
     .back-button {
@@ -129,39 +129,113 @@
       top: 0;
       z-index: 20;
       margin: 0 -12px;
-      padding: max(8px, env(safe-area-inset-top)) 12px 10px;
+      padding: max(10px, env(safe-area-inset-top)) 12px 12px;
       background: rgba(15,17,21,.96);
       backdrop-filter: blur(10px);
       border-bottom: 1px solid var(--line);
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
       grid-template-areas: "workspace media";
       align-items: start;
-      gap: 16px;
+      gap: 14px;
+      transition: grid-template-columns .24s ease;
+    }
+
+    .sticky-stage.media-expanded {
+      grid-template-columns: minmax(0, 1.15fr) minmax(380px, .85fr);
     }
 
     .learning-workspace {
       grid-area: workspace;
       min-width: 0;
+      padding: 12px;
+      border: 1px solid rgba(69, 81, 96, .72);
+      border-radius: 16px;
+      background: linear-gradient(145deg, rgba(27,34,43,.96), rgba(16,20,26,.96));
+      box-shadow: 0 14px 34px rgba(0,0,0,.18);
     }
 
     .media-panel {
       grid-area: media;
       min-width: 200px;
+      padding: 10px;
+      border: 1px solid rgba(69, 81, 96, .72);
+      border-radius: 16px;
+      background: linear-gradient(145deg, rgba(27,34,43,.96), rgba(16,20,26,.96));
+      box-shadow: 0 14px 34px rgba(0,0,0,.18);
+    }
+
+    .media-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 7px;
     }
 
     .media-label {
-      margin: 0 0 8px;
+      margin: 0;
       color: var(--muted);
+      font-size: 11px;
+      font-weight: 750;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+    }
+
+    .media-subtitle {
+      display: none;
+    }
+
+    .media-expand-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 34px;
+      padding: 6px 9px;
+      border-color: #3c6476;
+      background: rgba(21,51,66,.72);
+      color: var(--accent-2);
       font-size: 12px;
       font-weight: 750;
-      letter-spacing: .07em;
-      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .media-expand-btn:hover {
+      border-color: var(--accent);
+      background: #1a465a;
+    }
+
+    .media-expand-btn svg {
+      width: 15px;
+      height: 15px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.8;
+    }
+
+    .media-expanded .media-expand-btn {
+      border-color: var(--accent);
+      background: rgba(21,51,66,.96);
+    }
+
+    .media-expanded .media-expand-btn .expand-icon {
+      transform: rotate(180deg);
+    }
+
+    .expand-icon {
+      display: inline-flex;
+      transition: transform .2s ease;
+    }
+
+    .media-frame-slot {
+      min-width: 0;
     }
 
     .widget-frame {
       width: 100%;
-      min-height: 220px;
+      min-height: 260px;
       min-width: 200px;
       background: #000;
       border: 1px solid var(--line);
@@ -175,7 +249,14 @@
     .youglish-player,
     #yg-widget {
       width: 100%;
-      min-height: 220px;
+      min-height: 260px;
+    }
+
+    #yg-widget > iframe {
+      display: block;
+      width: 100%;
+      min-height: 260px;
+      border: 0;
     }
     .youglish-player[hidden] { display: none; }
 
@@ -184,18 +265,20 @@
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      margin-bottom: 8px;
+      margin-bottom: 9px;
+      padding-bottom: 9px;
+      border-bottom: 1px solid rgba(69, 81, 96, .52);
     }
     .source-row > span {
-      color: var(--muted);
-      font-size: 12px;
+      color: #c6d1dc;
+      font-size: 11px;
       font-weight: 750;
-      letter-spacing: .07em;
+      letter-spacing: .09em;
       text-transform: uppercase;
     }
 
     .tatoeba-player {
-      min-height: 220px;
+      min-height: 260px;
       padding: 22px;
       background:
         radial-gradient(circle at 90% 15%, rgba(125,211,252,.14), transparent 34%),
@@ -244,32 +327,48 @@
 
     .player-controls {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 6px;
-      margin-top: 8px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 7px;
+      margin-top: 0;
+    }
+
+    .player-controls.caption-controls-hidden {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     .control-group {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
+      align-content: start;
       gap: 6px;
       min-width: 0;
+      padding: 8px;
+      border: 1px solid rgba(69, 81, 96, .48);
+      border-radius: 12px;
+      background: rgba(12, 16, 21, .38);
     }
 
     .control-group-label {
       grid-column: 1 / -1;
-      color: var(--muted);
-      font-size: 11px;
+      color: #c3ced8;
+      font-size: 9px;
       font-weight: 750;
       letter-spacing: .06em;
       text-transform: uppercase;
     }
 
-    .control-group-hint {
-      grid-column: 1 / -1;
+    .caption-navigation-status {
+      display: block;
+      margin: 6px 2px 0;
       color: var(--muted);
       font-size: 11px;
       line-height: 1.35;
+      min-height: 15px;
+    }
+
+    .caption-navigation[hidden],
+    .caption-navigation-status[hidden] {
+      display: none;
     }
 
     .control-group button:disabled,
@@ -279,31 +378,98 @@
     }
 
     .player-controls button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
       min-width: 0;
-      padding-left: 6px;
-      padding-right: 6px;
+      min-height: 44px;
+      padding: 8px;
+      border-color: #313d4a;
+      background: #1a212a;
+      color: #dce6ee;
+      font-size: 13px;
+      font-weight: 650;
       white-space: nowrap;
+      transition: background .15s ease, border-color .15s ease, color .15s ease, transform .15s ease;
+    }
+
+    .button-icon {
+      display: inline-flex;
+      flex: 0 0 auto;
+      align-items: center;
+      justify-content: center;
+      width: 17px;
+      height: 17px;
+    }
+
+    .button-icon svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.8;
+    }
+
+    .button-label {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .player-controls .button-label { display: none; }
+
+    .player-controls button:hover:not(:disabled) {
+      border-color: #526576;
+      background: #222c36;
+      color: var(--text);
+      transform: translateY(-1px);
+    }
+
+    .media-navigation button:last-child {
+      grid-column: 1 / -1;
     }
 
     .example-tools {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      margin-top: 8px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: stretch;
+      gap: 8px;
+      margin-top: 9px;
+      padding-top: 9px;
+      border-top: 1px solid rgba(69, 81, 96, .52);
     }
 
     .example-tools[hidden] { display: none; }
 
     .example-settings {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      flex: 1 1 auto;
       min-width: 0;
     }
 
     .example-mode,
-    .example-order { flex: 0 1 auto; }
+    .example-order {
+      display: flex;
+      min-width: 0;
+    }
+
+    .example-settings .segmented button {
+      flex: 1 1 0;
+      min-width: 0;
+      padding-left: 7px;
+      padding-right: 7px;
+      white-space: nowrap;
+    }
+
+    .save-example-btn {
+      min-width: 138px;
+    }
 
     .example-count {
       display: inline-grid;
@@ -741,7 +907,7 @@
       display: none;
     }
 
-    .viewer-mode .app { width: min(1120px, 100%); }
+    .viewer-mode .app { width: min(1240px, 100%); }
     .viewer-mode .sticky-stage {
       margin-left: -12px;
       margin-right: -12px;
@@ -754,6 +920,28 @@
     .viewer-mode .state-box,
     .viewer-mode footer { display: none !important; }
 
+    @media (max-width: 1099px) and (min-width: 761px) {
+      .sticky-stage.media-expanded {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas: "workspace" "media";
+      }
+
+      .sticky-stage.media-expanded .media-panel {
+        margin-top: 2px;
+      }
+
+      .sticky-stage.media-expanded .widget-frame,
+      .sticky-stage.media-expanded .youglish-player,
+      .sticky-stage.media-expanded #yg-widget,
+      .sticky-stage.media-expanded #yg-widget > iframe {
+        min-height: clamp(300px, 58vw, 520px);
+      }
+
+      .sticky-stage.media-expanded .tatoeba-player {
+        min-height: clamp(300px, 58vw, 520px);
+      }
+    }
+
     @media (max-width: 760px) {
       .sticky-stage {
         position: static;
@@ -763,20 +951,52 @@
         padding-left: 8px;
         padding-right: 8px;
       }
-      .media-panel { margin-top: 14px; }
-      .example-tools { align-items: stretch; flex-direction: column; }
+      .learning-workspace,
+      .media-panel {
+        border-radius: 16px;
+      }
+      .learning-workspace { padding: 10px; }
+      .media-panel { padding: 9px; margin-top: 10px; }
+      #sourceSwitch button,
+      .example-settings .segmented button {
+        min-height: 44px;
+      }
+      .media-expand-btn {
+        min-width: 44px;
+        min-height: 44px;
+        padding: 8px;
+      }
+      .player-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .player-controls.caption-controls-hidden { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .example-tools { grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; }
       .example-settings { display: grid; grid-template-columns: 1fr 1fr; }
       .example-settings .segmented { display: grid; grid-template-columns: 1fr 1fr; }
-      .save-example-btn { width: 100%; }
+      .save-example-btn { width: auto; }
     }
 
     @media (max-width: 560px) {
       .app { padding-left: 8px; padding-right: 8px; }
       .widget-frame, #yg-widget { min-height: 205px; }
-      .player-controls {
-        grid-template-columns: 1fr;
+      #yg-widget > iframe { min-height: 205px; }
+      .tatoeba-player { min-height: 205px; padding: 18px; }
+      .sticky-stage.media-expanded .widget-frame,
+      .sticky-stage.media-expanded .youglish-player,
+      .sticky-stage.media-expanded #yg-widget,
+      .sticky-stage.media-expanded #yg-widget > iframe {
+        min-height: 320px;
       }
-      .example-settings { grid-template-columns: 1fr; }
+      .sticky-stage.media-expanded .tatoeba-player { min-height: 320px; }
+      .player-controls {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .player-controls .button-label { display: none; }
+      .player-controls button { padding-left: 10px; padding-right: 10px; }
+      .player-controls .button-icon { width: 19px; height: 19px; }
+      .media-expand-btn .button-label,
+      .save-example-btn .button-label { display: none; }
+      .example-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .example-settings .button-label { display: none; }
+      .save-example-btn { width: 44px; min-width: 44px; padding: 8px; }
       .phrase-card {
         grid-template-columns: minmax(0, 1fr);
       }
@@ -790,109 +1010,153 @@
 <body class="viewer-mode">
   <main class="app">
     <header class="viewer-header">
-      <button id="backBtn" class="back-button" type="button">← Назад</button>
+      <button id="backBtn" class="back-button" type="button">← Back</button>
       <div class="viewer-heading">
         <span>Now listening</span>
         <strong id="viewerPhrase"></strong>
       </div>
-      <a id="loginLink" class="viewer-account-link" href="/login">Войти через Google</a>
+      <a id="loginLink" class="viewer-account-link" href="/login">Sign in with Google</a>
     </header>
 
     <section class="sticky-stage" id="playerTop">
       <div class="learning-workspace">
         <div class="source-row">
-          <span>Источник примеров</span>
-          <div id="sourceSwitch" class="segmented" role="group" aria-label="Источник примеров">
+          <span>Example source</span>
+          <div id="sourceSwitch" class="segmented" role="group" aria-label="Example source">
             <button type="button" data-source="tatoeba">Tatoeba</button>
             <button type="button" data-source="youglish">YouGlish</button>
           </div>
         </div>
 
-        <div class="player-controls" aria-label="Навигация и управление плеером">
-          <div id="captionNavigation" class="control-group caption-navigation" aria-label="Навигация по субтитрам" hidden>
-            <span class="control-group-label">Фразы в видео</span>
-            <button id="prevCaptionBtn" type="button" disabled>Предыдущая фраза</button>
-            <button id="nextCaptionBtn" type="button" disabled>Следующая фраза</button>
-            <span id="captionNavigationHint" class="control-group-hint">Точный переход появится, если его поддержит API.</span>
+        <div id="playerControls" class="player-controls" aria-label="Player navigation and controls">
+          <div id="captionNavigation" class="control-group caption-navigation" aria-label="Caption navigation" hidden>
+            <span class="control-group-label">Captions</span>
+            <button id="prevCaptionBtn" type="button" aria-label="Previous caption" title="Previous caption" disabled>
+              <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m15 18-6-6 6-6" /></svg></span>
+              <span class="button-label">Previous</span>
+            </button>
+            <button id="nextCaptionBtn" type="button" aria-label="Next caption" title="Next caption" disabled>
+              <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m9 18 6-6-6-6" /></svg></span>
+              <span class="button-label">Next</span>
+            </button>
           </div>
-          <div class="control-group video-navigation" aria-label="Навигация по видео">
-            <span class="control-group-label">Видео и аудио</span>
-            <button id="prevVideoBtn" type="button">Предыдущее видео</button>
-            <button id="nextVideoBtn" type="button">Следующее видео</button>
+          <div class="control-group video-navigation" aria-label="Video navigation">
+            <span class="control-group-label">Video &amp; audio</span>
+            <button id="prevVideoBtn" type="button" aria-label="Previous video" title="Previous video">
+              <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M6 5v14M18 5l-7 7 7 7" /></svg></span>
+              <span class="button-label">Previous</span>
+            </button>
+            <button id="nextVideoBtn" type="button" aria-label="Next video" title="Next video">
+              <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M18 5v14M6 5l7 7-7 7" /></svg></span>
+              <span class="button-label">Next</span>
+            </button>
           </div>
-          <div class="control-group media-navigation" aria-label="Управление воспроизведением">
-            <span class="control-group-label">Воспроизведение</span>
-            <button id="pauseBtn" type="button">Пауза</button>
-            <button id="replayBtn" type="button">Повтор</button>
-            <button id="repeatCaptionBtn" type="button" aria-pressed="false" disabled hidden>Повтор фразы: выкл</button>
+          <div class="control-group media-navigation" aria-label="Playback controls">
+            <span class="control-group-label">Playback</span>
+            <button id="pauseBtn" type="button" aria-label="Pause playback" title="Pause playback">
+              <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M8 5v14M16 5v14" /></svg></span>
+              <span class="button-label">Pause</span>
+            </button>
+            <button id="replayBtn" type="button" aria-label="Replay phrase" title="Replay phrase">
+              <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M4 12a8 8 0 1 0 2.3-5.7M4 4v6h6" /></svg></span>
+              <span class="button-label">Replay</span>
+            </button>
+            <button id="repeatCaptionBtn" type="button" aria-label="Repeat current caption" title="Repeat current caption" aria-pressed="false" disabled hidden>
+              <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m17 2 4 4-4 4M3 6h18M7 22l-4-4 4-4M21 18H3" /></svg></span>
+              <span class="button-label">Repeat</span>
+            </button>
           </div>
-          <div class="control-group speed-navigation" aria-label="Скорость">
-            <span class="control-group-label">Скорость</span>
+          <div class="control-group speed-navigation" aria-label="Playback speed">
+            <span class="control-group-label">Speed</span>
             <button class="speed-btn" data-speed="0.75" type="button">0.75×</button>
             <button class="speed-btn speed-active" data-speed="1" type="button">1×</button>
           </div>
         </div>
+        <span id="captionNavigationHint" class="caption-navigation-status">Exact navigation is available when the API provides timing.</span>
 
         <div id="exampleTools" class="example-tools" hidden>
           <div class="example-settings">
-            <div id="exampleMode" class="segmented example-mode" role="group" aria-label="Режим примеров">
-              <button type="button" data-example-mode="all">Все</button>
-              <button type="button" data-example-mode="saved">
-                Сохранённые <span id="savedExampleCount" class="example-count">0</span>
+            <div id="exampleMode" class="segmented example-mode" role="group" aria-label="Example mode">
+              <button type="button" data-example-mode="all" aria-label="All examples" title="All examples">
+                <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M5 6h14M5 12h14M5 18h14" /></svg></span>
+                <span class="button-label">All</span>
+              </button>
+              <button type="button" data-example-mode="saved" aria-label="Saved examples" title="Saved examples">
+                <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M6 4h12v16l-6-3-6 3V4z" /></svg></span>
+                <span class="button-label">Saved</span> <span id="savedExampleCount" class="example-count">0</span>
               </button>
             </div>
-            <div id="exampleOrder" class="segmented example-order" role="group" aria-label="Порядок примеров">
-              <button type="button" data-example-order="random">Случайно</button>
-              <button type="button" data-example-order="ordered">По порядку</button>
+            <div id="exampleOrder" class="segmented example-order" role="group" aria-label="Example order">
+              <button type="button" data-example-order="random" aria-label="Random order" title="Random order">
+                <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M3 6h3c4 0 5 12 9 12h6M18 15l3 3-3 3M3 18h3c1.4 0 2.5-1.2 3.3-2.5M18 3l3 3-3 3" /></svg></span>
+                <span class="button-label">Random</span>
+              </button>
+              <button type="button" data-example-order="ordered" aria-label="Ordered" title="Ordered">
+                <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M5 6h14M5 12h14M5 18h14" /></svg></span>
+                <span class="button-label">In order</span>
+              </button>
             </div>
           </div>
-          <button id="saveExampleBtn" class="save-example-btn" type="button" disabled>☆ Сохранить пример</button>
+          <button id="saveExampleBtn" class="save-example-btn" type="button" aria-label="Save current example" title="Save current example" disabled>
+            <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3z" /></svg></span>
+            <span class="button-label">Save example</span>
+          </button>
         </div>
 
         <div id="exampleMessage" class="example-message" role="status"></div>
 
         <div class="caption-box" aria-live="polite">
           <div class="caption-label">
-            <span>Субтитры</span>
-            <span>нажми слово или выдели фразу</span>
+            <span>Captions</span>
+            <span>click a word or select a phrase</span>
           </div>
-          <div id="captionText" class="caption-text">Субтитры появятся при воспроизведении.</div>
+          <div id="captionText" class="caption-text">Captions will appear during playback.</div>
           <div id="selectionActions" class="caption-actions" hidden>
             <div id="selectionPreview" class="selection-preview"></div>
-            <button id="translateSelectionBtn" type="button">Перевести</button>
-            <button id="listenSelectionBtn" type="button">Слушать</button>
-            <button id="addSelectionBtn" type="button">+ To Learn</button>
+            <button id="translateSelectionBtn" type="button"><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M5 4h14M12 4v2M8 20l4-10 4 10M9.5 17h5M5 8h5M5 8c.7 4 3.1 6 7 7M19 8h-5" /></svg></span><span class="button-label">Translate</span></button>
+            <button id="listenSelectionBtn" type="button"><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M5 9v6h4l5 4V5L9 9H5zM17 9.5a4 4 0 0 1 0 5M19.5 7a7 7 0 0 1 0 10" /></svg></span><span class="button-label">Listen</span></button>
+            <button id="addSelectionBtn" type="button"><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M12 5v14M5 12h14" /></svg></span><span class="button-label">To Learn</span></button>
           </div>
           <div id="selectionMessage" class="selection-message" role="status"></div>
           <div id="translationBox" class="translation-box">
             <div class="translation-head">
               <div id="translationSource" class="translation-source"></div>
-              <button id="clearTranslationBtn" type="button">Скрыть</button>
+              <button id="clearTranslationBtn" type="button"><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z" /></svg></span><span class="button-label">Hide</span></button>
             </div>
             <div id="translationResult" class="translation-result"></div>
             <div class="translation-actions">
-              <button id="translationAddBtn" type="button">+ To Learn</button>
+              <button id="translationAddBtn" type="button"><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M12 5v14M5 12h14" /></svg></span><span class="button-label">To Learn</span></button>
             </div>
           </div>
         </div>
 
-        <div id="status" class="status">Загрузка YouGlish API…</div>
+        <div id="status" class="status">Loading YouGlish API…</div>
         <div id="noResults" class="no-results">
           <div id="noResultsText"></div>
           <button id="shorterBtn" type="button"></button>
         </div>
       </div>
 
-      <aside class="media-panel" aria-label="Медиа пример">
-        <div class="media-label">Компактный плеер</div>
-        <div class="widget-frame">
-          <div id="youglishPlayer" class="youglish-player">
-            <div id="yg-widget" aria-label="Плеер YouGlish"></div>
+      <aside class="media-panel" aria-label="Media example">
+        <div class="media-heading">
+          <div>
+            <div class="media-label">Media</div>
+            <div class="media-subtitle">Current video or audio</div>
           </div>
-          <div id="tatoebaPlayer" class="tatoeba-player" hidden aria-label="Аудиоплеер Tatoeba">
+          <button id="expandMediaBtn" class="media-expand-btn" type="button" aria-label="Expand player" aria-controls="widgetFrame" aria-expanded="false" title="Expand player">
+            <span class="button-icon expand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M8 4H4v4M16 4h4v4M20 16v4h-4M4 16v4h4" /></svg></span>
+            <span class="button-label">Expand</span>
+          </button>
+        </div>
+        <div id="mediaFrameSlot" class="media-frame-slot">
+          <div id="widgetFrame" class="widget-frame">
+          <div id="youglishPlayer" class="youglish-player">
+            <div id="yg-widget" aria-label="YouGlish player"></div>
+          </div>
+          <div id="tatoebaPlayer" class="tatoeba-player" hidden aria-label="Tatoeba audio player">
             <div class="tatoeba-kicker">Human-recorded audio</div>
-            <div id="tatoebaSentence" class="tatoeba-sentence">Ищу подходящую запись…</div>
-            <div id="tatoebaTimeline" class="tatoeba-timeline" role="slider" aria-label="Позиция аудио" tabindex="0">
+            <div id="tatoebaSentence" class="tatoeba-sentence">Looking for a matching recording…</div>
+            <div id="tatoebaTimeline" class="tatoeba-timeline" role="slider" aria-label="Audio position" tabindex="0">
               <div id="tatoebaProgress" class="tatoeba-progress"></div>
             </div>
             <div class="tatoeba-meta">
@@ -907,11 +1171,14 @@
 
     <section class="current" id="currentSection">
       <div class="current-head">
-        <div class="current-label">Текущая фраза</div>
-        <button id="revealBtn" type="button" hidden>Показать</button>
+        <div class="current-label">Current phrase</div>
+        <button id="revealBtn" type="button" aria-label="Reveal phrase" title="Reveal phrase" hidden>
+          <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z" /></svg></span>
+          <span class="button-label">Reveal</span>
+        </button>
       </div>
 
-      <div id="blindPlaceholder" class="blind-placeholder">Слепой режим: сначала слушай, затем нажми «Показать».</div>
+      <div id="blindPlaceholder" class="blind-placeholder">Blind mode: listen first, then select “Reveal”.</div>
 
       <div id="currentTextWrap">
         <div id="currentQ" class="phrase-main"></div>
@@ -920,29 +1187,29 @@
       </div>
     </section>
 
-    <section class="toolbar" aria-label="Настройки">
+    <section class="toolbar" aria-label="Settings">
       <div class="row">
-        <select id="tagFilter" class="grow" aria-label="Фильтр по типу редукции"></select>
+        <select id="tagFilter" class="grow" aria-label="Reduction type filter"></select>
         <label class="toggle">
           <input id="hideDone" type="checkbox" />
-          Скрыть отработанные
+          Hide practiced
         </label>
       </div>
 
       <div class="row">
-        <span style="color:var(--muted); font-size:13px;">Акцент</span>
-        <div class="segmented" id="accentSwitch" role="group" aria-label="Акцент">
+        <span style="color:var(--muted); font-size:13px;">Accent</span>
+        <div class="segmented" id="accentSwitch" role="group" aria-label="Accent">
           <button type="button" data-accent="us">US</button>
           <button type="button" data-accent="uk">UK</button>
-          <button type="button" data-accent="">Любой</button>
+          <button type="button" data-accent="">Any</button>
         </div>
 
         <label class="toggle">
           <input id="blindMode" type="checkbox" />
-          Слепой режим
+          Blind mode
         </label>
 
-        <button id="randomBtn" class="grow" type="button">Следующая наугад</button>
+        <button id="randomBtn" class="grow" type="button">Next random</button>
       </div>
     </section>
 
@@ -953,22 +1220,22 @@
       </div>
     </div>
 
-    <section id="phraseList" class="list" aria-label="Список фраз"></section>
+    <section id="phraseList" class="list" aria-label="Phrase list"></section>
 
     <section class="add-box">
-      <h2 class="section-title">Добавить свою фразу</h2>
+      <h2 class="section-title">Add your own phrase</h2>
       <div class="row">
-        <input id="customPhrase" class="grow" type="text" placeholder="Например: I should have told him" autocomplete="off" />
-        <button id="addPhraseBtn" type="button">Добавить</button>
+        <input id="customPhrase" class="grow" type="text" placeholder="For example: I should have told him" autocomplete="off" />
+        <button id="addPhraseBtn" type="button">Add</button>
       </div>
-      <p class="hint">Для своей фразы транскрипция не выдумывается: сохраняется только текст, а вся фраза считается одним звуковым блоком.</p>
+      <p class="hint">For custom phrases, transcription is not invented: only the text is saved and the whole phrase counts as one sound block.</p>
     </section>
 
     <section class="state-box">
-      <h2 class="section-title">Состояние</h2>
+      <h2 class="section-title">State</h2>
       <div class="row">
-        <button id="exportBtn" type="button">Скачать JSON</button>
-        <button id="importBtn" type="button">Загрузить файл</button>
+        <button id="exportBtn" type="button">Download JSON</button>
+        <button id="importBtn" type="button">Upload file</button>
         <input id="importFile" class="file-input" type="file" accept="application/json,.json" />
       </div>
       <p id="stateMessage" class="hint"></p>
@@ -985,34 +1252,34 @@
     "use strict";
 
     const BASE_PHRASES = [
-      {"q":"I don't know if it's","p":"[I don't know] [if it's]","ipa":"aɪɾəˈnoʊ ɪfɪts","tag":"отрицания"},
-      {"q":"you know what I mean","p":"[you know] [what I mean]","ipa":"jənoʊ wʌɾaɪ miːn","tag":"блоки"},
+      {"q":"I don't know if it's","p":"[I don't know] [if it's]","ipa":"aɪɾəˈnoʊ ɪfɪts","tag":"negation"},
+      {"q":"you know what I mean","p":"[you know] [what I mean]","ipa":"jənoʊ wʌɾaɪ miːn","tag":"chunks"},
       {"q":"all you have to do is","p":"[all you] [have to] [do is]","ipa":"ɔːljə hæftə duːɪz","tag":"semi-modal"},
-      {"q":"I didn't know that it was","p":"[I didn't know] [that it was]","ipa":"aɪ dɪdn̩ noʊ ðəɾɪwəz","tag":"отрицания"},
-      {"q":"it's going to be a","p":"[it's] [going to be a]","ipa":"ɪts gənə biːə","tag":"служебные"},
-      {"q":"there's a lot of it","p":"[there's a lot of it]","ipa":"ðərzəlɑɾəvɪt","tag":"служебные"},
+      {"q":"I didn't know that it was","p":"[I didn't know] [that it was]","ipa":"aɪ dɪdn̩ noʊ ðəɾɪwəz","tag":"negation"},
+      {"q":"it's going to be a","p":"[it's] [going to be a]","ipa":"ɪts gənə biːə","tag":"function words"},
+      {"q":"there's a lot of it","p":"[there's a lot of it]","ipa":"ðərzəlɑɾəvɪt","tag":"function words"},
       {"q":"you're gonna have to do it","p":"[you're gonna] [have to] [do it]","ipa":"jərgənə hæftə duːɪt","tag":"semi-modal"},
-      {"q":"at the end of the day","p":"[at the end of the day]","ipa":"əɾðiɛndəvðədeɪ","tag":"служебные"},
+      {"q":"at the end of the day","p":"[at the end of the day]","ipa":"əɾðiɛndəvðədeɪ","tag":"function words"},
       {"q":"I would have thought that","p":"[I would have] [thought that]","ipa":"aɪwʊɾə θɔːtðət","tag":"modal+have"},
       {"q":"what do you want me to do","p":"[what do you] [want me to] [do]","ipa":"wʌɾəjə wʌnmɪɾə duː","tag":"+you"},
       {"q":"it should have been a","p":"[it should have been a]","ipa":"ɪtʃʊɾəbɪnə","tag":"modal+have"},
-      {"q":"I don't know what to do","p":"[I don't know] [what to do]","ipa":"aɪɾənoʊ wʌɾəduː","tag":"отрицания"},
-      {"q":"there have been a lot of","p":"[there have been a] [lot of]","ipa":"ðərəvbɪnə lɑɾəv","tag":"контракции"},
+      {"q":"I don't know what to do","p":"[I don't know] [what to do]","ipa":"aɪɾənoʊ wʌɾəduː","tag":"negation"},
+      {"q":"there have been a lot of","p":"[there have been a] [lot of]","ipa":"ðərəvbɪnə lɑɾəv","tag":"contractions"},
       {"q":"you don't have to do that","p":"[you don't] [have to] [do that]","ipa":"jədoʊn hæftə duːðæt","tag":"semi-modal"},
       {"q":"did you tell him about it","p":"[did you] [tell him] [about it]","ipa":"dɪdʒə tɛlɪm əbaʊɾɪt","tag":"h-drop"},
       {"q":"it used to be a lot","p":"[it used to be a] [lot]","ipa":"ɪtjuːstəbiːə lɑt","tag":"semi-modal"},
       {"q":"I'll let you know if","p":"[I'll let you know] [if]","ipa":"aɪl lɛtʃə noʊ ɪf","tag":"+you"},
-      {"q":"that's what I'm talking about","p":"[that's] [what I'm] [talking about]","ipa":"ðæts wʌɾaɪm tɔːkɪŋəbaʊt","tag":"блоки"},
+      {"q":"that's what I'm talking about","p":"[that's] [what I'm] [talking about]","ipa":"ðæts wʌɾaɪm tɔːkɪŋəbaʊt","tag":"chunks"},
       {"q":"we should have done it","p":"[we should have] [done it]","ipa":"wiʃʊɾə dʌnɪt","tag":"modal+have"},
-      {"q":"what have you been up to","p":"[what have you] [been up to]","ipa":"wʌɾəvjə bɪnʌptə","tag":"контракции"},
+      {"q":"what have you been up to","p":"[what have you] [been up to]","ipa":"wʌɾəvjə bɪnʌptə","tag":"contractions"},
       {"q":"you would have had to","p":"[you would have] [had to]","ipa":"jəwʊɾə hæɾə","tag":"modal+have"},
-      {"q":"I couldn't get a hold of him","p":"[I couldn't] [get a hold of him]","ipa":"aɪkʊdn̩ gɛɾəhoʊldəvɪm","tag":"отрицания"},
+      {"q":"I couldn't get a hold of him","p":"[I couldn't] [get a hold of him]","ipa":"aɪkʊdn̩ gɛɾəhoʊldəvɪm","tag":"negation"},
       {"q":"there could have been a","p":"[there could have been a]","ipa":"ðərkʊɾəbɪnə","tag":"modal+have"},
       {"q":"why don't you just ask her","p":"[why don't you] [just ask her]","ipa":"waɪdoʊntʃə dʒəstæskər","tag":"+you"},
-      {"q":"it doesn't have to be that","p":"[it doesn't] [have to be] [that]","ipa":"ɪtdʌzn̩ hæftəbi ðæt","tag":"отрицания"},
+      {"q":"it doesn't have to be that","p":"[it doesn't] [have to be] [that]","ipa":"ɪtdʌzn̩ hæftəbi ðæt","tag":"negation"},
       {"q":"he must have been the one","p":"[he must have been] [the one]","ipa":"imʌstəbɪn ðəwʌn","tag":"modal+have"},
-      {"q":"I don't know about that","p":"[I don't know] [about that]","ipa":"aɪɾənoʊ əbaʊðæt","tag":"отрицания"},
-      {"q":"that'll have to do for now","p":"[that'll] [have to do] [for now]","ipa":"ðæɾl̩ hæftəduː fərnaʊ","tag":"контракции"},
+      {"q":"I don't know about that","p":"[I don't know] [about that]","ipa":"aɪɾənoʊ əbaʊðæt","tag":"negation"},
+      {"q":"that'll have to do for now","p":"[that'll] [have to do] [for now]","ipa":"ðæɾl̩ hæftəduː fərnaʊ","tag":"contractions"},
       {"q":"it wasn't supposed to be","p":"[it wasn't] [supposed to be]","ipa":"ɪtwʌzn̩ spoʊstəbi","tag":"semi-modal"},
       {"q":"I should have known that","p":"[I should have known] [that]","ipa":"aɪʃʊɾənoʊn ðət","tag":"modal+have"},
       {"q":"what would you do if","p":"[what would you] [do if]","ipa":"wʌwʊdʒə duːɪf","tag":"+you"},
@@ -1022,19 +1289,19 @@
       {"q":"how was he supposed to","p":"[how was he] [supposed to]","ipa":"haʊwəzi spoʊstə","tag":"h-drop"},
       {"q":"just give 'em a","p":"[just give 'em a]","ipa":"dʒəsgɪvəmə","tag":"h-drop"},
       {"q":"I did it for her","p":"[I did it] [for her]","ipa":"aɪdɪɾɪt fərər","tag":"h-drop"},
-      {"q":"and that'll be the","p":"[and that'll be] [the]","ipa":"ənðæɾl̩bi ðə","tag":"контракции"},
-      {"q":"I think there'll be a","p":"[I think] [there'll be a]","ipa":"aɪθɪŋk ðɛrl̩biə","tag":"контракции"},
-      {"q":"if there'd been","p":"[if there'd been]","ipa":"ɪfðərdbɪn","tag":"контракции"},
+      {"q":"and that'll be the","p":"[and that'll be] [the]","ipa":"ənðæɾl̩bi ðə","tag":"contractions"},
+      {"q":"I think there'll be a","p":"[I think] [there'll be a]","ipa":"aɪθɪŋk ðɛrl̩biə","tag":"contractions"},
+      {"q":"if there'd been","p":"[if there'd been]","ipa":"ɪfðərdbɪn","tag":"contractions"},
       {"q":"I'm gonna have to","p":"[I'm gonna] [have to]","ipa":"aɪmgənə hæftə","tag":"semi-modal"},
       {"q":"there used to be a","p":"[there used to be a]","ipa":"ðərjuːstəbiːə","tag":"semi-modal"},
-      {"q":"you didn't have to","p":"[you didn't] [have to]","ipa":"jədɪdn̩ hæftə","tag":"отрицания"},
-      {"q":"that's it, isn't it","p":"[that's it] [isn't it]","ipa":"ðætsɪt ɪnɪt","tag":"отрицания"},
-      {"q":"get out of it","p":"[get out of it]","ipa":"gɛɾaʊɾəvɪt","tag":"служебные"},
-      {"q":"an hour and a half","p":"[an hour and a half]","ipa":"ənaʊrənəhæf","tag":"служебные"},
-      {"q":"it's kind of a","p":"[it's kind of a]","ipa":"ɪtskaɪndəvə","tag":"служебные"},
-      {"q":"not at all","p":"[not at all]","ipa":"nɑɾəɾɔːl","tag":"служебные"},
-      {"q":"let me know what you","p":"[let me know] [what you]","ipa":"lɛmiːnoʊ wʌtʃə","tag":"блоки"},
-      {"q":"d'you know what I mean","p":"[d'you know] [what I mean]","ipa":"dʒənoʊ wʌɾaɪmiːn","tag":"блоки"}
+      {"q":"you didn't have to","p":"[you didn't] [have to]","ipa":"jədɪdn̩ hæftə","tag":"negation"},
+      {"q":"that's it, isn't it","p":"[that's it] [isn't it]","ipa":"ðætsɪt ɪnɪt","tag":"negation"},
+      {"q":"get out of it","p":"[get out of it]","ipa":"gɛɾaʊɾəvɪt","tag":"function words"},
+      {"q":"an hour and a half","p":"[an hour and a half]","ipa":"ənaʊrənəhæf","tag":"function words"},
+      {"q":"it's kind of a","p":"[it's kind of a]","ipa":"ɪtskaɪndəvə","tag":"function words"},
+      {"q":"not at all","p":"[not at all]","ipa":"nɑɾəɾɔːl","tag":"function words"},
+      {"q":"let me know what you","p":"[let me know] [what you]","ipa":"lɛmiːnoʊ wʌtʃə","tag":"chunks"},
+      {"q":"d'you know what I mean","p":"[d'you know] [what I mean]","ipa":"dʒənoʊ wʌɾaɪmiːn","tag":"chunks"}
     ].map((item, i) => ({ ...item, id: `base-${i}` }));
 
     let STORAGE_KEY = "connected-speech-trainer-v1:anonymous";
@@ -1141,6 +1408,8 @@
       stateMessage: document.getElementById("stateMessage"),
       loginLink: document.getElementById("loginLink"),
       playerTop: document.getElementById("playerTop"),
+      playerControls: document.getElementById("playerControls"),
+      expandMediaBtn: document.getElementById("expandMediaBtn"),
       captionNavigation: document.getElementById("captionNavigation"),
       prevCaptionBtn: document.getElementById("prevCaptionBtn"),
       nextCaptionBtn: document.getElementById("nextCaptionBtn"),
@@ -1151,6 +1420,37 @@
       replayBtn: document.getElementById("replayBtn"),
       repeatCaptionBtn: document.getElementById("repeatCaptionBtn")
     };
+
+    const BUTTON_ICON_PATHS = Object.freeze({
+      play: '<path d="m8 5 11 7-11 7V5z" />',
+      pause: '<path d="M8 5v14M16 5v14" />'
+    });
+
+    function setButtonLabel(button, label) {
+      if (!button) return;
+      const labelElement = button.querySelector(".button-label");
+      if (labelElement) labelElement.textContent = label;
+      else button.textContent = label;
+    }
+
+    function setButtonIcon(button, iconName) {
+      const iconElement = button && button.querySelector(".button-icon");
+      const svg = iconElement && iconElement.querySelector("svg");
+      const path = BUTTON_ICON_PATHS[iconName];
+      if (!iconElement || !svg || !path) return;
+      svg.innerHTML = path;
+      iconElement.dataset.icon = iconName;
+    }
+
+    function setButton(button, label, iconName) {
+      setButtonLabel(button, label);
+      setButtonIcon(button, iconName);
+      if (button && button.id === "pauseBtn") {
+        const accessibleLabel = label === "Listen" ? "Play recording" : "Pause playback";
+        button.setAttribute("aria-label", accessibleLabel);
+        button.title = accessibleLabel;
+      }
+    }
 
     function cloneDefaultState() {
       return JSON.parse(JSON.stringify(DEFAULT_STATE));
@@ -1163,7 +1463,7 @@
         const parsed = JSON.parse(raw);
         return normalizeState(parsed);
       } catch (err) {
-        console.warn("Не удалось прочитать localStorage:", err);
+        console.warn("Could not read localStorage:", err);
         return cloneDefaultState();
       }
     }
@@ -1190,7 +1490,7 @@
               q: x.q.trim(),
               p: typeof x.p === "string" && x.p.trim() ? x.p : `[${x.q.trim()}]`,
               ipa: typeof x.ipa === "string" ? x.ipa : "",
-              tag: "свои",
+              tag: "custom",
               custom: true
             }))
         : [];
@@ -1284,8 +1584,8 @@
           : [];
         return { version: 1, statuses, customPhrases, savedExamples };
       } catch (error) {
-        console.warn("Не удалось прочитать пробную библиотеку:", error);
-        if (el.stateMessage) el.stateMessage.textContent = "Не удалось прочитать пробную библиотеку; начинаем с чистого состояния.";
+        console.warn("Could not read guest library:", error);
+        if (el.stateMessage) el.stateMessage.textContent = "Could not read guest library; starting with a clean state.";
         return empty;
       }
     }
@@ -1294,7 +1594,7 @@
       try {
         localStorage.setItem(GUEST_LIBRARY_STORAGE_KEY, JSON.stringify(guestLibrary));
       } catch (error) {
-        el.stateMessage.textContent = "Не удалось сохранить пробную библиотеку в localStorage этого браузера.";
+        el.stateMessage.textContent = "Could not save guest library to this browser's localStorage.";
       }
     }
 
@@ -1434,7 +1734,7 @@
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
       } catch (err) {
-        el.stateMessage.textContent = "Не удалось сохранить состояние в localStorage этого браузера.";
+        el.stateMessage.textContent = "Could not save state to this browser's localStorage.";
       }
     }
 
@@ -1492,13 +1792,13 @@
       const p = selectedPhrase();
       el.currentQ.textContent = p.q;
       renderPattern(el.currentP, p.p);
-      el.currentIpa.textContent = p.ipa || "Транскрипция не задана";
+      el.currentIpa.textContent = p.ipa || "Transcription not available";
 
       const shouldHide = state.blind && !blindRevealed;
       el.currentTextWrap.classList.toggle("blind-hidden", shouldHide);
       el.blindPlaceholder.classList.toggle("visible", shouldHide);
       el.revealBtn.hidden = !state.blind;
-      el.revealBtn.textContent = shouldHide ? "Показать" : "Скрыть";
+      el.revealBtn.textContent = shouldHide ? "Reveal" : "Hide";
     }
 
     function tags() {
@@ -1511,7 +1811,7 @@
 
       const allOpt = document.createElement("option");
       allOpt.value = "all";
-      allOpt.textContent = "Все типы редукции";
+      allOpt.textContent = "All reduction types";
       el.tagFilter.appendChild(allOpt);
 
       for (const tag of tags()) {
@@ -1550,7 +1850,7 @@
       if (!list.length) {
         const empty = document.createElement("div");
         empty.className = "hint";
-        empty.textContent = "По текущему фильтру фраз нет.";
+        empty.textContent = "No phrases match the current filter.";
         el.phraseList.appendChild(empty);
         return;
       }
@@ -1565,7 +1865,7 @@
         hit.className = "phrase-hit";
         hit.tabIndex = 0;
         hit.setAttribute("role", "button");
-        hit.setAttribute("aria-label", `Загрузить фразу: ${p.q}`);
+        hit.setAttribute("aria-label", `Load phrase: ${p.q}`);
 
         const q = document.createElement("div");
         q.className = "phrase-q";
@@ -1577,7 +1877,7 @@
 
         const ipa = document.createElement("div");
         ipa.className = "ipa";
-        ipa.textContent = p.ipa || "без транскрипции";
+        ipa.textContent = p.ipa || "no transcription";
 
         const meta = document.createElement("div");
         meta.className = "meta";
@@ -1594,7 +1894,7 @@
         const heard = document.createElement("button");
         heard.type = "button";
         heard.className = "heard";
-        heard.textContent = isDone(p.id) ? "Слышу" : "Не отмечено";
+        heard.textContent = isDone(p.id) ? "Heard" : "Not marked";
         heard.classList.toggle("on", isDone(p.id));
         heard.addEventListener("click", ev => {
           ev.stopPropagation();
@@ -1606,7 +1906,7 @@
           const del = document.createElement("button");
           del.type = "button";
           del.className = "delete";
-          del.textContent = "Удалить";
+          del.textContent = "Delete";
           del.addEventListener("click", ev => {
             ev.stopPropagation();
             removeCustom(p.id);
@@ -1646,7 +1946,7 @@
     function accentLabel() {
       if (state.accent === "us") return "US";
       if (state.accent === "uk") return "UK";
-      return "любой";
+      return "any";
     }
 
     function sourceLabel() {
@@ -1706,13 +2006,15 @@
 
       const saved = currentSavedExample();
       const learningPhrase = Boolean(VIEWER_PHRASE_ID && VIEWER_PHRASE_STATUS);
-      const itemLabel = state.source === "tatoeba" ? "дорожку" : "видео";
+      const itemLabel = state.source === "tatoeba" ? "track" : "video";
       el.saveExampleBtn.classList.toggle("saved", Boolean(saved));
-      el.saveExampleBtn.textContent = saved ? "★ Сохранено" : `☆ Сохранить ${itemLabel}`;
+      setButtonLabel(el.saveExampleBtn, saved ? "Saved" : `Save ${itemLabel}`);
+      el.saveExampleBtn.setAttribute("aria-label", saved ? "Remove current example from saved" : "Save current example");
+      el.saveExampleBtn.title = saved ? "Remove current example from saved" : "Save current example";
       el.saveExampleBtn.disabled = !learningPhrase || !currentExternalId;
 
       if (!learningPhrase && !el.exampleMessage.textContent) {
-        showExampleMessage("Чтобы сохранять примеры, сначала добавьте фразу в To Learn.");
+        showExampleMessage("To save examples, first add the phrase to To Learn.");
       }
     }
 
@@ -1746,7 +2048,7 @@
         savedExamples = [];
         savedExampleSequenceKey = "";
         renderExampleTools();
-        showExampleMessage("Не удалось загрузить сохранённые примеры.", "error");
+        showExampleMessage("Could not load saved examples.", "error");
         console.error(error);
       }
     }
@@ -1792,7 +2094,7 @@
       } catch (error) {
         if (phraseAtRequest !== VIEWER_PHRASE) return;
         renderExampleTools();
-        showExampleMessage("Не удалось проверить библиотеку фраз.", "error");
+        showExampleMessage("Could not check the phrase library.", "error");
         console.error(error);
       }
     }
@@ -1806,9 +2108,18 @@
         btn.classList.toggle("active", active);
         btn.setAttribute("aria-pressed", active ? "true" : "false");
       });
-      el.pauseBtn.textContent = tatoeba && el.tatoebaAudio.paused ? "Слушать" : "Пауза";
+      setButton(el.pauseBtn, tatoeba && el.tatoebaAudio.paused ? "Listen" : "Pause", tatoeba && el.tatoebaAudio.paused ? "play" : "pause");
       renderExampleTools();
       renderCaptionNavigation();
+    }
+
+    function setMediaExpanded(expanded) {
+      const isExpanded = Boolean(expanded);
+      el.playerTop.classList.toggle("media-expanded", isExpanded);
+      el.expandMediaBtn.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+      el.expandMediaBtn.setAttribute("aria-label", isExpanded ? "Collapse player" : "Expand player");
+      el.expandMediaBtn.title = isExpanded ? "Collapse player" : "Expand player";
+      setButtonLabel(el.expandMediaBtn, isExpanded ? "Collapse" : "Expand");
     }
 
     function setSource(source) {
@@ -1937,9 +2248,11 @@
 
     function renderCaptionNavigation() {
       if (!el.captionNavigation || !el.prevCaptionBtn || !el.nextCaptionBtn || !el.repeatCaptionBtn) return;
-      const timedCaptionControlsVisible = state.source === "youglish";
-      el.captionNavigation.hidden = !timedCaptionControlsVisible;
-      el.repeatCaptionBtn.hidden = !timedCaptionControlsVisible;
+      const captionsAvailable = state.source === "youglish";
+      el.captionNavigation.hidden = !captionsAvailable;
+      el.captionNavigationHint.hidden = !captionsAvailable;
+      el.repeatCaptionBtn.hidden = !captionsAvailable;
+      el.playerControls.classList.toggle("caption-controls-hidden", !captionsAvailable);
       const timingAvailable = captionTimingAvailable();
       const current = currentCaptionEntry();
       const { previous: previousTarget, next: nextTarget } = captionNavigation
@@ -1952,24 +2265,24 @@
         && Boolean(nextTarget)
         && !captionNavigationBlocked.next;
       const unavailable = state.source !== "youglish"
-        ? "У этого источника нет таймкодированных caption."
+        ? "This source has no timestamped captions."
         : (!current || !timingAvailable
-          ? "Точный переход ждёт таймкод текущего caption."
-          : "Соседний caption ещё не наблюдался в этом видео.");
+          ? "Exact navigation is waiting for the current caption timestamp."
+          : "The neighboring caption has not been observed in this video yet.");
       el.prevCaptionBtn.disabled = captionNavigationBusy || !previousAvailable;
       el.nextCaptionBtn.disabled = captionNavigationBusy || !nextAvailable;
       el.repeatCaptionBtn.disabled = captionNavigationBusy || !timingAvailable;
       el.repeatCaptionBtn.setAttribute("aria-pressed", String(repeatCaptionEnabled));
-      el.repeatCaptionBtn.textContent = `Повтор фразы: ${repeatCaptionEnabled ? "вкл" : "выкл"}`;
+      setButtonLabel(el.repeatCaptionBtn, `Repeat caption: ${repeatCaptionEnabled ? "on" : "off"}`);
       el.captionNavigationHint.textContent = state.source !== "youglish"
-        ? "Tatoeba не передаёт историю caption; доступна навигация по аудиопримерам."
+        ? "Tatoeba does not provide caption history; audio-example navigation is available."
         : (!widget || typeof widget.move !== "function"
-          ? "Точный переход к caption не поддержан текущим API; перемотка на 5 секунд здесь не используется."
+          ? "Exact caption navigation is not supported by the current API; five-second seeking is disabled here."
           : (!current || !timingAvailable
-            ? "Жду таймкод текущего caption от YouGlish; приблизительный переход не используется."
-            : `Наблюдаемые caption: ${captionHistory.length}`));
-      el.prevCaptionBtn.title = previousAvailable ? "Перейти к предыдущему caption" : unavailable;
-      el.nextCaptionBtn.title = nextAvailable ? "Перейти к следующему caption" : unavailable;
+            ? "Waiting for a current YouGlish caption timestamp; approximate navigation is disabled."
+            : `Observed captions: ${captionHistory.length}`));
+      el.prevCaptionBtn.title = previousAvailable ? "Go to previous caption" : unavailable;
+      el.nextCaptionBtn.title = nextAvailable ? "Go to next caption" : unavailable;
     }
 
     function estimatedCaptionTime(entry) {
@@ -2025,16 +2338,16 @@
         const reached = seekToKnownCaption(target, wasPlaying);
         if (!reached) {
           captionNavigationBlocked[direction] = true;
-          if (repeatCaptionEnabled) disableRepeatCaption("Повтор фразы отключён: переход к соседнему caption не подтверждён.");
-          el.status.textContent = "Не удалось подтвердить соседний caption; попробуй ещё раз.";
+          if (repeatCaptionEnabled) disableRepeatCaption("Phrase repeat disabled: the next caption could not be confirmed.");
+          el.status.textContent = "Could not confirm the next caption; try again.";
           return;
         }
         repeatPending = false;
         if (repeatCaptionEnabled) repeatTargetId = reached.id;
         hideTranslation();
       } catch (error) {
-        if (repeatCaptionEnabled) disableRepeatCaption("Повтор фразы отключён: навигация по caption не подтверждена.");
-        el.status.textContent = "Навигация по caption временно недоступна.";
+        if (repeatCaptionEnabled) disableRepeatCaption("Phrase repeat disabled: caption navigation could not be confirmed.");
+        el.status.textContent = "Caption navigation is temporarily unavailable.";
         console.error(error);
       } finally {
         captionNavigationBusy = false;
@@ -2044,14 +2357,14 @@
 
     function toggleRepeatCaption() {
       if (!captionTimingAvailable()) {
-        el.status.textContent = "Повтор фразы доступен только после получения таймкода caption.";
+        el.status.textContent = "Phrase repeat is available after a caption timestamp is received.";
         return;
       }
       repeatCaptionEnabled = !repeatCaptionEnabled;
       repeatTargetId = repeatCaptionEnabled ? currentCaptionEntry().id : "";
       repeatPending = false;
       renderCaptionNavigation();
-      el.status.textContent = repeatCaptionEnabled ? "Повтор текущей фразы включён." : "Повтор фразы выключен.";
+      el.status.textContent = repeatCaptionEnabled ? "Repeat current caption enabled." : "Caption repeat disabled.";
     }
 
     function repeatCurrentCaption() {
@@ -2075,7 +2388,7 @@
         current.observedAt = performance.now();
         current.lastKnownTime = current.startTime;
       } catch (error) {
-        disableRepeatCaption("Повтор фразы отключён: плеер не принял переход.");
+        disableRepeatCaption("Phrase repeat disabled: the player rejected the seek.");
         console.error(error);
       }
       renderCaptionNavigation();
@@ -2085,8 +2398,8 @@
       try {
         await el.tatoebaAudio.play();
       } catch (error) {
-        el.pauseBtn.textContent = "Слушать";
-        el.status.textContent = "Запись готова — нажми «Слушать».";
+        setButton(el.pauseBtn, "Listen", "play");
+        el.status.textContent = "Recording ready — press Listen.";
         console.info("Autoplay was blocked:", error);
       }
     }
@@ -2110,8 +2423,8 @@
       el.status.classList.remove("error");
       const providerExamples = examplesForCurrentSource();
       el.status.textContent = usingSavedExamples()
-        ? `Сохранённая дорожка ${savedExampleIndex + 1}/${providerExamples.length} · Tatoeba`
-        : `Найдено аудиопримеров: ${tatoebaTracks.length} · ${exampleOrder === "random" ? "случайный порядок" : "по порядку"} · пример ${tatoebaIndex + 1}/${tatoebaTracks.length} · Tatoeba`;
+        ? `Saved track ${savedExampleIndex + 1}/${providerExamples.length} · Tatoeba`
+        : `Audio examples found: ${tatoebaTracks.length} · ${exampleOrder === "random" ? "random order" : "in order"} · example ${tatoebaIndex + 1}/${tatoebaTracks.length} · Tatoeba`;
       renderExampleTools();
       if (autoplay) playTatoeba();
     }
@@ -2123,12 +2436,12 @@
       el.tatoebaAudio.load();
       tatoebaTracks = [];
       tatoebaIndex = 0;
-      el.tatoebaSentence.textContent = "Ищу подходящую запись…";
+      el.tatoebaSentence.textContent = "Finding a matching recording…";
       el.tatoebaAttribution.textContent = "Tatoeba";
       el.tatoebaAttribution.href = "https://tatoeba.org/";
       updateTatoebaProgress();
       el.status.classList.remove("error");
-      el.status.textContent = `Ищу аудиопримеры: «${query}» · Tatoeba…`;
+      el.status.textContent = `Finding audio examples: “${query}” · Tatoeba…`;
 
       try {
         const response = await fetch(`/api/tatoeba?q=${encodeURIComponent(query)}`);
@@ -2137,37 +2450,37 @@
         if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
         tatoebaTracks = orderProviderItems(Array.isArray(data && data.tracks) ? data.tracks : []);
         if (!tatoebaTracks.length) {
-          el.tatoebaSentence.textContent = "Записей не найдено.";
-          el.status.textContent = "Примеров не найдено.";
+          el.tatoebaSentence.textContent = "No recordings found.";
+          el.status.textContent = "No examples found.";
           showNoResults(query);
           return;
         }
         loadTatoebaTrack(0, true);
       } catch (error) {
         if (requestId !== tatoebaRequest) return;
-        el.tatoebaSentence.textContent = "Не удалось загрузить записи.";
-        showWidgetError(error.message || "Tatoeba временно недоступна.");
+        el.tatoebaSentence.textContent = "Could not load recordings.";
+        showWidgetError(error.message || "Tatoeba is temporarily unavailable.");
         console.error(error);
       }
     }
 
     function fetchYouglish(query, displayQuery, savedLabel = "") {
       if (!widgetReady || !widget) {
-        el.status.textContent = "YouGlish API ещё загружается. Фраза будет запущена сразу после готовности.";
+        el.status.textContent = "YouGlish is still loading. The phrase will start when it is ready.";
         return;
       }
 
       el.status.classList.remove("error");
       el.status.textContent = savedLabel
-        ? `Ищу «${displayQuery}» в ${savedLabel}…`
-        : `Ищу ${exampleOrder === "random" ? "случайные" : "последовательные"} примеры: «${displayQuery}» · акцент: ${accentLabel()}…`;
+        ? `Finding “${displayQuery}” in ${savedLabel}…`
+        : `Finding ${exampleOrder === "random" ? "random" : "sequential"} examples: “${displayQuery}” · accent: ${accentLabel()}…`;
 
       try {
         if (state.accent) widget.fetch(query, "english", state.accent);
         else widget.fetch(query, "english");
         youglishHasFetched = true;
       } catch (err) {
-        showWidgetError("Не удалось отправить запрос в YouGlish.");
+        showWidgetError("Could not send the request to YouGlish.");
         console.error(err);
       }
     }
@@ -2203,7 +2516,7 @@
       fetchYouglish(
         `${query} #${example.external_id}`,
         query,
-        `сохранённом видео ${savedExampleIndex + 1}/${providerExamples.length}`
+        `saved video ${savedExampleIndex + 1}/${providerExamples.length}`
       );
     }
 
@@ -2261,12 +2574,12 @@
 
     function showNoResults(query) {
       const shorter = shorterSuggestion(query);
-      el.noResultsText.textContent = `${sourceLabel()} не нашёл примеров для «${query}».`;
+      el.noResultsText.textContent = `${sourceLabel()} found no examples for “${query}”.`;
       el.noResults.classList.add("visible");
 
       if (shorter && shorter !== query) {
         el.shorterBtn.hidden = false;
-        el.shorterBtn.textContent = `Искать короче: «${shorter}»`;
+        el.shorterBtn.textContent = `Try a shorter search: “${shorter}”`;
         el.shorterBtn.onclick = () => fetchPhrase(shorter, true);
       } else {
         el.shorterBtn.hidden = true;
@@ -2306,7 +2619,7 @@
         span.textContent = part;
         span.tabIndex = 0;
         span.setAttribute("role", "button");
-        span.setAttribute("aria-label", `Перевести слово ${normalizeWordForTranslation(part)}`);
+        span.setAttribute("aria-label", `Translate word ${normalizeWordForTranslation(part)}`);
         el.captionText.appendChild(span);
       }
     }
@@ -2315,7 +2628,7 @@
       el.captionText.textContent = "";
       hideSelectionActions();
       if (!raw) {
-        el.captionText.textContent = "Субтитры появятся при воспроизведении.";
+        el.captionText.textContent = "Captions will appear during playback.";
         return;
       }
 
@@ -2355,16 +2668,16 @@
       const source = String(text || "").trim();
       if (!source) return;
       if (!trainerReady) {
-        showTranslation(sourceLabel, "Проверяю вход через Google…", "loading");
+        showTranslation(sourceLabel, "Checking Google sign-in…", "loading");
         return;
       }
 
       lastTranslation = { source, context: cleanCaptionText(context), translation: "" };
       if (!isAuthenticated) {
-        showTranslation(sourceLabel, "Войди через Google, чтобы переводить с личным DeepL-ключом.", "error");
+        showTranslation(sourceLabel, "Sign in with Google to translate with your personal DeepL key.", "error");
         return;
       }
-      showTranslation(sourceLabel, "Перевожу…", "loading");
+      showTranslation(sourceLabel, "Translating…", "loading");
 
       try {
         const response = await fetch("/api/translate", {
@@ -2381,13 +2694,13 @@
 
         const translated = data && data.translation ? data.translation : "";
 
-        if (!translated) throw new Error("DeepL вернул пустой перевод.");
+        if (!translated) throw new Error("DeepL returned an empty translation.");
 
         lastTranslation.translation = translated;
         showTranslation(sourceLabel, translated);
       } catch (err) {
         console.error(err);
-        showTranslation(sourceLabel, `Перевод не получен: ${err.message || err}`, "error");
+        showTranslation(sourceLabel, `Translation failed: ${err.message || err}`, "error");
       }
     }
 
@@ -2408,7 +2721,7 @@
       const selected = cleanCaptionText(text).slice(0, 500);
       if (!selected) return;
       selectedCaptionText = selected;
-      el.selectionPreview.textContent = `Выбрано: «${selected}»`;
+      el.selectionPreview.textContent = `Selected: “${selected}”`;
       el.selectionActions.hidden = false;
       showSelectionMessage("");
     }
@@ -2430,7 +2743,7 @@
     }
 
     function translationLabel(text) {
-      return /\s/.test(text) ? `Фраза: ${text}` : `Слово: ${text}`;
+      return /\s/.test(text) ? `Phrase: ${text}` : `Word: ${text}`;
     }
 
     function listenToText(text) {
@@ -2459,23 +2772,23 @@
       const phrase = cleanCaptionText(text).slice(0, 240);
       if (!phrase) return;
       if (!trainerReady) {
-        showSelectionMessage("Проверяю вход через Google…");
+        showSelectionMessage("Checking Google sign-in…");
         return;
       }
       const sourceContext = cleanCaptionText(context).slice(0, 1_000);
       const availableTranslation = cleanCaptionText(translation).slice(0, 1_000);
       el.addSelectionBtn.disabled = true;
-      showSelectionMessage("Добавляю в To Learn…");
+      showSelectionMessage("Adding to To Learn…");
       try {
         if (!isAuthenticated) {
           const result = addGuestPhrase(phrase, sourceContext, availableTranslation);
-          if (!result.id) throw new Error("Фраза не указана.");
+          if (!result.id) throw new Error("Phrase is missing.");
           saveGuestLibrary();
           const labels = { to_learn: "To Learn", learning_now: "Learning Now", learnt: "Learnt" };
           const statusLabel = labels[result.status] || "To Learn";
           const message = result.created
-            ? `Добавлено в ${statusLabel}. В пробном режиме перевод сохранён только если он уже был получен.`
-            : `Фраза уже находится в ${statusLabel}.`;
+            ? `Added to ${statusLabel}. In guest mode, translation is saved only if it was already available.`
+            : `Phrase is already in ${statusLabel}.`;
           showSelectionMessage(message, "ok");
           if (phrase.toLocaleLowerCase("en") === VIEWER_PHRASE.toLocaleLowerCase("en")) {
             VIEWER_PHRASE_ID = result.id;
@@ -2502,12 +2815,12 @@
           learnt: "Learnt"
         };
         const statusLabel = labels[data.status] || "To Learn";
-        const translationMessage = data.translationPending ? " Перевод пока недоступен." : "";
+        const translationMessage = data.translationPending ? " Translation is not available yet." : "";
         const message = data.created === false && data.status !== "to_learn"
-          ? `Фраза уже находится в ${statusLabel}.`
+          ? `Phrase is already in ${statusLabel}.`
           : data.created === false
-            ? `Фраза уже была в To Learn.${translationMessage}`
-            : `Добавлено в To Learn.${translationMessage}`;
+          ? `Phrase was already in To Learn.${translationMessage}`
+          : `Added to To Learn.${translationMessage}`;
         showSelectionMessage(message, "ok");
         if (phrase.toLocaleLowerCase("en") === VIEWER_PHRASE.toLocaleLowerCase("en")) {
           VIEWER_PHRASE_ID = data.id || VIEWER_PHRASE_ID;
@@ -2520,7 +2833,7 @@
         }
       } catch (err) {
         console.error(err);
-        showSelectionMessage(`Не удалось добавить: ${err.message || err}`, "error");
+        showSelectionMessage(`Could not add phrase: ${err.message || err}`, "error");
       } finally {
         el.addSelectionBtn.disabled = false;
       }
@@ -2528,7 +2841,7 @@
 
     async function toggleSavedExample() {
       if (!trainerReady) {
-        showExampleMessage("Проверяю вход через Google…");
+        showExampleMessage("Checking Google sign-in…");
         return;
       }
       const tatoebaTrack = currentTatoebaTrack();
@@ -2539,13 +2852,13 @@
       const existing = currentSavedExample();
       const shouldPromote = !existing && VIEWER_PHRASE_STATUS === "pick";
       const wasSavedMode = usingSavedExamples();
-      const itemLabel = state.source === "tatoeba" ? "дорожку" : "видео";
+      const itemLabel = state.source === "tatoeba" ? "track" : "video";
       const savedMessage = state.source === "tatoeba"
-        ? (existing ? "Дорожка удалена из сохранённых." : shouldPromote ? "Дорожка сохранена; фраза добавлена в To Learn." : "Дорожка сохранена для этой фразы.")
-        : (existing ? "Видео удалено из сохранённых." : shouldPromote ? "Видео сохранено; фраза добавлена в To Learn." : "Видео сохранено для этой фразы.");
+        ? (existing ? "Track removed from saved examples." : shouldPromote ? "Track saved; phrase added to To Learn." : "Track saved for this phrase.")
+        : (existing ? "Video removed from saved examples." : shouldPromote ? "Video saved; phrase added to To Learn." : "Video saved for this phrase.");
       el.saveExampleBtn.disabled = true;
       el.saveExampleBtn.setAttribute("aria-busy", "true");
-      showExampleMessage(existing ? `Убираю ${itemLabel} из сохранённых…` : shouldPromote ? `Добавляю фразу в To Learn и сохраняю ${itemLabel}…` : `Сохраняю ${itemLabel}…`);
+      showExampleMessage(existing ? `Removing ${itemLabel} from saved examples…` : shouldPromote ? `Adding phrase to To Learn and saving ${itemLabel}…` : `Saving ${itemLabel}…`);
 
       try {
         if (!isAuthenticated) {
@@ -2598,7 +2911,7 @@
           else fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
         }
       } catch (error) {
-        showExampleMessage(error.message || "Не удалось изменить сохранённые примеры.", "error");
+        showExampleMessage(error.message || "Could not update saved examples.", "error");
         console.error(error);
       } finally {
         el.saveExampleBtn.removeAttribute("aria-busy");
@@ -2646,10 +2959,10 @@
         const entry = upsertCaptionEntry(currentCaptionRaw, currentCaptionText, captionId, currentTime);
         entry.lastKnownTime = currentTime;
         if (repeatCaptionEnabled && entry.id !== repeatTargetId && !captionNavigationBusy) {
-          disableRepeatCaption("Повтор фразы отключён: воспроизведение ушло в другой caption.");
+          disableRepeatCaption("Phrase repeat disabled: playback moved to another caption.");
         }
       } else {
-        invalidateCaptionTiming("Повтор фразы отключён: YouGlish не передал таймкод.");
+        invalidateCaptionTiming("Phrase repeat disabled: YouGlish did not provide a timestamp.");
       }
       renderCaption(currentCaptionRaw);
       hideTranslation();
@@ -2691,7 +3004,7 @@
       if (state.source !== "youglish") return;
       const query = currentQueryOverride || VIEWER_PHRASE;
       if (Number(event.totalResult) === 0) {
-        el.status.textContent = "Примеров не найдено.";
+        el.status.textContent = "No examples found.";
         showNoResults(query);
         return;
       }
@@ -2700,8 +3013,8 @@
       el.status.classList.remove("error");
       const providerExamples = examplesForCurrentSource();
       el.status.textContent = usingSavedExamples()
-        ? `Сохранённое видео ${savedExampleIndex + 1}/${providerExamples.length} · найдено фрагментов: ${event.totalResult}`
-        : `Найдено примеров: ${event.totalResult} · ${exampleOrder === "random" ? "случайный порядок" : "по порядку"} · акцент: ${accentLabel()}`;
+        ? `Saved video ${savedExampleIndex + 1}/${providerExamples.length} · clips found: ${event.totalResult}`
+        : `Examples found: ${event.totalResult} · ${exampleOrder === "random" ? "random order" : "in order"} · accent: ${accentLabel()}`;
     }
 
     function onVideoChange(event) {
@@ -2715,7 +3028,7 @@
       const n = Number(event.trackNumber);
       if (Number.isFinite(n)) {
         const existing = el.status.textContent;
-        el.status.textContent = existing.replace(/\s·\sпример\s\d+$/i, "") + ` · пример ${n + 1}`;
+        el.status.textContent = existing.replace(/\s·\sexample\s\d+$/i, "") + ` · example ${n + 1}`;
       }
       renderExampleTools();
       renderCaptionNavigation();
@@ -2729,7 +3042,7 @@
       }
       if (state.source !== "youglish") return;
       el.status.classList.remove("error");
-      el.status.textContent = "Плеер готов.";
+      el.status.textContent = "Player ready.";
       if (!youglishHasFetched) {
         fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
       }
@@ -2747,8 +3060,8 @@
 
     function onError(event) {
       if (state.source !== "youglish") return;
-      const code = event && event.code != null ? ` Код: ${event.code}.` : "";
-      showWidgetError(`Ошибка плеера YouGlish.${code}`);
+      const code = event && event.code != null ? ` Code: ${event.code}.` : "";
+      showWidgetError(`YouGlish player error.${code}`);
     }
 
     window.onYouglishAPIReady = function onYouglishAPIReady() {
@@ -2774,28 +3087,28 @@
           }
         });
 
-        // Некоторые версии виджета готовы принимать fetch сразу после создания.
-        // onPlayerReady ниже повторно подтвердит готовность и загрузит текущую фразу.
+        // Some widget versions accept fetch immediately after creation.
+        // onPlayerReady confirms readiness again and loads the current phrase.
         widgetReady = true;
         if (state.source === "youglish") {
-          el.status.textContent = "YouGlish API загружен.";
+          el.status.textContent = "YouGlish API loaded.";
           fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
         }
       } catch (err) {
-        showWidgetError("YouGlish API загрузился, но виджет не удалось создать.");
+        showWidgetError("YouGlish API loaded, but the widget could not be created.");
         console.error(err);
       }
     };
 
     function callWidget(method, ...args) {
       if (!widgetReady || !widget || typeof widget[method] !== "function") {
-        el.status.textContent = "Плеер ещё не готов.";
+        el.status.textContent = "Player is not ready yet.";
         return;
       }
       try {
         widget[method](...args);
       } catch (err) {
-        showWidgetError(`Команда «${method}» не выполнилась.`);
+        showWidgetError(`Command “${method}” failed.`);
         console.error(err);
       }
     }
@@ -2818,7 +3131,7 @@
       });
 
       if (!pool.length) {
-        el.stateMessage.textContent = "Нет неотмеченных фраз по текущему фильтру.";
+        el.stateMessage.textContent = "No unmarked phrases match the current filter.";
         return;
       }
 
@@ -2837,7 +3150,7 @@
         q,
         p: `[${q}]`,
         ipa: "",
-        tag: "свои",
+        tag: "custom",
         custom: true
       });
       el.customPhrase.value = "";
@@ -2875,7 +3188,7 @@
       a.click();
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      el.stateMessage.textContent = "Состояние экспортировано.";
+      el.stateMessage.textContent = "State exported.";
     }
 
     async function importState(file) {
@@ -2891,9 +3204,9 @@
         saveState();
         render();
         fetchPhrase(selectedPhrase().q);
-        el.stateMessage.textContent = "Состояние импортировано.";
+        el.stateMessage.textContent = "State imported.";
       } catch (err) {
-        el.stateMessage.textContent = "Не удалось импортировать JSON: файл повреждён или имеет неверный формат.";
+        el.stateMessage.textContent = "Could not import JSON: the file is damaged or has an invalid format.";
         console.error(err);
       } finally {
         el.importFile.value = "";
@@ -2984,6 +3297,11 @@
       else callWidget("next");
     });
 
+    el.expandMediaBtn.addEventListener("click", () => {
+      const expanded = el.playerTop.classList.contains("media-expanded");
+      setMediaExpanded(!expanded);
+    });
+
     el.sourceSwitch.addEventListener("click", event => {
       const btn = event.target.closest("button[data-source]");
       if (btn) setSource(btn.dataset.source);
@@ -2991,9 +3309,9 @@
 
     el.tatoebaAudio.addEventListener("loadedmetadata", updateTatoebaProgress);
     el.tatoebaAudio.addEventListener("timeupdate", updateTatoebaProgress);
-    el.tatoebaAudio.addEventListener("play", () => { el.pauseBtn.textContent = "Пауза"; });
+    el.tatoebaAudio.addEventListener("play", () => { setButton(el.pauseBtn, "Pause", "pause"); });
     el.tatoebaAudio.addEventListener("pause", () => {
-      if (state.source === "tatoeba") el.pauseBtn.textContent = "Слушать";
+      if (state.source === "tatoeba") setButton(el.pauseBtn, "Listen", "play");
     });
     el.tatoebaAudio.addEventListener("ended", () => {
       if (state.source === "tatoeba" && usingSavedExamples() && examplesForCurrentSource().length > 1) {
@@ -3003,7 +3321,7 @@
       }
     });
     el.tatoebaAudio.addEventListener("error", () => {
-      if (state.source === "tatoeba" && el.tatoebaAudio.currentSrc) showWidgetError("Не удалось воспроизвести эту запись Tatoeba.");
+      if (state.source === "tatoeba" && el.tatoebaAudio.currentSrc) showWidgetError("Could not play this Tatoeba recording.");
     });
     el.tatoebaTimeline.addEventListener("click", event => {
       const duration = el.tatoebaAudio.duration;
@@ -3089,11 +3407,11 @@
     function updateAuthLink() {
       if (!el.loginLink) return;
       if (isAuthenticated) {
-        el.loginLink.textContent = "Выйти";
+        el.loginLink.textContent = "Sign out";
         el.loginLink.href = "/cdn-cgi/access/logout";
         el.loginLink.onclick = clearAuthHint;
       } else {
-        el.loginLink.textContent = "Войти через Google";
+        el.loginLink.textContent = "Sign in with Google";
         el.loginLink.href = "/login";
         el.loginLink.onclick = null;
       }
@@ -3155,7 +3473,7 @@
         exampleMode = state.exampleMode;
         exampleOrder = state.exampleOrder;
         savedExampleSequenceKey = "";
-        el.stateMessage.textContent = "Пробный режим: прогресс хранится только в этом браузере.";
+        el.stateMessage.textContent = "Guest mode: progress is stored only in this browser.";
       }
 
       trainerReady = true;
@@ -3167,13 +3485,13 @@
       if (state.source === "tatoeba") fetchPhrase(VIEWER_PHRASE, true);
       void (isAuthenticated ? resolveViewerPhrase() : resolveGuestViewerPhrase());
 
-      // Подключаем официальный YouGlish Widget API после выбора user-scoped state.
+      // Load the official YouGlish Widget API after selecting user-scoped state.
       const ygScript = document.createElement("script");
       ygScript.src = "https://youglish.com/public/emb/widget.js";
       ygScript.async = true;
       ygScript.onerror = () => {
         if (state.source === "youglish") {
-          showWidgetError("Не удалось загрузить YouGlish Widget API. Проверь интернет или блокировщик контента.");
+          showWidgetError("Could not load the YouGlish Widget API. Check your connection or content blocker.");
         }
       };
       document.head.appendChild(ygScript);

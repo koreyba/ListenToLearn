@@ -12,6 +12,14 @@ type Phrase = {
   source_type: "preset" | "custom";
   status: PhraseStatus;
 };
+type PhrasesResponse = { phrases: Phrase[]; error?: string };
+type PhraseMutationResponse = {
+  id?: string;
+  status?: PhraseStatus;
+  error?: string;
+  created?: boolean;
+  translationPending?: boolean;
+};
 
 const tabs: Array<{ id: PhraseStatus; label: string; hint: string }> = [
   { id: "pick", label: "Pick to Learn", hint: "Наша подборка фраз для следующего шага." },
@@ -40,7 +48,7 @@ export default function Home() {
 
   const loadPhrases = useCallback(async () => {
     const response = await fetch("/api/phrases", { cache: "no-store" });
-    const data = await response.json();
+    const data = await response.json() as PhrasesResponse;
     if (!response.ok) throw new Error(data.error || "Не удалось загрузить фразы.");
     setPhrases(data.phrases);
   }, []);
@@ -50,7 +58,7 @@ export default function Home() {
     void (async () => {
       try {
         const response = await fetch("/api/phrases", { cache: "no-store" });
-        const data = await response.json();
+        const data = await response.json() as PhrasesResponse;
         if (!response.ok) throw new Error(data.error || "Не удалось загрузить фразы.");
         if (active) setPhrases(data.phrases);
       } catch (reason) {
@@ -80,7 +88,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, status }),
       });
-      const data = await response.json();
+      const data = await response.json() as PhraseMutationResponse;
       if (!response.ok) throw new Error(data.error || "Не удалось изменить статус.");
       await loadPhrases();
     } catch (reason) {
@@ -96,7 +104,7 @@ export default function Home() {
     setError("");
     try {
       const response = await fetch(`/api/phrases?id=${encodeURIComponent(phrase.id)}`, { method: "DELETE" });
-      const data = await response.json();
+      const data = await response.json() as PhraseMutationResponse;
       if (!response.ok) throw new Error(data.error || "Не удалось убрать фразу.");
       await loadPhrases();
     } catch (reason) {
@@ -119,12 +127,13 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text }),
       });
-      const data = await response.json();
+      const data = await response.json() as PhraseMutationResponse;
       if (!response.ok) throw new Error(data.error || "Не удалось добавить фразу.");
       setCustomText("");
       await loadPhrases();
       setActiveTab((data.status as PhraseStatus) || "to_learn");
-      setNotice(data.created === false ? "Эта фраза уже есть в вашей библиотеке." : "Фраза добавлена в To Learn с переводом.");
+      const translationNotice = data.translationPending ? " Перевод пока недоступен, но фраза сохранена." : "";
+      setNotice(data.created === false ? `Эта фраза уже есть в вашей библиотеке.${translationNotice}` : `Фраза добавлена в To Learn${data.translationPending ? ". Перевод пока недоступен." : " с переводом."}`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось добавить фразу.");
     } finally {

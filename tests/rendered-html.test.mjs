@@ -108,6 +108,8 @@ test("learning phrases persist and render their translation", async () => {
 
   assert.match(route, /translation TEXT NOT NULL DEFAULT ''/);
   assert.match(route, /translateEnglishToRussian/);
+  assert.match(route, /optionalTranslationForPhrase/);
+  assert.match(route, /translationPending/);
   assert.match(route, /status != 'pick' AND translation = ''/);
   assert.match(page, /className="phrase-translation"/);
 });

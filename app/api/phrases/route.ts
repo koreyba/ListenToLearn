@@ -84,6 +84,17 @@ async function translationForPhrase(text: string, existing = "") {
   return translation;
 }
 
+async function optionalTranslationForPhrase(text: string, existing = "") {
+  if (existing) return { text: existing, pending: false };
+  try {
+    return { text: await translationForPhrase(text), pending: false };
+  } catch (error) {
+    if (!(error instanceof DeepLError)) throw error;
+    console.warn("Translation unavailable; continuing without it:", error.message);
+    return { text: existing, pending: true };
+  }
+}
+
 function cleanText(value: unknown) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
 }
@@ -122,26 +133,36 @@ export async function POST(request: Request) {
     ).bind(text).first<{ id: string; status: PhraseRow["status"]; translation: string }>();
     if (existing) {
       const status = existing.status === "pick" ? "to_learn" : existing.status;
-      const translation = status === "pick"
-        ? existing.translation
-        : await translationForPhrase(text, existing.translation);
-      if (status !== existing.status || translation !== existing.translation) {
+      const translation = await optionalTranslationForPhrase(text, existing.translation);
+      if (status !== existing.status || translation.text !== existing.translation) {
         await db.prepare(
           "UPDATE phrases SET status = ?, translation = ?, updated_at = ? WHERE id = ?"
-        ).bind(status, translation, new Date().toISOString(), existing.id).run();
+        ).bind(status, translation.text, new Date().toISOString(), existing.id).run();
       }
-      return Response.json({ id: existing.id, status, translation, created: false });
+      return Response.json({
+        id: existing.id,
+        status,
+        translation: translation.text,
+        translationPending: translation.pending,
+        created: false,
+      });
     }
 
-    const translation = await translationForPhrase(text);
+    const translation = await optionalTranslationForPhrase(text);
     const id = `custom-${crypto.randomUUID()}`;
     const now = new Date().toISOString();
     await db.prepare(`
       INSERT INTO phrases
         (id, text, pattern, ipa, translation, source_type, catalog_order, status, created_at, updated_at)
       VALUES (?, ?, ?, '', ?, 'custom', NULL, 'to_learn', ?, ?)
-    `).bind(id, text, `[${text}]`, translation, now, now).run();
-    return Response.json({ id, status: "to_learn", translation, created: true }, { status: 201 });
+    `).bind(id, text, `[${text}]`, translation.text, now, now).run();
+    return Response.json({
+      id,
+      status: "to_learn",
+      translation: translation.text,
+      translationPending: translation.pending,
+      created: true,
+    }, { status: 201 });
   } catch (error) {
     if (error instanceof DeepLError) {
       return Response.json({ error: error.message }, { status: error.code === "not_configured" ? 503 : 502 });
@@ -167,13 +188,13 @@ export async function PATCH(request: Request) {
     ).bind(id).first<{ text: string; translation: string }>();
     if (!phrase) return Response.json({ error: "Фраза не найдена." }, { status: 404 });
     const translation = status === "pick"
-      ? phrase.translation
-      : await translationForPhrase(phrase.text, phrase.translation);
+      ? { text: phrase.translation, pending: false }
+      : await optionalTranslationForPhrase(phrase.text, phrase.translation);
     const result = await db.prepare(
       "UPDATE phrases SET status = ?, translation = ?, updated_at = ? WHERE id = ?"
-    ).bind(status, translation, new Date().toISOString(), id).run();
+    ).bind(status, translation.text, new Date().toISOString(), id).run();
     if (!result.meta.changes) return Response.json({ error: "Фраза не найдена." }, { status: 404 });
-    return Response.json({ ok: true, translation });
+    return Response.json({ ok: true, translation: translation.text, translationPending: translation.pending });
   } catch (error) {
     if (error instanceof DeepLError) {
       return Response.json({ error: error.message }, { status: error.code === "not_configured" ? 503 : 502 });

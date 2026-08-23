@@ -1826,11 +1826,12 @@
           learnt: "Learnt"
         };
         const statusLabel = labels[data.status] || "To Learn";
+        const translationMessage = data.translationPending ? " Перевод пока недоступен." : "";
         const message = data.created === false && data.status !== "to_learn"
           ? `Фраза уже находится в ${statusLabel}.`
           : data.created === false
-            ? "Фраза уже была в To Learn."
-            : "Добавлено в To Learn.";
+            ? `Фраза уже была в To Learn.${translationMessage}`
+            : `Добавлено в To Learn.${translationMessage}`;
         showSelectionMessage(message, "ok");
         if (phrase.toLocaleLowerCase("en") === VIEWER_PHRASE.toLocaleLowerCase("en")) {
           VIEWER_PHRASE_ID = data.id || VIEWER_PHRASE_ID;

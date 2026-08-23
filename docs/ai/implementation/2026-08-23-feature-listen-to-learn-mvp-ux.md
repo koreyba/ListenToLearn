@@ -38,10 +38,12 @@ description: Technical implementation notes, patterns, and code guidelines
 ### Trainer workspace and examples
 
 - Desktop uses a two-column sticky stage: `.learning-workspace` contains source, navigation, playback, captions, translation, and actions; `.media-panel` keeps provider media separate with a minimum 200px widget frame.
-- At <=760px the stage becomes normal flow and the learning workspace precedes media; at <=560px controls collapse to one column.
+- The workspace uses one compact four-column icon toolbar on desktop. At <=760px it becomes a two-column control grid, the stage returns to normal flow, and the learning workspace precedes media.
+- Caption-navigation guidance is outside the button groups, example mode/order/save share one toolbar row, and redundant media-heading copy is visually removed.
+- Primary controls and mobile source/example/media-expand actions retain 44px touch targets. Hidden visual labels remain available through explicit English `aria-label` and `title` values.
 - `exampleMode` and `exampleOrder` are normalized in the existing browser state and saved globally. New state is `all` + `random`.
 - Ordered provider items preserve provider/creation order; random items are shuffled once per phrase/provider/order key. Saved examples remain keyed by phrase/provider/external ID and are replayed as concrete video/audio items.
-- Caption changes are recorded per current YouGlish video. Buttons are enabled only if a concrete caption method is present; Tatoeba shows an explicit unavailable state. No five-second seek is used as a caption transition.
+- Caption changes are recorded per current YouGlish video. Caption navigation, its status hint, and repeat-caption control are rendered only for YouGlish; Tatoeba keeps the toolbar compact without caption-only controls. Buttons are enabled only if a concrete caption method is present, and no five-second seek is used as a caption transition.
 
 ### Translation and save flow
 

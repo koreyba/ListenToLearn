@@ -42,7 +42,7 @@ export async function translateEnglishToRussian(
     }
   }
   if (!apiKey) {
-    throw new DeepLError("Перевод временно не настроен.", "not_configured");
+    throw new DeepLError("Translation is not configured yet.", "not_configured");
   }
 
   const endpoint = apiKey.endsWith(":fx")
@@ -69,8 +69,8 @@ export async function translateEnglishToRussian(
     });
   } catch (error) {
     const message = error instanceof DOMException && error.name === "AbortError"
-      ? "DeepL не ответил вовремя."
-      : "DeepL временно недоступен.";
+      ? "DeepL did not respond in time."
+      : "DeepL is temporarily unavailable.";
     throw new DeepLError(message, "upstream");
   } finally {
     clearTimeout(timeout);
@@ -84,7 +84,7 @@ export async function translateEnglishToRussian(
 
   const translations = (data?.translations || []).map((item) => cleanTranslationText(item.text));
   if (translations.length !== cleaned.length || translations.some((item) => !item)) {
-    throw new DeepLError("DeepL вернул пустой перевод.", "empty");
+    throw new DeepLError("DeepL returned an empty translation.", "empty");
   }
   return translations;
 }

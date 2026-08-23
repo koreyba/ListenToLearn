@@ -27,8 +27,8 @@ function cleanText(value: unknown) {
 export async function GET(request: Request) {
   try {
     const query = cleanText(new URL(request.url).searchParams.get("q"));
-    if (!query) return Response.json({ error: "Введите фразу." }, { status: 400 });
-    if (query.length > 240) return Response.json({ error: "Фраза слишком длинная." }, { status: 400 });
+    if (!query) return Response.json({ error: "Enter a phrase." }, { status: 400 });
+    if (query.length > 240) return Response.json({ error: "The phrase is too long." }, { status: 400 });
 
     const params = new URLSearchParams({
       lang: "eng",
@@ -46,7 +46,7 @@ export async function GET(request: Request) {
     });
     if (!response.ok) {
       console.error("Tatoeba search failed:", response.status);
-      return Response.json({ error: "Tatoeba временно не отвечает." }, { status: 502 });
+      return Response.json({ error: "Tatoeba is temporarily unavailable." }, { status: 502 });
     }
 
     const data = (await response.json()) as TatoebaResponse;
@@ -75,6 +75,6 @@ export async function GET(request: Request) {
     );
   } catch (error) {
     console.error("Tatoeba route failed:", error);
-    return Response.json({ error: "Не удалось найти аудио в Tatoeba." }, { status: 500 });
+    return Response.json({ error: "Could not find audio on Tatoeba." }, { status: 500 });
   }
 }

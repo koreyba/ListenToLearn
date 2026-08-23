@@ -22,7 +22,7 @@ export default function IntegrationsPage() {
   const loadStatus = useCallback(async () => {
     const response = await fetch("/api/integrations", { cache: "no-store" });
     const data = await response.json() as IntegrationsResponse;
-    if (!response.ok) throw new Error(data.error || "Не удалось проверить интеграции.");
+    if (!response.ok) throw new Error(data.error || "Could not check integrations.");
     setIntegration(data.integrations?.[0] || null);
   }, []);
 
@@ -31,7 +31,7 @@ export default function IntegrationsPage() {
       try {
         await loadStatus();
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : "Не удалось проверить интеграции.");
+        setError(reason instanceof Error ? reason.message : "Could not check integrations.");
       } finally {
         setLoading(false);
       }
@@ -50,12 +50,12 @@ export default function IntegrationsPage() {
         body: JSON.stringify({ provider: "deepl", key: key.trim() }),
       });
       const data = await response.json() as IntegrationsResponse & { error?: string };
-      if (!response.ok) throw new Error(data.error || "Не удалось сохранить API-ключ.");
+      if (!response.ok) throw new Error(data.error || "Could not save the API key.");
       setKey("");
       await loadStatus();
-      setNotice("Ключ сохранён. Его значение больше не показывается в приложении.");
+      setNotice("Key saved. Its value is no longer shown in the app.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось сохранить API-ключ.");
+      setError(reason instanceof Error ? reason.message : "Could not save the API key.");
     } finally {
       setBusy(false);
     }
@@ -68,27 +68,27 @@ export default function IntegrationsPage() {
     try {
       const response = await fetch("/api/integrations?provider=deepl", { method: "DELETE" });
       const data = await response.json() as IntegrationsResponse & { error?: string };
-      if (!response.ok) throw new Error(data.error || "Не удалось удалить API-ключ.");
+      if (!response.ok) throw new Error(data.error || "Could not delete the API key.");
       await loadStatus();
-      setNotice("Ключ, сохранённый на этой странице, удалён.");
+      setNotice("The key saved on this page was deleted.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось удалить API-ключ.");
+      setError(reason instanceof Error ? reason.message : "Could not delete the API key.");
     } finally {
       setBusy(false);
     }
   }
 
   const sourceText = integration?.source === "integrations"
-    ? "Ключ сохранён в зашифрованном виде только для этого аккаунта."
-    : "Ключ пока не настроен.";
+    ? "The key is encrypted and saved only for this account."
+    : "The key is not configured yet.";
 
   return (
     <main className="integrations-shell">
-      <Link className="back-link" href="/">← Назад к библиотеке</Link>
+      <Link className="back-link" href="/">← Back to library</Link>
       <p className="eyebrow">Connected speech trainer</p>
       <h1>Integrations</h1>
-      <p className="integrations-intro">Подключайте сервисы, которые помогают учиться. Вход выполняется через Google, а ключи не возвращаются в браузер после сохранения.</p>
-      <a className="account-link" href="/cdn-cgi/access/logout">Выйти</a>
+      <p className="integrations-intro">Connect services that help you learn. Sign in with Google; keys are never returned to the browser after saving.</p>
+      <a className="account-link" href="/cdn-cgi/access/logout">Log out</a>
 
       {error && <div className="notice error" role="alert">{error}</div>}
       {notice && <div className="notice success" role="status">{notice}</div>}
@@ -96,12 +96,12 @@ export default function IntegrationsPage() {
       <section className="integration-card" aria-labelledby="deepl-title">
         <div className="integration-card-heading">
           <div>
-            <p className="integration-label">Перевод</p>
+            <p className="integration-label">Translation</p>
             <h2 id="deepl-title">DeepL</h2>
-            <p>Перевод английских фраз на русский.</p>
+            <p>Translate English phrases into Russian.</p>
           </div>
           <span className={integration?.configured ? "integration-status configured" : "integration-status"}>
-            {loading ? "Проверяю…" : integration?.configured ? "Подключено" : "Не подключено"}
+            {loading ? "Checking…" : integration?.configured ? "Connected" : "Not connected"}
           </span>
         </div>
 
@@ -112,16 +112,16 @@ export default function IntegrationsPage() {
             autoComplete="new-password"
             id="deepl-key"
             onChange={(event) => setKey(event.target.value)}
-            placeholder={integration?.configured ? "Введите новый ключ для замены" : "Вставьте ключ DeepL"}
+            placeholder={integration?.configured ? "Enter a replacement key" : "Paste your DeepL key"}
             type="password"
             value={key}
           />
           <div className="integration-actions">
-            <button disabled={busy || !key.trim()} onClick={() => void saveKey()} type="button">{integration?.configured ? "Заменить ключ" : "Сохранить ключ"}</button>
-            {integration?.configured && <button className="secondary" disabled={busy} onClick={() => void removeKey()} type="button">Удалить</button>}
+            <button disabled={busy || !key.trim()} onClick={() => void saveKey()} type="button">{integration?.configured ? "Replace key" : "Save key"}</button>
+            {integration?.configured && <button className="secondary" disabled={busy} onClick={() => void removeKey()} type="button">Delete</button>}
           </div>
         </div>
-        <p className="integration-security">Ключ передаётся по HTTPS, шифруется на Worker через AES-GCM и хранится в D1. В ответах API его нет.</p>
+        <p className="integration-security">The key is sent over HTTPS, encrypted on the Worker with AES-GCM, and stored in D1. It is never included in API responses.</p>
       </section>
     </main>
   );

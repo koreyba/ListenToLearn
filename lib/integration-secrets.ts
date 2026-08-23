@@ -37,15 +37,15 @@ function fromBase64Url(value: string) {
 
 async function encryptionKeyBytes() {
   const raw = environment().INTEGRATIONS_ENCRYPTION_KEY;
-  if (!raw) throw new IntegrationSecretError("Хранилище интеграций не настроено.");
+  if (!raw) throw new IntegrationSecretError("The integrations store is not configured.");
   let bytes: Uint8Array;
   try {
     bytes = fromBase64Url(raw);
   } catch {
-    throw new IntegrationSecretError("Хранилище интеграций настроено некорректно.");
+    throw new IntegrationSecretError("The integrations store is configured incorrectly.");
   }
   if (bytes.byteLength !== 32) {
-    throw new IntegrationSecretError("Хранилище интеграций настроено некорректно.");
+    throw new IntegrationSecretError("The integrations store is configured incorrectly.");
   }
   return bytes;
 }
@@ -131,7 +131,7 @@ export async function readIntegrationSecret(userId: string, provider: Integratio
     if (version === 1) await storeIntegrationSecret(userId, provider, value);
     return value;
   } catch {
-    throw new IntegrationSecretError("Не удалось расшифровать ключ интеграции.");
+    throw new IntegrationSecretError("Could not decrypt the integration key.");
   }
 }
 

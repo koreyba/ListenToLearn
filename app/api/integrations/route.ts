@@ -46,7 +46,7 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     console.error("Integrations GET failed:", error);
-    return response({ error: "Не удалось проверить интеграции." }, 500);
+    return response({ error: "Could not check integrations." }, 500);
   }
 }
 
@@ -55,19 +55,19 @@ export async function POST(request: Request) {
   if (!user) return unauthorizedResponse();
 
   try {
-    if (!sameOrigin(request)) return response({ error: "Недопустимый источник запроса." }, 403);
-    if (!bodyWithinLimit(request)) return response({ error: "Запрос слишком большой." }, 413);
+    if (!sameOrigin(request)) return response({ error: "Invalid request origin." }, 403);
+    if (!bodyWithinLimit(request)) return response({ error: "The request is too large." }, 413);
     const payload = (await request.json()) as { provider?: unknown; key?: unknown };
     if (payload.provider !== provider) {
-      return response({ error: "Эта интеграция пока не поддерживается." }, 400);
+      return response({ error: "This integration is not supported yet." }, 400);
     }
     const key = clean(payload.key, 500);
-    if (!key) return response({ error: "Введите API-ключ." }, 400);
+    if (!key) return response({ error: "Enter an API key." }, 400);
     await storeIntegrationSecret(user.subject, provider, key);
     return response({ ok: true, provider, configured: true });
   } catch (error) {
     console.error("Integrations POST failed:", error);
-    return response({ error: "Не удалось сохранить API-ключ." }, 500);
+    return response({ error: "Could not save the API key." }, 500);
   }
 }
 
@@ -76,15 +76,15 @@ export async function DELETE(request: Request) {
   if (!user) return unauthorizedResponse();
 
   try {
-    if (!sameOrigin(request)) return response({ error: "Недопустимый источник запроса." }, 403);
+    if (!sameOrigin(request)) return response({ error: "Invalid request origin." }, 403);
     const requestedProvider = new URL(request.url).searchParams.get("provider");
     if (requestedProvider !== provider) {
-      return response({ error: "Эта интеграция пока не поддерживается." }, 400);
+      return response({ error: "This integration is not supported yet." }, 400);
     }
     await deleteIntegrationSecret(user.subject, provider);
     return response({ ok: true, provider, configured: false });
   } catch (error) {
     console.error("Integrations DELETE failed:", error);
-    return response({ error: "Не удалось удалить API-ключ." }, 500);
+    return response({ error: "Could not delete the API key." }, 500);
   }
 }

@@ -4,7 +4,7 @@ export async function GET(request: Request) {
   try {
     const id = new URL(request.url).searchParams.get("id") || "";
     if (!/^\d+$/.test(id)) {
-      return Response.json({ error: "Некорректный идентификатор аудио." }, { status: 400 });
+      return Response.json({ error: "Invalid audio identifier." }, { status: 400 });
     }
 
     const range = request.headers.get("range");
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     });
     if (!response.ok || !response.body) {
       console.error("Tatoeba audio failed:", response.status, id);
-      return Response.json({ error: "Аудио Tatoeba недоступно." }, { status: 502 });
+      return Response.json({ error: "Tatoeba audio is unavailable." }, { status: 502 });
     }
 
     const headers = new Headers({
@@ -30,6 +30,6 @@ export async function GET(request: Request) {
     return new Response(response.body, { status: response.status, headers });
   } catch (error) {
     console.error("Tatoeba audio route failed:", error);
-    return Response.json({ error: "Не удалось загрузить аудио Tatoeba." }, { status: 500 });
+    return Response.json({ error: "Could not load Tatoeba audio." }, { status: 500 });
   }
 }

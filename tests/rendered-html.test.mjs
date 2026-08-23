@@ -176,6 +176,101 @@ test("MVP UX keeps example settings global and separates caption/video navigatio
   assert.match(trainer, /id="translationAddBtn"/);
 });
 
+test("trainer exposes one accessible expanded media layout for both providers", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(trainer, /id="expandMediaBtn"/);
+  assert.match(trainer, /aria-label="Expand player"/);
+  assert.match(trainer, /classList\.toggle\("media-expanded", isExpanded\)/);
+  assert.match(trainer, /setAttribute\("aria-expanded", isExpanded \? "true" : "false"\)/);
+  assert.match(trainer, /grid-template-columns: minmax\(0, 1\.15fr\) minmax\(380px, \.85fr\)/);
+  assert.match(trainer, /grid-template-areas: "workspace" "media"/);
+  assert.doesNotMatch(trainer, /id="mediaOverlay"/);
+});
+
+test("trainer interface labels are consistently English", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(trainer, /aria-label="Example source"/);
+  assert.match(trainer, /class="button-label">Previous<\/span>/);
+  assert.match(trainer, />Expand<\/span>/);
+  assert.doesNotMatch(trainer, /[\u0400-\u04FF]/);
+});
+
+test("trainer primary controls expose familiar icons with accessible labels", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.ok((trainer.match(/class="button-icon"/g) || []).length >= 8);
+  assert.match(trainer, /class="button-label">Previous<\/span>/);
+  assert.match(trainer, /aria-label="Pause playback"/);
+  assert.match(trainer, /aria-label="Save current example"/);
+  assert.match(trainer, /\.player-controls \.button-label \{ display: none; \}/);
+});
+
+test("trainer keeps primary controls compact across desktop and mobile", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(trainer, /grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
+  assert.match(trainer, /class="caption-navigation-status"/);
+  assert.doesNotMatch(trainer, /id="captionNavigationHint" class="control-group-hint"/);
+  assert.match(trainer, /@media \(max-width: 560px\)[\s\S]*?\.player-controls \{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(trainer, /\.example-tools \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) auto;/);
+});
+
+test("caption controls are visible only for YouGlish", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(trainer, /id="captionNavigation" class="control-group caption-navigation"/);
+  assert.match(trainer, /id="captionNavigationHint" class="caption-navigation-status"/);
+  assert.match(trainer, /const captionsAvailable = state\.source === "youglish";/);
+  assert.match(trainer, /el\.captionNavigation\.hidden = !captionsAvailable;/);
+  assert.match(trainer, /el\.captionNavigationHint\.hidden = !captionsAvailable;/);
+  assert.match(trainer, /el\.repeatCaptionBtn\.hidden = !captionsAvailable;/);
+});
+
+test("icon-only example settings retain accessible names and touch targets", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(trainer, /data-example-mode="all" aria-label="All examples" title="All examples"/);
+  assert.match(trainer, /data-example-mode="saved" aria-label="Saved examples" title="Saved examples"/);
+  assert.match(trainer, /data-example-order="random" aria-label="Random order" title="Random order"/);
+  assert.match(trainer, /data-example-order="ordered" aria-label="Ordered" title="Ordered"/);
+  assert.match(trainer, /\.player-controls button \{[\s\S]*?min-height: 44px;/);
+  assert.match(trainer, /#sourceSwitch button,\s*\.example-settings \.segmented button \{\s*min-height: 44px;/);
+  assert.match(trainer, /\.media-expand-btn \{\s*min-width: 44px;\s*min-height: 44px;/);
+});
+
+test("library and integration surfaces use English UI labels", async () => {
+  const surfaces = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/integrations/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
+  ]);
+
+  for (const surface of surfaces) assert.doesNotMatch(surface, /[\u0400-\u04FF]/);
+  assert.match(surfaces[0], /Listen to real speech\./);
+  assert.match(surfaces[1], /Translate English phrases into Russian\./);
+  assert.match(surfaces[2], /<html lang="en">/);
+});
+
 test("phrase controls use timing-aware caption events and expose repeat state", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),
@@ -203,9 +298,9 @@ test("Tatoeba hides timed caption controls but keeps whole-track navigation", as
 
   assert.match(trainer, /id="captionNavigation"[^>]*hidden/);
   assert.match(trainer, /id="repeatCaptionBtn"[^>]*hidden/);
-  assert.match(trainer, /const timedCaptionControlsVisible = state\.source === "youglish"/);
-  assert.match(trainer, /el\.captionNavigation\.hidden = !timedCaptionControlsVisible/);
-  assert.match(trainer, /el\.repeatCaptionBtn\.hidden = !timedCaptionControlsVisible/);
+  assert.match(trainer, /const captionsAvailable = state\.source === "youglish"/);
+  assert.match(trainer, /el\.captionNavigation\.hidden = !captionsAvailable/);
+  assert.match(trainer, /el\.repeatCaptionBtn\.hidden = !captionsAvailable/);
   assert.match(trainer, /id="prevVideoBtn"/);
   assert.match(trainer, /id="nextVideoBtn"/);
 });

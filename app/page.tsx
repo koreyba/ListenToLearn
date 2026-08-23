@@ -37,10 +37,10 @@ type PhraseMutationResponse = {
 type Viewer = { id: string; email: string; name: string };
 
 const tabs: Array<{ id: PhraseStatus; label: string; hint: string }> = [
-  { id: "pick", label: "Pick", hint: "Наша подборка фраз для следующего шага." },
-  { id: "to_learn", label: "To Learn", hint: "Отложено на будущее." },
-  { id: "learning_now", label: "Learning Now", hint: "То, что вы слушаете сейчас." },
-  { id: "learnt", label: "Learnt", hint: "Фразы, которые вы уже освоили." },
+  { id: "pick", label: "Pick", hint: "Our phrase picks for the next step." },
+  { id: "to_learn", label: "To Learn", hint: "Saved for later." },
+  { id: "learning_now", label: "Learning Now", hint: "What you are listening to now." },
+  { id: "learnt", label: "Learnt", hint: "Phrases you have already mastered." },
 ];
 
 type PhraseSort = "added_desc" | "added_asc" | "alpha_asc" | "alpha_desc";
@@ -50,10 +50,10 @@ const AUTH_HINT_STORAGE_KEY = "listen-to-learn-authenticated-v1";
 const GUEST_TRAINER_STORAGE_KEY = "connected-speech-trainer-v1:anonymous";
 const GUEST_PRESET_CREATED_AT = "1970-01-01T00:00:00.000Z";
 const phraseSortOptions: Array<{ value: PhraseSort; label: string }> = [
-  { value: "added_desc", label: "Дата добавления · новые сначала" },
-  { value: "added_asc", label: "Дата добавления · старые сначала" },
-  { value: "alpha_asc", label: "Алфавит · A–Z" },
-  { value: "alpha_desc", label: "Алфавит · Z–A" },
+  { value: "added_desc", label: "Added · newest first" },
+  { value: "added_asc", label: "Added · oldest first" },
+  { value: "alpha_asc", label: "Alphabetical · A–Z" },
+  { value: "alpha_desc", label: "Alphabetical · Z–A" },
 ];
 
 function phraseTieBreaker(a: Phrase, b: Phrase) {
@@ -161,7 +161,7 @@ export default function Home() {
     try {
       window.localStorage.setItem(GUEST_LIBRARY_STORAGE_KEY, JSON.stringify(normalized));
     } catch {
-      setNotice("Пробный прогресс работает только до закрытия этой вкладки: localStorage недоступен.");
+      setNotice("Guest progress only lasts while this tab is open because localStorage is unavailable.");
     }
   }, []);
 
@@ -171,7 +171,7 @@ export default function Home() {
       const raw = window.localStorage.getItem(GUEST_LIBRARY_STORAGE_KEY);
       if (raw) next = normalizeGuestLibrary(JSON.parse(raw));
     } catch {
-      setNotice("Не удалось прочитать пробный прогресс; начинаем с чистого состояния.");
+      setNotice("Could not read guest progress; starting with a clean state.");
     }
     setMode("guest");
     setViewer(null);
@@ -183,7 +183,7 @@ export default function Home() {
   const loadPhrases = useCallback(async () => {
     const response = await fetch("/api/phrases", { cache: "no-store" });
     const data = await response.json() as PhrasesResponse;
-    if (!response.ok) throw new Error(data.error || "Не удалось загрузить фразы.");
+    if (!response.ok) throw new Error(data.error || "Could not load phrases.");
     setPhrases(data.phrases);
   }, []);
 
@@ -200,7 +200,7 @@ export default function Home() {
 
       const phrasesResponse = await fetch("/api/phrases", { cache: "no-store" });
       const phrasesData = await phrasesResponse.json() as PhrasesResponse;
-      if (!phrasesResponse.ok) throw new Error(phrasesData.error || "Не удалось загрузить фразы.");
+      if (!phrasesResponse.ok) throw new Error(phrasesData.error || "Could not load phrases.");
       setPhrases(phrasesData.phrases);
       setLoading(false);
     } catch {
@@ -249,7 +249,7 @@ export default function Home() {
     if (mode === "guest") {
       persistGuestState(setGuestPhraseStatus(guestLibrary, id, status));
       setActiveTab(status);
-      setNotice("Пробный прогресс сохранён только в этом браузере.");
+      setNotice("Guest progress is saved only in this browser.");
       setBusyId(null);
       return;
     }
@@ -260,33 +260,33 @@ export default function Home() {
         body: JSON.stringify({ id, status }),
       });
       const data = await response.json() as PhraseMutationResponse;
-      if (!response.ok) throw new Error(data.error || "Не удалось изменить статус.");
+      if (!response.ok) throw new Error(data.error || "Could not update the phrase status.");
       await loadPhrases();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось изменить статус.");
+      setError(reason instanceof Error ? reason.message : "Could not update the phrase status.");
     } finally {
       setBusyId(null);
     }
   }
 
   async function removePhrase(phrase: Phrase) {
-    if (phrase.source_type === "custom" && !window.confirm(`Удалить «${phrase.text}»?`)) return;
+    if (phrase.source_type === "custom" && !window.confirm(`Remove “${phrase.text}”?`)) return;
     setBusyId(phrase.id);
     setError("");
     if (mode === "guest") {
       persistGuestState(removeGuestPhrase(guestLibrary, phrase.id));
       setActiveTab("pick");
-      setNotice("Фраза убрана из пробной библиотеки.");
+      setNotice("Phrase removed from the guest library.");
       setBusyId(null);
       return;
     }
     try {
       const response = await fetch(`/api/phrases?id=${encodeURIComponent(phrase.id)}`, { method: "DELETE" });
       const data = await response.json() as PhraseMutationResponse;
-      if (!response.ok) throw new Error(data.error || "Не удалось убрать фразу.");
+      if (!response.ok) throw new Error(data.error || "Could not remove the phrase.");
       await loadPhrases();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось убрать фразу.");
+      setError(reason instanceof Error ? reason.message : "Could not remove the phrase.");
     } finally {
       setBusyId(null);
     }
@@ -306,14 +306,14 @@ export default function Home() {
         persistGuestState(setGuestPhraseStatus(guestLibrary, existing.id, nextStatus));
         setCustomText("");
         setActiveTab(nextStatus);
-        setNotice("Эта фраза уже была в пробной библиотеке.");
+        setNotice("This phrase was already in the guest library.");
       } else {
         const result = addGuestPhrase(guestLibrary, { text });
         if (result.phrase) {
           persistGuestState(result.state);
           setCustomText("");
           setActiveTab("to_learn");
-          setNotice("Фраза добавлена в пробную библиотеку. Перевод доступен после входа через Google.");
+          setNotice("Phrase added to the guest library. Translation is available after signing in with Google.");
         }
       }
       setBusyId(null);
@@ -326,14 +326,14 @@ export default function Home() {
         body: JSON.stringify({ text }),
       });
       const data = await response.json() as PhraseMutationResponse;
-      if (!response.ok) throw new Error(data.error || "Не удалось добавить фразу.");
+      if (!response.ok) throw new Error(data.error || "Could not add the phrase.");
       setCustomText("");
       await loadPhrases();
       setActiveTab((data.status as PhraseStatus) || "to_learn");
-      const translationNotice = data.translationPending ? " Перевод пока недоступен, но фраза сохранена." : "";
-      setNotice(data.created === false ? `Эта фраза уже есть в вашей библиотеке.${translationNotice}` : `Фраза добавлена в To Learn${data.translationPending ? ". Перевод пока недоступен." : " с переводом."}`);
+      const translationNotice = data.translationPending ? " Translation is currently unavailable, but the phrase was saved." : "";
+      setNotice(data.created === false ? `This phrase is already in your library.${translationNotice}` : `Phrase added to To Learn${data.translationPending ? ". Translation is currently unavailable." : " with a translation."}`);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Не удалось добавить фразу.");
+      setError(reason instanceof Error ? reason.message : "Could not add the phrase.");
     } finally {
       setBusyId(null);
     }
@@ -345,11 +345,11 @@ export default function Home() {
   }
 
   function resetGuest() {
-    if (!window.confirm("Очистить весь пробный прогресс в этом браузере?")) return;
+    if (!window.confirm("Clear all guest progress in this browser?")) return;
     persistGuestState(createGuestLibrary());
     try { window.localStorage.removeItem(GUEST_TRAINER_STORAGE_KEY); } catch { /* optional storage */ }
     setActiveTab("pick");
-    setNotice("Пробный прогресс очищен.");
+    setNotice("Guest progress cleared.");
   }
 
   function clearAccountHint() {
@@ -363,26 +363,26 @@ export default function Home() {
       <header className="library-header">
         <div>
           <p className="eyebrow">Connected speech trainer</p>
-          <h1>Слушайте живую речь.<br />Выбирайте, что учить.</h1>
+          <h1>Listen to real speech.<br />Choose what to learn.</h1>
         </div>
         <div className="header-tools">
           <a className="integrations-link" href="/integrations">Integrations</a>
           {viewer && <span className="header-account" title={viewer.email}>{viewer.name || viewer.email}</span>}
           {mode === "guest" ? (
             <>
-              <button className="account-link" onClick={resetGuest} type="button">Очистить пробу</button>
-              <a className="account-link" href="/login">Войти через Google</a>
+              <button className="account-link" onClick={resetGuest} type="button">Clear guest data</button>
+              <a className="account-link" href="/login">Sign in with Google</a>
             </>
           ) : (
-            <a className="account-link" href="/cdn-cgi/access/logout" onClick={clearAccountHint}>Выйти</a>
+            <a className="account-link" href="/cdn-cgi/access/logout" onClick={clearAccountHint}>Log out</a>
           )}
-          <div className="header-total"><strong>{phrases.length}</strong><span>фраз в библиотеке</span></div>
+          <div className="header-total"><strong>{phrases.length}</strong><span>phrases in library</span></div>
         </div>
       </header>
 
-      {mode === "guest" && <div className="notice" role="status">Пробный режим: прогресс хранится только в этом браузере. Войди через Google, чтобы сохранять его в аккаунте.</div>}
+      {mode === "guest" && <div className="notice" role="status">Guest mode: progress is stored only in this browser. Sign in with Google to save it to your account.</div>}
 
-      <nav className="tabs" aria-label="Разделы изучения" role="tablist">
+      <nav className="tabs" aria-label="Learning sections" role="tablist">
         {tabs.map((tab) => (
           <button
             className={activeTab === tab.id ? "tab active" : "tab"}
@@ -402,9 +402,9 @@ export default function Home() {
           <div><h2>{current.label}</h2><p>{current.hint}</p></div>
           <div className="section-tools">
             <label className="sort-control">
-              <span>Сортировка</span>
+              <span>Sort</span>
               <select
-                aria-label="Сортировка фраз"
+                aria-label="Sort phrases"
                 className="phrase-sort"
                 onChange={(event) => setPhraseSort(event.target.value as PhraseSort)}
                 value={phraseSort}
@@ -414,23 +414,23 @@ export default function Home() {
             </label>
             <form className="add-form" onSubmit={addCustom}>
               <input
-                aria-label="Своё слово или фраза"
+                aria-label="Your word or phrase"
                 maxLength={240}
                 onChange={(event) => setCustomText(event.target.value)}
-                placeholder="Введите слово или фразу"
+                placeholder="Enter a word or phrase"
                 value={customText}
               />
-              <button disabled={busyId === "new" || !customText.trim()} type="submit">+ В To Learn</button>
+              <button disabled={busyId === "new" || !customText.trim()} type="submit">+ To Learn</button>
             </form>
           </div>
         </div>
 
         {error && <div className="notice error" role="alert">{error}</div>}
         {notice && <div className="notice success" role="status">{notice}</div>}
-        {loading ? <div className="notice">Загружаю библиотеку…</div> : visible.length === 0 ? (
+        {loading ? <div className="notice">Loading library…</div> : visible.length === 0 ? (
           <div className="empty-state">
-            <strong>Здесь пока пусто</strong>
-            <span>{activeTab === "pick" ? "Все фразы уже распределены." : "Переместите сюда первую фразу."}</span>
+            <strong>Nothing here yet</strong>
+            <span>{activeTab === "pick" ? "All phrases have already been sorted." : "Move your first phrase here."}</span>
           </div>
         ) : (
           <div className="phrase-grid">
@@ -441,10 +441,10 @@ export default function Home() {
                   {phrase.status !== "pick" && phrase.translation && (
                     <span className="phrase-translation">{phrase.translation}</span>
                   )}
-                  {phrase.context && <span className="phrase-context">Контекст: {phrase.context}</span>}
+                  {phrase.context && <span className="phrase-context">Context: {phrase.context}</span>}
                   <span className="phrase-pattern">{renderPattern(phrase.pattern)}</span>
-                  <span className="phrase-ipa">{phrase.ipa || "Транскрипция появится позже"}</span>
-                  <span className="listen-link">Слушать <span aria-hidden="true">↗</span></span>
+                  <span className="phrase-ipa">{phrase.ipa || "Transcription will appear later"}</span>
+                  <span className="listen-link">Listen <span aria-hidden="true">↗</span></span>
                 </button>
                 <div className="card-actions">
                   {phrase.status === "pick" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "to_learn")} type="button">Add to Learn</button>}

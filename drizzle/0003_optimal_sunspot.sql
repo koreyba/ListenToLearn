@@ -1,0 +1,1 @@
+ALTER TABLE `phrase_examples` ADD `metadata` text DEFAULT '{}' NOT NULL;

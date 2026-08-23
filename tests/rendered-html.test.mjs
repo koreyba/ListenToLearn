@@ -48,7 +48,7 @@ test("trainer can switch between Tatoeba and YouGlish", async () => {
   assert.match(audioRoute, /https:\/\/api\.tatoeba\.org\/v1\/audios\/\$\{id\}\/file/);
 });
 
-test("YouGlish examples are randomized and videos can be saved per phrase", async () => {
+test("YouGlish videos and Tatoeba tracks can be randomized and saved per phrase", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),
     "utf8",
@@ -71,8 +71,14 @@ test("YouGlish examples are randomized and videos can be saved per phrase", asyn
   assert.match(trainer, /`\$\{query\} :r`/);
   assert.match(trainer, /`\$\{query\} #\$\{example\.external_id\}`/);
   assert.match(trainer, /event && event\.video/);
+  assert.match(trainer, /provider: state\.source/);
+  assert.match(trainer, /audioId: Number\(example\.external_id\)/);
+  assert.match(trainer, /tatoebaTracks = shuffled/);
   assert.match(examplesRoute, /CREATE TABLE IF NOT EXISTS phrase_examples/);
+  assert.match(examplesRoute, /provider === "tatoeba"/);
+  assert.match(examplesRoute, /metadata: parseMetadata/);
   assert.match(schema, /export const phraseExamples/);
+  assert.match(schema, /metadata: text\("metadata"\)/);
   assert.match(page, /phraseId: phrase\.id/);
   const inlineScript = trainer.match(/<script>([\s\S]+)<\/script>/)?.[1];
   assert.ok(inlineScript);

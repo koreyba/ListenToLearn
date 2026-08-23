@@ -762,7 +762,7 @@
             Сохранённые <span id="savedExampleCount" class="example-count">0</span>
           </button>
         </div>
-        <button id="saveExampleBtn" class="save-example-btn" type="button" disabled>☆ Сохранить видео</button>
+        <button id="saveExampleBtn" class="save-example-btn" type="button" disabled>☆ Сохранить пример</button>
       </div>
       <div id="exampleMessage" class="example-message" role="status"></div>
 
@@ -1290,34 +1290,44 @@
       el.exampleMessage.classList.toggle("error", kind === "error");
     }
 
+    function examplesForCurrentSource() {
+      return savedExamples.filter(example => example.provider === state.source);
+    }
+
+    function currentTatoebaTrack() {
+      return tatoebaTracks[tatoebaIndex] || null;
+    }
+
     function currentSavedExample() {
-      return savedExamples.find(example => example.external_id === currentYouglishVideoId) || null;
+      const externalId = state.source === "youglish"
+        ? currentYouglishVideoId
+        : String(currentTatoebaTrack()?.audioId || "");
+      return examplesForCurrentSource().find(example => example.external_id === externalId) || null;
     }
 
     function renderExampleTools() {
-      const youglish = state.source === "youglish";
-      el.exampleTools.hidden = !youglish;
-      if (!youglish) {
-        showExampleMessage("");
-        return;
-      }
-
-      el.savedExampleCount.textContent = String(savedExamples.length);
+      const providerExamples = examplesForCurrentSource();
+      const currentExternalId = state.source === "youglish"
+        ? currentYouglishVideoId
+        : String(currentTatoebaTrack()?.audioId || "");
+      el.exampleTools.hidden = false;
+      el.savedExampleCount.textContent = String(providerExamples.length);
       el.exampleMode.querySelectorAll("button[data-example-mode]").forEach(btn => {
         const active = btn.dataset.exampleMode === exampleMode;
         btn.classList.toggle("active", active);
         btn.setAttribute("aria-pressed", active ? "true" : "false");
-        if (btn.dataset.exampleMode === "saved") btn.disabled = savedExamples.length === 0;
+        if (btn.dataset.exampleMode === "saved") btn.disabled = providerExamples.length === 0;
       });
 
       const saved = currentSavedExample();
       const learningPhrase = Boolean(VIEWER_PHRASE_ID && VIEWER_PHRASE_STATUS && VIEWER_PHRASE_STATUS !== "pick");
+      const itemLabel = state.source === "tatoeba" ? "дорожку" : "видео";
       el.saveExampleBtn.classList.toggle("saved", Boolean(saved));
-      el.saveExampleBtn.textContent = saved ? "★ Сохранено" : "☆ Сохранить видео";
-      el.saveExampleBtn.disabled = !learningPhrase || !currentYouglishVideoId;
+      el.saveExampleBtn.textContent = saved ? "★ Сохранено" : `☆ Сохранить ${itemLabel}`;
+      el.saveExampleBtn.disabled = !learningPhrase || !currentExternalId;
 
       if (!learningPhrase && !el.exampleMessage.textContent) {
-        showExampleMessage("Чтобы сохранять видео, сначала добавьте фразу в To Learn.");
+        showExampleMessage("Чтобы сохранять примеры, сначала добавьте фразу в To Learn.");
       }
     }
 
@@ -1336,15 +1346,16 @@
         if (requestId !== examplesRequest) return;
         if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
         savedExamples = Array.isArray(data && data.examples) ? data.examples : [];
-        if (!savedExamples.length) exampleMode = "all";
-        savedExampleIndex = Math.min(savedExampleIndex, Math.max(0, savedExamples.length - 1));
+        const providerExamples = examplesForCurrentSource();
+        if (!providerExamples.length) exampleMode = "all";
+        savedExampleIndex = Math.min(savedExampleIndex, Math.max(0, providerExamples.length - 1));
         renderExampleTools();
       } catch (error) {
         if (requestId !== examplesRequest) return;
         savedExamples = [];
         exampleMode = "all";
         renderExampleTools();
-        showExampleMessage("Не удалось загрузить сохранённые видео.", "error");
+        showExampleMessage("Не удалось загрузить сохранённые примеры.", "error");
         console.error(error);
       }
     }
@@ -1396,6 +1407,10 @@
         try { widget.pause(); } catch (_) {}
       }
       state.source = source;
+      if (!savedExamples.some(example => example.provider === source)) {
+        exampleMode = "all";
+        savedExampleIndex = 0;
+      }
       saveState();
       renderSource();
       fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
@@ -1421,6 +1436,15 @@
       const index = sentence.toLocaleLowerCase("en").indexOf(cleanQuery.toLocaleLowerCase("en"));
       if (index < 0) return sentence;
       return `${sentence.slice(0, index)}[[[${sentence.slice(index, index + cleanQuery.length)}]]]${sentence.slice(index + cleanQuery.length)}`;
+    }
+
+    function shuffled(items) {
+      const result = [...items];
+      for (let index = result.length - 1; index > 0; index -= 1) {
+        const swapIndex = Math.floor(Math.random() * (index + 1));
+        [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+      }
+      return result;
     }
 
     async function playTatoeba() {
@@ -1449,7 +1473,11 @@
       hideTranslation();
       hideNoResults();
       el.status.classList.remove("error");
-      el.status.textContent = `Найдено аудиопримеров: ${tatoebaTracks.length} · пример ${tatoebaIndex + 1}/${tatoebaTracks.length} · Tatoeba`;
+      const providerExamples = examplesForCurrentSource();
+      el.status.textContent = exampleMode === "saved"
+        ? `Сохранённая дорожка ${savedExampleIndex + 1}/${providerExamples.length} · Tatoeba`
+        : `Найдено аудиопримеров: ${tatoebaTracks.length} · случайный порядок · пример ${tatoebaIndex + 1}/${tatoebaTracks.length} · Tatoeba`;
+      renderExampleTools();
       if (autoplay) playTatoeba();
     }
 
@@ -1472,7 +1500,7 @@
         const data = await response.json().catch(() => null);
         if (requestId !== tatoebaRequest || state.source !== "tatoeba") return;
         if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
-        tatoebaTracks = Array.isArray(data && data.tracks) ? data.tracks : [];
+        tatoebaTracks = shuffled(Array.isArray(data && data.tracks) ? data.tracks : []);
         if (!tatoebaTracks.length) {
           el.tatoebaSentence.textContent = "Записей не найдено.";
           el.status.textContent = "Примеров не найдено.";
@@ -1510,22 +1538,38 @@
     }
 
     function playSavedExample(index) {
-      if (!savedExamples.length) {
+      const providerExamples = examplesForCurrentSource();
+      if (!providerExamples.length) {
         exampleMode = "all";
         renderExampleTools();
         fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
         return;
       }
 
-      savedExampleIndex = (index + savedExamples.length) % savedExamples.length;
-      const example = savedExamples[savedExampleIndex];
+      savedExampleIndex = (index + providerExamples.length) % providerExamples.length;
+      const example = providerExamples[savedExampleIndex];
+      if (state.source === "tatoeba") {
+        const metadata = example.metadata || {};
+        tatoebaTracks = [{
+          audioId: Number(example.external_id),
+          sentenceId: metadata.sentenceId || "",
+          text: example.caption || example.query,
+          author: metadata.author || "Tatoeba contributor",
+          license: metadata.license || "See Tatoeba",
+          attributionUrl: metadata.attributionUrl || "https://tatoeba.org/"
+        }];
+        tatoebaIndex = 0;
+        loadTatoebaTrack(0, true);
+        return;
+      }
+
       currentYouglishVideoId = example.external_id;
       renderExampleTools();
       const query = example.query || VIEWER_PHRASE;
       fetchYouglish(
         `${query} #${example.external_id}`,
         query,
-        `сохранённом видео ${savedExampleIndex + 1}/${savedExamples.length}`
+        `сохранённом видео ${savedExampleIndex + 1}/${providerExamples.length}`
       );
     }
 
@@ -1539,13 +1583,12 @@
       hideNoResults();
       renderExampleTools();
 
-      if (state.source === "tatoeba") {
-        fetchTatoeba(query);
+      if (exampleMode === "saved" && examplesForCurrentSource().length) {
+        playSavedExample(savedExampleIndex);
         return;
       }
-
-      if (exampleMode === "saved" && savedExamples.length) {
-        playSavedExample(savedExampleIndex);
+      if (state.source === "tatoeba") {
+        fetchTatoeba(query);
         return;
       }
       fetchYouglish(`${query} :r`, query);
@@ -1807,12 +1850,20 @@
     }
 
     async function toggleSavedExample() {
-      if (!VIEWER_PHRASE_ID || VIEWER_PHRASE_STATUS === "pick" || !currentYouglishVideoId) return;
+      const tatoebaTrack = currentTatoebaTrack();
+      const externalId = state.source === "youglish"
+        ? currentYouglishVideoId
+        : String(tatoebaTrack?.audioId || "");
+      if (!VIEWER_PHRASE_ID || VIEWER_PHRASE_STATUS === "pick" || !externalId) return;
       const existing = currentSavedExample();
       const wasSavedMode = exampleMode === "saved";
+      const itemLabel = state.source === "tatoeba" ? "дорожку" : "видео";
+      const savedMessage = state.source === "tatoeba"
+        ? (existing ? "Дорожка удалена из сохранённых." : "Дорожка сохранена для этой фразы.")
+        : (existing ? "Видео удалено из сохранённых." : "Видео сохранено для этой фразы.");
       el.saveExampleBtn.disabled = true;
       el.saveExampleBtn.setAttribute("aria-busy", "true");
-      showExampleMessage(existing ? "Убираю видео из сохранённых…" : "Сохраняю видео…");
+      showExampleMessage(existing ? `Убираю ${itemLabel} из сохранённых…` : `Сохраняю ${itemLabel}…`);
 
       try {
         const response = existing
@@ -1822,22 +1873,30 @@
               headers: { "Content-Type": "application/json; charset=utf-8" },
               body: JSON.stringify({
                 phraseId: VIEWER_PHRASE_ID,
-                externalId: currentYouglishVideoId,
+                provider: state.source,
+                externalId,
                 query: currentQueryOverride || VIEWER_PHRASE,
                 caption: currentCaptionText,
-                accent: state.accent
+                accent: state.source === "youglish" ? state.accent : "",
+                metadata: state.source === "tatoeba" && tatoebaTrack ? {
+                  sentenceId: String(tatoebaTrack.sentenceId || ""),
+                  author: tatoebaTrack.author || "",
+                  license: tatoebaTrack.license || "",
+                  attributionUrl: tatoebaTrack.attributionUrl || ""
+                } : {}
               })
             });
         const data = await response.json().catch(() => null);
         if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
         await loadSavedExamples();
-        showExampleMessage(existing ? "Видео удалено из сохранённых." : "Видео сохранено для этой фразы.");
+        showExampleMessage(savedMessage);
         if (existing && wasSavedMode) {
-          if (savedExamples.length) playSavedExample(Math.min(savedExampleIndex, savedExamples.length - 1));
+          const providerExamples = examplesForCurrentSource();
+          if (providerExamples.length) playSavedExample(Math.min(savedExampleIndex, providerExamples.length - 1));
           else fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
         }
       } catch (error) {
-        showExampleMessage(error.message || "Не удалось изменить сохранённые видео.", "error");
+        showExampleMessage(error.message || "Не удалось изменить сохранённые примеры.", "error");
         console.error(error);
       } finally {
         el.saveExampleBtn.removeAttribute("aria-busy");
@@ -1847,7 +1906,7 @@
 
     function setExampleMode(mode) {
       if (mode !== "all" && mode !== "saved") return;
-      if (mode === "saved" && !savedExamples.length) return;
+      if (mode === "saved" && !examplesForCurrentSource().length) return;
       exampleMode = mode;
       savedExampleIndex = 0;
       currentYouglishVideoId = "";
@@ -1886,8 +1945,9 @@
 
       hideNoResults();
       el.status.classList.remove("error");
+      const providerExamples = examplesForCurrentSource();
       el.status.textContent = exampleMode === "saved"
-        ? `Сохранённое видео ${savedExampleIndex + 1}/${savedExamples.length} · найдено фрагментов: ${event.totalResult}`
+        ? `Сохранённое видео ${savedExampleIndex + 1}/${providerExamples.length} · найдено фрагментов: ${event.totalResult}`
         : `Найдено примеров: ${event.totalResult} · случайный порядок · акцент: ${accentLabel()}`;
     }
 
@@ -2118,7 +2178,8 @@
     });
 
     el.prevBtn.addEventListener("click", () => {
-      if (state.source === "tatoeba") loadTatoebaTrack(tatoebaIndex - 1, true);
+      if (state.source === "tatoeba" && exampleMode === "saved") playSavedExample(savedExampleIndex - 1);
+      else if (state.source === "tatoeba") loadTatoebaTrack(tatoebaIndex - 1, true);
       else if (exampleMode === "saved") playSavedExample(savedExampleIndex - 1);
       else callWidget("previous");
     });
@@ -2139,7 +2200,8 @@
       }
     });
     el.nextBtn.addEventListener("click", () => {
-      if (state.source === "tatoeba") loadTatoebaTrack(tatoebaIndex + 1, true);
+      if (state.source === "tatoeba" && exampleMode === "saved") playSavedExample(savedExampleIndex + 1);
+      else if (state.source === "tatoeba") loadTatoebaTrack(tatoebaIndex + 1, true);
       else if (exampleMode === "saved") playSavedExample(savedExampleIndex + 1);
       else callWidget("next");
     });
@@ -2156,7 +2218,11 @@
       if (state.source === "tatoeba") el.pauseBtn.textContent = "Слушать";
     });
     el.tatoebaAudio.addEventListener("ended", () => {
-      if (state.source === "tatoeba" && tatoebaTracks.length > 1) loadTatoebaTrack(tatoebaIndex + 1, true);
+      if (state.source === "tatoeba" && exampleMode === "saved" && examplesForCurrentSource().length > 1) {
+        playSavedExample(savedExampleIndex + 1);
+      } else if (state.source === "tatoeba" && tatoebaTracks.length > 1) {
+        loadTatoebaTrack(tatoebaIndex + 1, true);
+      }
     });
     el.tatoebaAudio.addEventListener("error", () => {
       if (state.source === "tatoeba" && el.tatoebaAudio.currentSrc) showWidgetError("Не удалось воспроизвести эту запись Tatoeba.");

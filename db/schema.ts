@@ -21,6 +21,7 @@ export const phraseExamples = sqliteTable("phrase_examples", {
   query: text("query").notNull(),
   caption: text("caption").notNull().default(""),
   accent: text("accent").notNull().default(""),
+  metadata: text("metadata").notNull().default("{}"),
   createdAt: text("created_at").notNull(),
 }, (table) => [
   uniqueIndex("idx_phrase_examples_phrase_provider_external")

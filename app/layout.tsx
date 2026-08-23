@@ -4,6 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Тренажёр связной английской речи",
   description: "Интерактивный тренажёр восприятия связной английской речи с примерами YouGlish.",
+  other: { "codex-preview": "development" },
   openGraph: {
     title: "Тренажёр связной английской речи",
     description: "Слушай. Разбирай. Понимай.",

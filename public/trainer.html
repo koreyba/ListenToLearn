@@ -80,6 +80,39 @@
       padding: 0 12px 40px;
     }
 
+    .viewer-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 18px 0 14px;
+    }
+
+    .back-button {
+      flex: 0 0 auto;
+      background: transparent;
+      color: var(--accent-2);
+    }
+
+    .viewer-heading {
+      min-width: 0;
+    }
+
+    .viewer-heading span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 750;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    .viewer-heading strong {
+      display: block;
+      margin-top: 3px;
+      font-size: clamp(18px, 4vw, 25px);
+      overflow-wrap: anywhere;
+    }
+
     .sticky-stage {
       position: sticky;
       top: 0;
@@ -160,21 +193,12 @@
       font-size: clamp(18px, 5vw, 24px);
       line-height: 1.55;
       overflow-wrap: anywhere;
+      user-select: text;
     }
 
     .caption-word {
       display: inline;
-      min-height: 0;
-      padding: 1px 2px;
-      margin: 0;
-      border: 0;
-      border-radius: 4px;
-      background: transparent;
-      color: inherit;
-      line-height: inherit;
-      cursor: pointer;
     }
-    .caption-word:hover { background: #25303a; }
     .caption-word.query-word {
       color: var(--accent-2);
       text-decoration: underline;
@@ -507,6 +531,25 @@
       display: none;
     }
 
+    .viewer-mode .app { width: min(980px, 100%); }
+    .viewer-mode .sticky-stage {
+      position: static;
+      margin: 0;
+      padding: 0 0 24px;
+      background: transparent;
+      backdrop-filter: none;
+      border-bottom: 0;
+    }
+    .viewer-mode .caption-actions,
+    .viewer-mode .translation-box,
+    .viewer-mode .current,
+    .viewer-mode .toolbar,
+    .viewer-mode .progress,
+    .viewer-mode .list,
+    .viewer-mode .add-box,
+    .viewer-mode .state-box,
+    .viewer-mode footer { display: none !important; }
+
     @media (max-width: 560px) {
       .app { padding-left: 8px; padding-right: 8px; }
       .sticky-stage { margin-left: -8px; margin-right: -8px; padding-left: 8px; padding-right: 8px; }
@@ -524,8 +567,16 @@
     }
   </style>
 </head>
-<body>
+<body class="viewer-mode">
   <main class="app">
+    <header class="viewer-header">
+      <button id="backBtn" class="back-button" type="button">← Назад</button>
+      <div class="viewer-heading">
+        <span>Now listening</span>
+        <strong id="viewerPhrase"></strong>
+      </div>
+    </header>
+
     <section class="sticky-stage" id="playerTop">
       <div class="widget-frame">
         <div id="yg-widget" aria-label="Плеер YouGlish"></div>
@@ -543,7 +594,7 @@
       <div class="caption-box" aria-live="polite">
         <div class="caption-label">
           <span>Субтитры</span>
-          <span>тап по слову = перевод</span>
+          <span>текст можно выделить</span>
         </div>
         <div id="captionText" class="caption-text">Субтитры появятся при воспроизведении.</div>
         <div class="caption-actions">
@@ -1125,19 +1176,15 @@
           continue;
         }
 
-        const cleanWord = normalizeWordForTranslation(part);
-        if (!cleanWord) {
+        if (!normalizeWordForTranslation(part)) {
           el.captionText.appendChild(document.createTextNode(part));
           continue;
         }
 
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "caption-word" + (highlighted ? " query-word" : "");
-        btn.textContent = part;
-        btn.title = `Перевести «${cleanWord}»`;
-        btn.addEventListener("click", () => translateText(cleanWord, `Слово: ${cleanWord}`));
-        el.captionText.appendChild(btn);
+        const span = document.createElement("span");
+        span.className = "caption-word" + (highlighted ? " query-word" : "");
+        span.textContent = part;
+        el.captionText.appendChild(span);
       }
     }
 
@@ -1266,8 +1313,14 @@
       }
     }
 
+    function decodeCaption(raw) {
+      const encoded = String(raw || "").replace(/\+/g, " ");
+      try { return decodeURIComponent(encoded); }
+      catch (_) { return encoded; }
+    }
+
     function onCaptionChange(event) {
-      currentCaptionRaw = String(event && event.caption || "");
+      currentCaptionRaw = decodeCaption(event && event.caption);
       currentCaptionText = cleanCaptionText(currentCaptionRaw);
       renderCaption(currentCaptionRaw);
       hideTranslation();
@@ -1279,7 +1332,7 @@
     }
 
     function onFetchDone(event) {
-      const query = event.query || currentQueryOverride || selectedPhrase().q;
+      const query = event.query || currentQueryOverride || VIEWER_PHRASE;
       if (Number(event.totalResult) === 0) {
         el.status.textContent = "Примеров не найдено.";
         showNoResults(query);
@@ -1326,10 +1379,9 @@
 
     window.onYouglishAPIReady = function onYouglishAPIReady() {
       try {
-        // components = 0: штатный Caption-компонент YouGlish не рисуем;
-        // получаем caption через onCaptionChange и рендерим собственный HTML ниже видео.
+        // Title + controls, without the built-in Caption component.
         widget = new YG.Widget("yg-widget", {
-          components: 0,
+          components: 68,
           autoStart: 1,
           backgroundColor: "#000000",
           textColor: "#d9e2ec",
@@ -1350,7 +1402,7 @@
         // onPlayerReady ниже повторно подтвердит готовность и загрузит текущую фразу.
         widgetReady = true;
         el.status.textContent = "YouGlish API загружен.";
-        fetchPhrase(selectedPhrase().q);
+        fetchPhrase(VIEWER_PHRASE, true);
       } catch (err) {
         showWidgetError("YouGlish API загрузился, но виджет не удалось создать.");
         console.error(err);
@@ -1532,6 +1584,15 @@
     });
 
     el.googleApiKey.value = getGoogleApiKey();
+    const VIEWER_PHRASE = new URLSearchParams(window.location.search).get("phrase")?.trim() || BASE_PHRASES[0].q;
+    el.viewerPhrase = document.getElementById("viewerPhrase");
+    el.backBtn = document.getElementById("backBtn");
+    el.viewerPhrase.textContent = VIEWER_PHRASE;
+    document.title = `${VIEWER_PHRASE} · Connected speech trainer`;
+    el.backBtn.addEventListener("click", () => {
+      if (history.length > 1) history.back();
+      else window.location.href = "/";
+    });
     renderCaption("");
     render();
 

@@ -7,7 +7,7 @@ type Integration = {
   provider: "deepl";
   label: string;
   configured: boolean;
-  source: "integrations" | "worker_secret" | null;
+  source: "integrations" | null;
 };
 type IntegrationsResponse = { integrations?: Integration[]; error?: string };
 
@@ -78,18 +78,17 @@ export default function IntegrationsPage() {
     }
   }
 
-  const sourceText = integration?.source === "worker_secret"
-    ? "Ключ настроен в Cloudflare Worker Secret."
-    : integration?.source === "integrations"
-      ? "Ключ сохранён в зашифрованном виде."
-      : "Ключ пока не настроен.";
+  const sourceText = integration?.source === "integrations"
+    ? "Ключ сохранён в зашифрованном виде только для этого аккаунта."
+    : "Ключ пока не настроен.";
 
   return (
     <main className="integrations-shell">
       <Link className="back-link" href="/">← Назад к библиотеке</Link>
       <p className="eyebrow">Connected speech trainer</p>
       <h1>Integrations</h1>
-      <p className="integrations-intro">Подключайте сервисы, которые помогают учиться. Страница закрыта Cloudflare Access, а ключи не возвращаются в браузер после сохранения.</p>
+      <p className="integrations-intro">Подключайте сервисы, которые помогают учиться. Вход выполняется через Google, а ключи не возвращаются в браузер после сохранения.</p>
+      <a className="account-link" href="/cdn-cgi/access/logout">Выйти</a>
 
       {error && <div className="notice error" role="alert">{error}</div>}
       {notice && <div className="notice success" role="status">{notice}</div>}
@@ -107,23 +106,21 @@ export default function IntegrationsPage() {
         </div>
 
         <p className="integration-source">{sourceText}</p>
-        {integration?.source !== "worker_secret" && (
-          <div className="integration-form">
-            <label htmlFor="deepl-key">DeepL API key</label>
-            <input
-              autoComplete="new-password"
-              id="deepl-key"
-              onChange={(event) => setKey(event.target.value)}
-              placeholder={integration?.configured ? "Введите новый ключ для замены" : "Вставьте ключ DeepL"}
-              type="password"
-              value={key}
-            />
-            <div className="integration-actions">
-              <button disabled={busy || !key.trim()} onClick={() => void saveKey()} type="button">{integration?.configured ? "Заменить ключ" : "Сохранить ключ"}</button>
-              {integration?.configured && <button className="secondary" disabled={busy} onClick={() => void removeKey()} type="button">Удалить</button>}
-            </div>
+        <div className="integration-form">
+          <label htmlFor="deepl-key">DeepL API key</label>
+          <input
+            autoComplete="new-password"
+            id="deepl-key"
+            onChange={(event) => setKey(event.target.value)}
+            placeholder={integration?.configured ? "Введите новый ключ для замены" : "Вставьте ключ DeepL"}
+            type="password"
+            value={key}
+          />
+          <div className="integration-actions">
+            <button disabled={busy || !key.trim()} onClick={() => void saveKey()} type="button">{integration?.configured ? "Заменить ключ" : "Сохранить ключ"}</button>
+            {integration?.configured && <button className="secondary" disabled={busy} onClick={() => void removeKey()} type="button">Удалить</button>}
           </div>
-        )}
+        </div>
         <p className="integration-security">Ключ передаётся по HTTPS, шифруется на Worker через AES-GCM и хранится в D1. В ответах API его нет.</p>
       </section>
     </main>

@@ -1,9 +1,8 @@
-import { env } from "cloudflare:workers";
 import {
-  hasIntegrationSession,
   IntegrationSecretError,
   readIntegrationSecret,
 } from "@/lib/integration-secrets";
+import { getAuthenticatedUser } from "@/lib/auth";
 
 type TranslationResponse = {
   translations?: Array<{ text?: string }>;
@@ -34,23 +33,12 @@ export async function translateEnglishToRussian(
   if (!cleaned.length) return [];
 
   let apiKey: string | undefined;
-  let session = false;
-  if (options.request) {
+  const user = options.request ? getAuthenticatedUser(options.request) : null;
+  if (user) {
     try {
-      session = await hasIntegrationSession(options.request);
+      apiKey = (await readIntegrationSecret(user.subject, "deepl")) || undefined;
     } catch (error) {
       if (!(error instanceof IntegrationSecretError)) throw error;
-    }
-  }
-  if (session) {
-    const { DEEPL_API_KEY } = env as unknown as { DEEPL_API_KEY?: string };
-    apiKey = DEEPL_API_KEY;
-    if (!apiKey) {
-      try {
-        apiKey = (await readIntegrationSecret("deepl", options.request)) || undefined;
-      } catch (error) {
-        if (!(error instanceof IntegrationSecretError)) throw error;
-      }
     }
   }
   if (!apiKey) {

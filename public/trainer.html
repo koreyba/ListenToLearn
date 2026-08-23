@@ -1023,7 +1023,7 @@
       {"q":"d'you know what I mean","p":"[d'you know] [what I mean]","ipa":"dʒənoʊ wʌɾaɪmiːn","tag":"блоки"}
     ].map((item, i) => ({ ...item, id: `base-${i}` }));
 
-    const STORAGE_KEY = "connected-speech-trainer-v1";
+    let STORAGE_KEY = "connected-speech-trainer-v1:anonymous";
     const DEFAULT_STATE = {
       version: 2,
       done: [],
@@ -1180,9 +1180,6 @@
         el.stateMessage.textContent = "Не удалось сохранить состояние в localStorage этого браузера.";
       }
     }
-
-    // Перезаписываем старое состояние без ранее сохранённого кэша переводов.
-    saveState();
 
     function allPhrases() {
       return [...BASE_PHRASES, ...state.custom];
@@ -2560,22 +2557,55 @@
       if (history.length > 1) history.back();
       else window.location.href = "/";
     });
-    renderCaption("");
-    render();
-    renderSource();
-    if (state.source === "tatoeba") fetchPhrase(VIEWER_PHRASE, true);
-    void resolveViewerPhrase();
+    async function initializeTrainer() {
+      try {
+        const response = await fetch("/api/me", { cache: "no-store" });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data || !data.user || typeof data.user.id !== "string") {
+          throw new Error(data && data.error ? data.error : "Не удалось определить пользователя.");
+        }
 
-    // Подключаем официальный YouGlish Widget API.
-    const ygScript = document.createElement("script");
-    ygScript.src = "https://youglish.com/public/emb/widget.js";
-    ygScript.async = true;
-    ygScript.onerror = () => {
-      if (state.source === "youglish") {
-        showWidgetError("Не удалось загрузить YouGlish Widget API. Проверь интернет или блокировщик контента.");
+        STORAGE_KEY = "connected-speech-trainer-v1:" + encodeURIComponent(data.user.id);
+        if (!localStorage.getItem(STORAGE_KEY) && data.user.legacyStateAvailable) {
+          const legacyState = localStorage.getItem("connected-speech-trainer-v1");
+          if (legacyState) {
+            localStorage.setItem(STORAGE_KEY, legacyState);
+            localStorage.removeItem("connected-speech-trainer-v1");
+          }
+        }
+        state = safeLoad();
+        exampleMode = state.exampleMode;
+        exampleOrder = state.exampleOrder;
+        savedExampleSequenceKey = "";
+        saveState();
+      } catch (error) {
+        state = cloneDefaultState();
+        exampleMode = state.exampleMode;
+        exampleOrder = state.exampleOrder;
+        savedExampleSequenceKey = "";
+        el.stateMessage.textContent = "Не удалось загрузить аккаунт. Обнови страницу.";
+        console.error(error);
       }
-    };
-    document.head.appendChild(ygScript);
+
+      renderCaption("");
+      render();
+      renderSource();
+      if (state.source === "tatoeba") fetchPhrase(VIEWER_PHRASE, true);
+      void resolveViewerPhrase();
+
+      // Подключаем официальный YouGlish Widget API после выбора user-scoped state.
+      const ygScript = document.createElement("script");
+      ygScript.src = "https://youglish.com/public/emb/widget.js";
+      ygScript.async = true;
+      ygScript.onerror = () => {
+        if (state.source === "youglish") {
+          showWidgetError("Не удалось загрузить YouGlish Widget API. Проверь интернет или блокировщик контента.");
+        }
+      };
+      document.head.appendChild(ygScript);
+    }
+
+    void initializeTrainer();
   </script>
 </body>
 </html>

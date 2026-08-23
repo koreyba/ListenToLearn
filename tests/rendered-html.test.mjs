@@ -91,13 +91,13 @@ test("DeepL credentials stay in the shared server helper", async () => {
     "utf8",
   );
 
-  assert.match(helper, /env as unknown as \{ DEEPL_API_KEY\?: string \}/);
+  assert.match(helper, /getAuthenticatedUser/);
   assert.match(helper, /Authorization: `DeepL-Auth-Key \$\{apiKey\}`/);
   assert.match(helper, /target_lang: "RU"/);
   assert.match(helper, /AbortController/);
   assert.match(helper, /DEEPL_TIMEOUT_MS/);
-  assert.match(helper, /readIntegrationSecret\("deepl", options\.request\)/);
-  assert.match(helper, /hasIntegrationSession/);
+  assert.match(helper, /readIntegrationSecret\(user\.subject, "deepl"\)/);
+  assert.doesNotMatch(helper, /hasIntegrationSession/);
   assert.match(helper, /request\?: Request/);
 });
 
@@ -114,7 +114,9 @@ test("learning phrases persist and render their translation", async () => {
   assert.match(route, /translateEnglishToRussian/);
   assert.match(route, /optionalTranslationForPhrase/);
   assert.match(route, /translationPending/);
-  assert.match(route, /status != 'pick' AND translation = ''/);
+  assert.match(route, /COALESCE\(progress\.status, 'pick'\) != 'pick'/);
+  assert.match(route, /p\.translation = ''/);
+  assert.match(route, /phrase_progress/);
   assert.match(page, /className="phrase-translation"/);
 });
 
@@ -139,7 +141,7 @@ test("MVP UX persists phrase context and exposes global library sorting", async 
   assert.match(route, /context TEXT NOT NULL DEFAULT ''/);
   assert.match(route, /payload\.context/);
   assert.match(route, /payload\.translation/);
-  assert.match(route, /SELECT id, text, pattern, ipa, translation, context/);
+  assert.match(route, /p\.id, p\.text, p\.pattern, p\.ipa, p\.translation, p\.context/);
   assert.match(schema, /context: text\("context"\)/);
   assert.match(migration, /ALTER TABLE [`]phrases[`] ADD [`]context[`]/);
   assert.match(page, /phrase-sort/);
@@ -196,7 +198,34 @@ test("integrations keep provider keys server-side and expose only status", async
   assert.match(crypto, /crypto\.subtle\.encrypt/);
   assert.match(crypto, /crypto\.subtle\.decrypt/);
   assert.match(schema, /export const integrationSecrets/);
-  assert.match(crypto, /createIntegrationSession/);
-  assert.match(crypto, /HttpOnly/);
-  assert.match(crypto, /SameSite=Lax/);
+  assert.match(crypto, /user_id/);
+  assert.match(crypto, /encryption_version/);
+  assert.match(crypto, /v2:/);
+  assert.doesNotMatch(crypto, /createIntegrationSession/);
+  assert.match(route, /getCurrentUser/);
+  assert.match(route, /unauthorizedResponse/);
+  assert.match(schema, /export const users/);
+  assert.match(schema, /export const phraseProgress/);
+  assert.match(schema, /userId: text\("user_id"\)/);
+});
+
+test("Worker authenticates through Cloudflare Access and strips client identity headers", async () => {
+  const worker = await readFile(
+    new URL("../worker/index.ts", import.meta.url),
+    "utf8",
+  );
+  const context = await readFile(
+    new URL("../lib/user-context.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(worker, /jwtVerify/);
+  assert.match(worker, /Cf-Access-Jwt-Assertion/);
+  assert.match(worker, /ACCESS_TEAM_DOMAIN/);
+  assert.match(worker, /ACCESS_AUD/);
+  assert.match(worker, /headers\.delete\(AUTHENTICATED_USER_HEADER\)/);
+  assert.match(worker, /encodeUserContext/);
+  assert.match(worker, /return unauthorizedResponse\(\)/);
+  assert.match(context, /decodeUserContext/);
+  assert.match(context, /AUTHENTICATED_USER_HEADER/);
 });

@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "listen-to-learn",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-08-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "listen-to-learn-db",
+      "database_id": "27fe4c19-48ce-4047-b5d5-f486cb9dc23c",
+      "migrations_dir": "./drizzle"
+    }
+  ]
+}

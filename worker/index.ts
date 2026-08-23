@@ -1,6 +1,7 @@
 /** Cloudflare Worker entry point for the Listen to Learn application. */
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { guestLoginRedirect, isPublicGuestRequest } from "@/lib/guest-access";
 import { AUTHENTICATED_USER_HEADER, encodeUserContext } from "@/lib/user-context";
 
 interface ExecutionContext {
@@ -81,12 +82,20 @@ function unauthorizedResponse() {
 const worker = {
   async fetch(request: Request, env: AccessEnv, ctx: ExecutionContext): Promise<Response> {
     const identity = await verifyAccessIdentity(request, env);
-    if (!identity) return unauthorizedResponse();
-
     const headers = new Headers(request.headers);
     headers.delete("Cf-Access-Jwt-Assertion");
     headers.delete("Cf-Access-Authenticated-User-Email");
     headers.delete(AUTHENTICATED_USER_HEADER);
+
+    if (!identity) {
+      if (!isPublicGuestRequest(request)) return unauthorizedResponse();
+      return handler.fetch(new Request(request, { headers }), env, ctx);
+    }
+
+    if (new URL(request.url).pathname === "/login") {
+      return Response.redirect(guestLoginRedirect(request), 303);
+    }
+
     headers.set(AUTHENTICATED_USER_HEADER, encodeUserContext(identity));
     return handler.fetch(new Request(request, { headers }), env, ctx);
   },

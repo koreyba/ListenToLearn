@@ -93,6 +93,17 @@
       color: var(--accent-2);
     }
 
+    .viewer-account-link {
+      flex: 0 0 auto;
+      margin-left: auto;
+      color: var(--accent-2);
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .viewer-account-link:hover { text-decoration: underline; }
+
     .viewer-heading {
       min-width: 0;
     }
@@ -784,6 +795,7 @@
         <span>Now listening</span>
         <strong id="viewerPhrase"></strong>
       </div>
+      <a id="loginLink" class="viewer-account-link" href="/login">Войти через Google</a>
     </header>
 
     <section class="sticky-stage" id="playerTop">
@@ -1054,6 +1066,9 @@
     let currentYouglishVideoId = "";
     let savedExamples = [];
     let savedExampleIndex = 0;
+    let isAuthenticated = false;
+    let trainerReady = false;
+    let guestLibrary = createGuestLibrary();
     let exampleMode = "all";
     let exampleOrder = "random";
     let savedExampleSequenceKey = "";
@@ -1124,6 +1139,7 @@
       importBtn: document.getElementById("importBtn"),
       importFile: document.getElementById("importFile"),
       stateMessage: document.getElementById("stateMessage"),
+      loginLink: document.getElementById("loginLink"),
       playerTop: document.getElementById("playerTop"),
       prevCaptionBtn: document.getElementById("prevCaptionBtn"),
       nextCaptionBtn: document.getElementById("nextCaptionBtn"),
@@ -1178,6 +1194,235 @@
             }))
         : [];
       return s;
+    }
+
+    const GUEST_LIBRARY_STORAGE_KEY = "listen-to-learn-guest-library-v1";
+    const GUEST_STATUSES = new Set(["pick", "to_learn", "learning_now", "learnt"]);
+    const GUEST_PROVIDERS = new Set(["youglish", "tatoeba"]);
+
+    function createGuestLibrary() {
+      return { version: 1, statuses: {}, customPhrases: [], savedExamples: [] };
+    }
+
+    function guestText(value, limit) {
+      return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, limit) : "";
+    }
+
+    function guestTimestamp(value) {
+      return typeof value === "string" && !Number.isNaN(Date.parse(value)) ? value : new Date().toISOString();
+    }
+
+    function guestId(prefix) {
+      const uuid = window.crypto && typeof window.crypto.randomUUID === "function"
+        ? window.crypto.randomUUID()
+        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      return `${prefix}-${uuid}`;
+    }
+
+    function safeLoadGuestLibrary() {
+      const empty = createGuestLibrary();
+      try {
+        const raw = localStorage.getItem(GUEST_LIBRARY_STORAGE_KEY);
+        if (!raw) return empty;
+        const parsed = JSON.parse(raw) || {};
+        const statuses = {};
+        Object.entries(parsed.statuses && typeof parsed.statuses === "object" ? parsed.statuses : {})
+          .slice(0, 500)
+          .forEach(([key, value]) => {
+            const id = guestText(key, 120);
+            if (id && GUEST_STATUSES.has(value)) statuses[id] = value;
+          });
+        const customPhrases = Array.isArray(parsed.customPhrases)
+          ? parsed.customPhrases.slice(0, 200).flatMap((item) => {
+              if (!item || typeof item !== "object") return [];
+              const id = guestText(item.id, 120);
+              const text = guestText(item.text, 240);
+              if (!id || !text) return [];
+              return [{
+                id,
+                text,
+                pattern: guestText(item.pattern, 600) || `[${text}]`,
+                ipa: guestText(item.ipa, 240),
+                context: guestText(item.context, 1_000),
+                translation: guestText(item.translation, 1_000),
+                status: GUEST_STATUSES.has(item.status) ? item.status : "to_learn",
+                createdAt: guestTimestamp(item.createdAt),
+                updatedAt: guestTimestamp(item.updatedAt)
+              }];
+            })
+          : [];
+        const savedExamples = Array.isArray(parsed.savedExamples)
+          ? parsed.savedExamples.slice(0, 500).flatMap((item) => {
+              if (!item || typeof item !== "object") return [];
+              const id = guestText(item.id, 160);
+              const phraseId = guestText(item.phraseId, 120);
+              const provider = item.provider;
+              const externalId = guestText(item.externalId, 120);
+              const query = guestText(item.query, 240);
+              if (!id || !phraseId || !GUEST_PROVIDERS.has(provider) || !externalId || !query) return [];
+              const metadata = {};
+              if (item.metadata && typeof item.metadata === "object") {
+                Object.entries(item.metadata).slice(0, 8).forEach(([key, value]) => {
+                  const safeKey = guestText(key, 80);
+                  const safeValue = guestText(value, 500);
+                  if (safeKey && safeValue) metadata[safeKey] = safeValue;
+                });
+              }
+              return [{
+                id,
+                phraseId,
+                provider,
+                externalId,
+                query,
+                caption: guestText(item.caption, 1_000),
+                accent: guestText(item.accent, 20),
+                metadata,
+                createdAt: guestTimestamp(item.createdAt)
+              }];
+            })
+          : [];
+        return { version: 1, statuses, customPhrases, savedExamples };
+      } catch (error) {
+        console.warn("Не удалось прочитать пробную библиотеку:", error);
+        if (el.stateMessage) el.stateMessage.textContent = "Не удалось прочитать пробную библиотеку; начинаем с чистого состояния.";
+        return empty;
+      }
+    }
+
+    function saveGuestLibrary() {
+      try {
+        localStorage.setItem(GUEST_LIBRARY_STORAGE_KEY, JSON.stringify(guestLibrary));
+      } catch (error) {
+        el.stateMessage.textContent = "Не удалось сохранить пробную библиотеку в localStorage этого браузера.";
+      }
+    }
+
+    function guestPhraseRecord(id) {
+      const phraseId = guestText(id, 120);
+      const presetMatch = /^(?:preset|base)-(\d+)$/.exec(phraseId);
+      if (presetMatch) {
+        const index = Number(presetMatch[1]);
+        const phrase = BASE_PHRASES[index];
+        if (phrase) return { id: `preset-${index}`, ...phrase, source: "preset" };
+      }
+      const custom = guestLibrary.customPhrases.find((phrase) => phrase.id === phraseId);
+      return custom ? {
+        id: custom.id,
+        q: custom.text,
+        p: custom.pattern,
+        ipa: custom.ipa,
+        context: custom.context,
+        translation: custom.translation,
+        status: custom.status,
+        custom: true,
+        source: "custom"
+      } : null;
+    }
+
+    function guestPhraseByText(text) {
+      const normalized = guestText(text, 240).toLocaleLowerCase("en");
+      if (!normalized) return null;
+      const preset = BASE_PHRASES.find((phrase) => phrase.q.toLocaleLowerCase("en") === normalized);
+      if (preset) {
+        const index = BASE_PHRASES.indexOf(preset);
+        return guestPhraseRecord(`preset-${index}`);
+      }
+      const custom = guestLibrary.customPhrases.find((phrase) => phrase.text.toLocaleLowerCase("en") === normalized);
+      return custom ? guestPhraseRecord(custom.id) : null;
+    }
+
+    function guestPhraseStatus(phraseId) {
+      const phrase = guestPhraseRecord(phraseId);
+      if (!phrase) return "";
+      return phrase.source === "custom" ? phrase.status : guestLibrary.statuses[phrase.id] || "pick";
+    }
+
+    function setGuestPhraseStatus(phraseId, status) {
+      if (!GUEST_STATUSES.has(status)) return;
+      const id = guestText(phraseId, 120);
+      if (!id) return;
+      guestLibrary.statuses[id] = status;
+      guestLibrary.customPhrases = guestLibrary.customPhrases.map((phrase) =>
+        phrase.id === id ? { ...phrase, status, updatedAt: new Date().toISOString() } : phrase
+      );
+    }
+
+    function addGuestPhrase(text, context = "", translation = "") {
+      const phraseText = guestText(text, 240);
+      if (!phraseText) return { id: "", created: false };
+      const existing = guestPhraseByText(phraseText);
+      if (existing) {
+        setGuestPhraseStatus(existing.id, existing.source === "custom" && existing.status !== "pick" ? existing.status : "to_learn");
+        return { id: existing.id, created: false, status: guestPhraseStatus(existing.id) };
+      }
+      const timestamp = new Date().toISOString();
+      const phrase = {
+        id: guestId("guest-custom"),
+        text: phraseText,
+        pattern: `[${phraseText}]`,
+        ipa: "",
+        context: guestText(context, 1_000),
+        translation: guestText(translation, 1_000),
+        status: "to_learn",
+        createdAt: timestamp,
+        updatedAt: timestamp
+      };
+      guestLibrary.customPhrases = [phrase, ...guestLibrary.customPhrases].slice(0, 200);
+      return { id: phrase.id, created: true, status: phrase.status };
+    }
+
+    function guestSavedExamplesForCurrentPhrase() {
+      return guestLibrary.savedExamples
+        .filter((example) => example.phraseId === VIEWER_PHRASE_ID)
+        .map((example) => ({
+          id: example.id,
+          phraseId: example.phraseId,
+          provider: example.provider,
+          external_id: example.externalId,
+          query: example.query,
+          caption: example.caption,
+          accent: example.accent,
+          metadata: example.metadata,
+          created_at: example.createdAt
+        }));
+    }
+
+    function toggleGuestSavedExample(input) {
+      const phraseId = guestText(input.phraseId, 120);
+      const provider = input.provider;
+      const externalId = guestText(input.externalId, 120);
+      const query = guestText(input.query, 240);
+      if (!phraseId || !GUEST_PROVIDERS.has(provider) || !externalId || !query) {
+        return { saved: false, example: null };
+      }
+      const existing = guestLibrary.savedExamples.find((example) =>
+        example.phraseId === phraseId && example.provider === provider && example.externalId === externalId
+      );
+      if (existing) {
+        guestLibrary.savedExamples = guestLibrary.savedExamples.filter((example) => example.id !== existing.id);
+        return { saved: false, example: existing };
+      }
+      const metadata = {};
+      if (input.metadata && typeof input.metadata === "object") {
+        Object.entries(input.metadata).slice(0, 8).forEach(([key, value]) => {
+          const safeKey = guestText(key, 80);
+          const safeValue = guestText(value, 500);
+          if (safeKey && safeValue) metadata[safeKey] = safeValue;
+        });
+      }
+      const example = {
+        id: guestId("guest-example"),
+        phraseId,
+        provider,
+        externalId,
+        query,
+        caption: guestText(input.caption, 1_000),
+        accent: guestText(input.accent, 20),
+        metadata,
+        createdAt: new Date().toISOString()
+      };
+      guestLibrary.savedExamples = [example, ...guestLibrary.savedExamples].slice(0, 500);
+      return { saved: true, example };
     }
 
     let state = safeLoad();
@@ -1479,6 +1724,13 @@
         return;
       }
 
+      if (!isAuthenticated) {
+        savedExamples = guestSavedExamplesForCurrentPhrase();
+        savedExampleIndex = Math.min(savedExampleIndex, Math.max(0, examplesForCurrentSource().length - 1));
+        renderExampleTools();
+        return;
+      }
+
       try {
         const response = await fetch(`/api/examples?phraseId=${encodeURIComponent(VIEWER_PHRASE_ID)}`, { cache: "no-store" });
         const data = await response.json().catch(() => null);
@@ -1496,6 +1748,25 @@
         showExampleMessage("Не удалось загрузить сохранённые примеры.", "error");
         console.error(error);
       }
+    }
+
+    async function resolveGuestViewerPhrase() {
+      const phraseAtRequest = VIEWER_PHRASE;
+      const requested = guestPhraseRecord(VIEWER_PHRASE_ID);
+      const normalized = phraseAtRequest.toLocaleLowerCase("en");
+      const phrase = requested && requested.q.toLocaleLowerCase("en") === normalized
+        ? requested
+        : guestPhraseByText(phraseAtRequest);
+      if (phraseAtRequest !== VIEWER_PHRASE) return;
+
+      VIEWER_PHRASE_ID = phrase ? phrase.id : "";
+      VIEWER_PHRASE_STATUS = phrase ? guestPhraseStatus(phrase.id) : "";
+      const url = new URL(window.location.href);
+      if (VIEWER_PHRASE_ID) url.searchParams.set("phraseId", VIEWER_PHRASE_ID);
+      else url.searchParams.delete("phraseId");
+      history.replaceState(null, "", url);
+      showExampleMessage("");
+      await loadSavedExamples();
     }
 
     async function resolveViewerPhrase() {
@@ -2079,8 +2350,16 @@
     async function translateText(text, sourceLabel, context = currentCaptionText) {
       const source = String(text || "").trim();
       if (!source) return;
+      if (!trainerReady) {
+        showTranslation(sourceLabel, "Проверяю вход через Google…", "loading");
+        return;
+      }
 
       lastTranslation = { source, context: cleanCaptionText(context), translation: "" };
+      if (!isAuthenticated) {
+        showTranslation(sourceLabel, "Войди через Google, чтобы переводить с личным DeepL-ключом.", "error");
+        return;
+      }
       showTranslation(sourceLabel, "Перевожу…", "loading");
 
       try {
@@ -2169,17 +2448,43 @@
       showExampleMessage("");
       renderExampleTools();
       fetchPhrase(query, true);
-      void resolveViewerPhrase();
+      void (isAuthenticated ? resolveViewerPhrase() : resolveGuestViewerPhrase());
     }
 
     async function addTextToLearn(text, context = currentCaptionText, translation = "") {
       const phrase = cleanCaptionText(text).slice(0, 240);
       if (!phrase) return;
+      if (!trainerReady) {
+        showSelectionMessage("Проверяю вход через Google…");
+        return;
+      }
       const sourceContext = cleanCaptionText(context).slice(0, 1_000);
       const availableTranslation = cleanCaptionText(translation).slice(0, 1_000);
       el.addSelectionBtn.disabled = true;
       showSelectionMessage("Добавляю в To Learn…");
       try {
+        if (!isAuthenticated) {
+          const result = addGuestPhrase(phrase, sourceContext, availableTranslation);
+          if (!result.id) throw new Error("Фраза не указана.");
+          saveGuestLibrary();
+          const labels = { to_learn: "To Learn", learning_now: "Learning Now", learnt: "Learnt" };
+          const statusLabel = labels[result.status] || "To Learn";
+          const message = result.created
+            ? `Добавлено в ${statusLabel}. В пробном режиме перевод сохранён только если он уже был получен.`
+            : `Фраза уже находится в ${statusLabel}.`;
+          showSelectionMessage(message, "ok");
+          if (phrase.toLocaleLowerCase("en") === VIEWER_PHRASE.toLocaleLowerCase("en")) {
+            VIEWER_PHRASE_ID = result.id;
+            VIEWER_PHRASE_STATUS = result.status || "to_learn";
+            const url = new URL(window.location.href);
+            url.searchParams.set("phraseId", VIEWER_PHRASE_ID);
+            history.replaceState(null, "", url);
+            showExampleMessage("");
+            await loadSavedExamples();
+          }
+          return;
+        }
+
         const response = await fetch("/api/phrases", {
           method: "POST",
           headers: { "Content-Type": "application/json; charset=utf-8" },
@@ -2218,6 +2523,10 @@
     }
 
     async function toggleSavedExample() {
+      if (!trainerReady) {
+        showExampleMessage("Проверяю вход через Google…");
+        return;
+      }
       const tatoebaTrack = currentTatoebaTrack();
       const externalId = state.source === "youglish"
         ? currentYouglishVideoId
@@ -2235,28 +2544,47 @@
       showExampleMessage(existing ? `Убираю ${itemLabel} из сохранённых…` : shouldPromote ? `Добавляю фразу в To Learn и сохраняю ${itemLabel}…` : `Сохраняю ${itemLabel}…`);
 
       try {
-        const response = existing
-          ? await fetch(`/api/examples?id=${encodeURIComponent(existing.id)}`, { method: "DELETE" })
-          : await fetch("/api/examples", {
-              method: "POST",
-              headers: { "Content-Type": "application/json; charset=utf-8" },
-              body: JSON.stringify({
-                phraseId: VIEWER_PHRASE_ID,
-                provider: state.source,
-                externalId,
-                query: currentQueryOverride || VIEWER_PHRASE,
-                caption: currentCaptionText,
-                accent: state.source === "youglish" ? state.accent : "",
-                metadata: state.source === "tatoeba" && tatoebaTrack ? {
-                  sentenceId: String(tatoebaTrack.sentenceId || ""),
-                  author: tatoebaTrack.author || "",
-                  license: tatoebaTrack.license || "",
-                  attributionUrl: tatoebaTrack.attributionUrl || ""
-                } : {}
-              })
-            });
-        const data = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
+        if (!isAuthenticated) {
+          toggleGuestSavedExample({
+            phraseId: VIEWER_PHRASE_ID,
+            provider: state.source,
+            externalId,
+            query: currentQueryOverride || VIEWER_PHRASE,
+            caption: currentCaptionText,
+            accent: state.source === "youglish" ? state.accent : "",
+            metadata: state.source === "tatoeba" && tatoebaTrack ? {
+              sentenceId: String(tatoebaTrack.sentenceId || ""),
+              author: tatoebaTrack.author || "",
+              license: tatoebaTrack.license || "",
+              attributionUrl: tatoebaTrack.attributionUrl || ""
+            } : {}
+          });
+          if (shouldPromote) setGuestPhraseStatus(VIEWER_PHRASE_ID, "to_learn");
+          saveGuestLibrary();
+        } else {
+          const response = existing
+            ? await fetch(`/api/examples?id=${encodeURIComponent(existing.id)}`, { method: "DELETE" })
+            : await fetch("/api/examples", {
+                method: "POST",
+                headers: { "Content-Type": "application/json; charset=utf-8" },
+                body: JSON.stringify({
+                  phraseId: VIEWER_PHRASE_ID,
+                  provider: state.source,
+                  externalId,
+                  query: currentQueryOverride || VIEWER_PHRASE,
+                  caption: currentCaptionText,
+                  accent: state.source === "youglish" ? state.accent : "",
+                  metadata: state.source === "tatoeba" && tatoebaTrack ? {
+                    sentenceId: String(tatoebaTrack.sentenceId || ""),
+                    author: tatoebaTrack.author || "",
+                    license: tatoebaTrack.license || "",
+                    attributionUrl: tatoebaTrack.attributionUrl || ""
+                  } : {}
+                })
+              });
+          const data = await response.json().catch(() => null);
+          if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
+        }
         if (shouldPromote) VIEWER_PHRASE_STATUS = "to_learn";
         await loadSavedExamples();
         showExampleMessage(savedMessage);
@@ -2749,41 +3077,91 @@
       if (history.length > 1) history.back();
       else window.location.href = "/";
     });
-    async function initializeTrainer() {
-      try {
-        const response = await fetch("/api/me", { cache: "no-store" });
-        const data = await response.json().catch(() => null);
-        if (!response.ok || !data || !data.user || typeof data.user.id !== "string") {
-          throw new Error(data && data.error ? data.error : "Не удалось определить пользователя.");
-        }
 
-        STORAGE_KEY = "connected-speech-trainer-v1:" + encodeURIComponent(data.user.id);
-        if (!localStorage.getItem(STORAGE_KEY) && data.user.legacyStateAvailable) {
-          const legacyState = localStorage.getItem("connected-speech-trainer-v1");
-          if (legacyState) {
-            localStorage.setItem(STORAGE_KEY, legacyState);
-            localStorage.removeItem("connected-speech-trainer-v1");
-          }
-        }
-        state = safeLoad();
-        exampleMode = state.exampleMode;
-        exampleOrder = state.exampleOrder;
-        savedExampleSequenceKey = "";
-        saveState();
-      } catch (error) {
+    function clearAuthHint() {
+      try { localStorage.removeItem("listen-to-learn-authenticated-v1"); } catch (_) {}
+    }
+
+    function updateAuthLink() {
+      if (!el.loginLink) return;
+      if (isAuthenticated) {
+        el.loginLink.textContent = "Выйти";
+        el.loginLink.href = "/cdn-cgi/access/logout";
+        el.loginLink.onclick = clearAuthHint;
+      } else {
+        el.loginLink.textContent = "Войти через Google";
+        el.loginLink.href = "/login";
+        el.loginLink.onclick = null;
+      }
+    }
+
+    window.addEventListener("storage", event => {
+      if (!trainerReady || isAuthenticated) return;
+      if (event.key === GUEST_LIBRARY_STORAGE_KEY) {
+        guestLibrary = safeLoadGuestLibrary();
+        VIEWER_PHRASE_STATUS = guestPhraseStatus(VIEWER_PHRASE_ID);
+        void loadSavedExamples();
+        renderExampleTools();
+      } else if (event.key === "connected-speech-trainer-v1:anonymous" && event.newValue === null) {
         state = cloneDefaultState();
         exampleMode = state.exampleMode;
         exampleOrder = state.exampleOrder;
         savedExampleSequenceKey = "";
-        el.stateMessage.textContent = "Не удалось загрузить аккаунт. Обнови страницу.";
-        console.error(error);
+        render();
+        renderSource();
       }
+    });
+
+    async function initializeTrainer() {
+      let authHint = false;
+      try { authHint = localStorage.getItem("listen-to-learn-authenticated-v1") === "1"; } catch (_) {}
+
+      if (authHint) {
+        try {
+          const response = await fetch("/api/me", { cache: "no-store", redirect: "manual" });
+          const data = await response.json().catch(() => null);
+          if (response.type === "opaqueredirect" || !response.ok || !data || !data.user || typeof data.user.id !== "string") {
+            throw new Error("account session unavailable");
+          }
+
+          isAuthenticated = true;
+          STORAGE_KEY = "connected-speech-trainer-v1:" + encodeURIComponent(data.user.id);
+          if (!localStorage.getItem(STORAGE_KEY) && data.user.legacyStateAvailable) {
+            const legacyState = localStorage.getItem("connected-speech-trainer-v1");
+            if (legacyState) {
+              localStorage.setItem(STORAGE_KEY, legacyState);
+              localStorage.removeItem("connected-speech-trainer-v1");
+            }
+          }
+          state = safeLoad();
+          exampleMode = state.exampleMode;
+          exampleOrder = state.exampleOrder;
+          savedExampleSequenceKey = "";
+          saveState();
+        } catch (_) {
+          clearAuthHint();
+          isAuthenticated = false;
+        }
+      }
+
+      if (!isAuthenticated) {
+        STORAGE_KEY = "connected-speech-trainer-v1:anonymous";
+        guestLibrary = safeLoadGuestLibrary();
+        state = safeLoad();
+        exampleMode = state.exampleMode;
+        exampleOrder = state.exampleOrder;
+        savedExampleSequenceKey = "";
+        el.stateMessage.textContent = "Пробный режим: прогресс хранится только в этом браузере.";
+      }
+
+      trainerReady = true;
+      updateAuthLink();
 
       renderCaption("");
       render();
       renderSource();
       if (state.source === "tatoeba") fetchPhrase(VIEWER_PHRASE, true);
-      void resolveViewerPhrase();
+      void (isAuthenticated ? resolveViewerPhrase() : resolveGuestViewerPhrase());
 
       // Подключаем официальный YouGlish Widget API после выбора user-scoped state.
       const ygScript = document.createElement("script");

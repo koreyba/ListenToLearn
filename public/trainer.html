@@ -303,15 +303,41 @@
       overflow-wrap: anywhere;
     }
     .tatoeba-timeline {
-      height: 7px;
-      overflow: hidden;
+      appearance: none;
+      display: block;
+      width: 100%;
+      height: 20px;
+      margin: 0;
+      padding: 6px 0;
+      border: 0;
       border-radius: 999px;
-      background: #29313b;
+      background: transparent;
       cursor: pointer;
     }
-    .tatoeba-progress {
-      width: 0;
-      height: 100%;
+    .tatoeba-timeline::-webkit-slider-runnable-track {
+      height: 7px;
+      border-radius: 999px;
+      background: linear-gradient(to right, var(--accent) var(--progress, 0%), #29313b var(--progress, 0%));
+    }
+    .tatoeba-timeline::-moz-range-track {
+      height: 7px;
+      border-radius: 999px;
+      background: linear-gradient(to right, var(--accent) var(--progress, 0%), #29313b var(--progress, 0%));
+    }
+    .tatoeba-timeline::-webkit-slider-thumb {
+      appearance: none;
+      width: 14px;
+      height: 14px;
+      margin-top: -3.5px;
+      border: 0;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+    .tatoeba-timeline::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border: 0;
+      border-radius: 50%;
       background: var(--accent);
     }
     .tatoeba-meta {
@@ -715,6 +741,18 @@
 
     .row > * { flex: 0 0 auto; }
 
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
     .grow {
       flex: 1 1 220px !important;
       min-width: 0;
@@ -732,6 +770,10 @@
       border-radius: 12px;
       padding: 3px;
       gap: 3px;
+    }
+    fieldset.segmented {
+      min-inline-size: 0;
+      margin: 0;
     }
     .segmented button {
       min-height: 34px;
@@ -1022,10 +1064,10 @@
       <div class="learning-workspace">
         <div class="source-row">
           <span>Example source</span>
-          <div id="sourceSwitch" class="segmented" role="group" aria-label="Example source">
+          <fieldset id="sourceSwitch" class="segmented" aria-label="Example source">
             <button type="button" data-source="tatoeba">Tatoeba</button>
             <button type="button" data-source="youglish">YouGlish</button>
-          </div>
+          </fieldset>
         </div>
 
         <div id="playerControls" class="player-controls" aria-label="Player navigation and controls">
@@ -1076,7 +1118,7 @@
 
         <div id="exampleTools" class="example-tools" hidden>
           <div class="example-settings">
-            <div id="exampleMode" class="segmented example-mode" role="group" aria-label="Example mode">
+            <fieldset id="exampleMode" class="segmented example-mode" aria-label="Example mode">
               <button type="button" data-example-mode="all" aria-label="All examples" title="All examples">
                 <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M5 6h14M5 12h14M5 18h14" /></svg></span>
                 <span class="button-label">All</span>
@@ -1085,8 +1127,8 @@
                 <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M6 4h12v16l-6-3-6 3V4z" /></svg></span>
                 <span class="button-label">Saved</span> <span id="savedExampleCount" class="example-count">0</span>
               </button>
-            </div>
-            <div id="exampleOrder" class="segmented example-order" role="group" aria-label="Example order">
+            </fieldset>
+            <fieldset id="exampleOrder" class="segmented example-order" aria-label="Example order">
               <button type="button" data-example-order="random" aria-label="Random order" title="Random order">
                 <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M3 6h3c4 0 5 12 9 12h6M18 15l3 3-3 3M3 18h3c1.4 0 2.5-1.2 3.3-2.5M18 3l3 3-3 3" /></svg></span>
                 <span class="button-label">Random</span>
@@ -1095,7 +1137,7 @@
                 <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M5 6h14M5 12h14M5 18h14" /></svg></span>
                 <span class="button-label">In order</span>
               </button>
-            </div>
+            </fieldset>
           </div>
           <button id="saveExampleBtn" class="save-example-btn" type="button" aria-label="Save current example" title="Save current example" disabled>
             <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3z" /></svg></span>
@@ -1156,9 +1198,7 @@
           <div id="tatoebaPlayer" class="tatoeba-player" hidden aria-label="Tatoeba audio player">
             <div class="tatoeba-kicker">Human-recorded audio</div>
             <div id="tatoebaSentence" class="tatoeba-sentence">Looking for a matching recording…</div>
-            <div id="tatoebaTimeline" class="tatoeba-timeline" role="slider" aria-label="Audio position" tabindex="0">
-              <div id="tatoebaProgress" class="tatoeba-progress"></div>
-            </div>
+            <input id="tatoebaTimeline" class="tatoeba-timeline" type="range" min="0" max="100" step="1" value="0" aria-label="Audio position" />
             <div class="tatoeba-meta">
               <span id="tatoebaTime">0:00 / 0:00</span>
               <a id="tatoebaAttribution" href="https://tatoeba.org/" target="_blank" rel="noopener noreferrer">Tatoeba</a>
@@ -1198,11 +1238,11 @@
 
       <div class="row">
         <span style="color:var(--muted); font-size:13px;">Accent</span>
-        <div class="segmented" id="accentSwitch" role="group" aria-label="Accent">
+        <fieldset class="segmented" id="accentSwitch" aria-label="Accent">
           <button type="button" data-accent="us">US</button>
           <button type="button" data-accent="uk">UK</button>
           <button type="button" data-accent="">Any</button>
-        </div>
+        </fieldset>
 
         <label class="toggle">
           <input id="blindMode" type="checkbox" />
@@ -1225,6 +1265,7 @@
     <section class="add-box">
       <h2 class="section-title">Add your own phrase</h2>
       <div class="row">
+        <label class="visually-hidden" for="customPhrase">Custom phrase</label>
         <input id="customPhrase" class="grow" type="text" placeholder="For example: I should have told him" autocomplete="off" />
         <button id="addPhraseBtn" type="button">Add</button>
       </div>
@@ -1382,7 +1423,6 @@
       tatoebaPlayer: document.getElementById("tatoebaPlayer"),
       tatoebaSentence: document.getElementById("tatoebaSentence"),
       tatoebaTimeline: document.getElementById("tatoebaTimeline"),
-      tatoebaProgress: document.getElementById("tatoebaProgress"),
       tatoebaTime: document.getElementById("tatoebaTime"),
       tatoebaAttribution: document.getElementById("tatoebaAttribution"),
       tatoebaAudio: document.getElementById("tatoebaAudio"),
@@ -2146,9 +2186,10 @@
       const duration = el.tatoebaAudio.duration;
       const current = el.tatoebaAudio.currentTime;
       const progress = Number.isFinite(duration) && duration > 0 ? (current / duration) * 100 : 0;
-      el.tatoebaProgress.style.width = `${Math.min(100, Math.max(0, progress))}%`;
+      const boundedProgress = Math.min(100, Math.max(0, progress));
+      el.tatoebaTimeline.value = String(Math.round(boundedProgress));
+      el.tatoebaTimeline.style.setProperty("--progress", `${boundedProgress}%`);
       el.tatoebaTime.textContent = `${formatAudioTime(current)} / ${formatAudioTime(duration)}`;
-      el.tatoebaTimeline.setAttribute("aria-valuenow", String(Math.round(progress)));
     }
 
     function markQueryInSentence(sentence, query) {
@@ -2422,9 +2463,10 @@
       hideNoResults();
       el.status.classList.remove("error");
       const providerExamples = examplesForCurrentSource();
+      const orderLabel = exampleOrder === "random" ? "random order" : "in order";
       el.status.textContent = usingSavedExamples()
         ? `Saved track ${savedExampleIndex + 1}/${providerExamples.length} · Tatoeba`
-        : `Audio examples found: ${tatoebaTracks.length} · ${exampleOrder === "random" ? "random order" : "in order"} · example ${tatoebaIndex + 1}/${tatoebaTracks.length} · Tatoeba`;
+        : `Audio examples found: ${tatoebaTracks.length} · ${orderLabel} · example ${tatoebaIndex + 1}/${tatoebaTracks.length} · Tatoeba`;
       renderExampleTools();
       if (autoplay) playTatoeba();
     }
@@ -2471,9 +2513,10 @@
       }
 
       el.status.classList.remove("error");
+      const orderLabel = exampleOrder === "random" ? "random" : "sequential";
       el.status.textContent = savedLabel
         ? `Finding “${displayQuery}” in ${savedLabel}…`
-        : `Finding ${exampleOrder === "random" ? "random" : "sequential"} examples: “${displayQuery}” · accent: ${accentLabel()}…`;
+        : `Finding ${orderLabel} examples: “${displayQuery}” · accent: ${accentLabel()}…`;
 
       try {
         if (state.accent) widget.fetch(query, "english", state.accent);
@@ -2853,12 +2896,18 @@
       const shouldPromote = !existing && VIEWER_PHRASE_STATUS === "pick";
       const wasSavedMode = usingSavedExamples();
       const itemLabel = state.source === "tatoeba" ? "track" : "video";
-      const savedMessage = state.source === "tatoeba"
-        ? (existing ? "Track removed from saved examples." : shouldPromote ? "Track saved; phrase added to To Learn." : "Track saved for this phrase.")
-        : (existing ? "Video removed from saved examples." : shouldPromote ? "Video saved; phrase added to To Learn." : "Video saved for this phrase.");
+      const mediaLabel = state.source === "tatoeba" ? "Track" : "Video";
+      let savedMessage;
+      if (existing) savedMessage = `${mediaLabel} removed from saved examples.`;
+      else if (shouldPromote) savedMessage = `${mediaLabel} saved; phrase added to To Learn.`;
+      else savedMessage = `${mediaLabel} saved for this phrase.`;
       el.saveExampleBtn.disabled = true;
       el.saveExampleBtn.setAttribute("aria-busy", "true");
-      showExampleMessage(existing ? `Removing ${itemLabel} from saved examples…` : shouldPromote ? `Adding phrase to To Learn and saving ${itemLabel}…` : `Saving ${itemLabel}…`);
+      let savingMessage;
+      if (existing) savingMessage = `Removing ${itemLabel} from saved examples…`;
+      else if (shouldPromote) savingMessage = `Adding phrase to To Learn and saving ${itemLabel}…`;
+      else savingMessage = `Saving ${itemLabel}…`;
+      showExampleMessage(savingMessage);
 
       try {
         if (!isAuthenticated) {
@@ -3012,9 +3061,10 @@
       hideNoResults();
       el.status.classList.remove("error");
       const providerExamples = examplesForCurrentSource();
+      const orderLabel = exampleOrder === "random" ? "random order" : "in order";
       el.status.textContent = usingSavedExamples()
         ? `Saved video ${savedExampleIndex + 1}/${providerExamples.length} · clips found: ${event.totalResult}`
-        : `Examples found: ${event.totalResult} · ${exampleOrder === "random" ? "random order" : "in order"} · accent: ${accentLabel()}`;
+        : `Examples found: ${event.totalResult} · ${orderLabel} · accent: ${accentLabel()}`;
     }
 
     function onVideoChange(event) {
@@ -3323,18 +3373,10 @@
     el.tatoebaAudio.addEventListener("error", () => {
       if (state.source === "tatoeba" && el.tatoebaAudio.currentSrc) showWidgetError("Could not play this Tatoeba recording.");
     });
-    el.tatoebaTimeline.addEventListener("click", event => {
+    el.tatoebaTimeline.addEventListener("input", () => {
       const duration = el.tatoebaAudio.duration;
       if (!Number.isFinite(duration) || duration <= 0) return;
-      const box = el.tatoebaTimeline.getBoundingClientRect();
-      const ratio = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
-      el.tatoebaAudio.currentTime = duration * ratio;
-    });
-    el.tatoebaTimeline.addEventListener("keydown", event => {
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-      event.preventDefault();
-      const delta = event.key === "ArrowLeft" ? -5 : 5;
-      el.tatoebaAudio.currentTime = Math.max(0, Math.min(el.tatoebaAudio.duration || 0, el.tatoebaAudio.currentTime + delta));
+      el.tatoebaAudio.currentTime = duration * Number(el.tatoebaTimeline.value) / 100;
     });
 
     document.querySelectorAll(".speed-btn").forEach(btn => {

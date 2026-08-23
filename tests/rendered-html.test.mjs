@@ -21,6 +21,7 @@ test("trainer exposes word and selected-phrase actions", async () => {
   assert.match(trainer, /id="listenSelectionBtn"/);
   assert.match(trainer, /id="addSelectionBtn"/);
   assert.match(trainer, /fetch\("\/api\/translate"/);
+  assert.doesNotMatch(trainer, /state\.translationCache/);
   assert.doesNotMatch(trainer, /Google Cloud Translation API key/);
 });
 
@@ -47,13 +48,29 @@ test("trainer can switch between Tatoeba and YouGlish", async () => {
   assert.match(audioRoute, /https:\/\/api\.tatoeba\.org\/v1\/audios\/\$\{id\}\/file/);
 });
 
-test("DeepL credentials stay in the server route", async () => {
-  const route = await readFile(
-    new URL("../app/api/translate/route.ts", import.meta.url),
+test("DeepL credentials stay in the shared server helper", async () => {
+  const helper = await readFile(
+    new URL("../lib/deepl.ts", import.meta.url),
     "utf8",
   );
 
-  assert.match(route, /env as unknown as \{ DEEPL_API_KEY\?: string \}/);
-  assert.match(route, /Authorization: `DeepL-Auth-Key \$\{DEEPL_API_KEY\}`/);
-  assert.match(route, /target_lang: "RU"/);
+  assert.match(helper, /env as unknown as \{ DEEPL_API_KEY\?: string \}/);
+  assert.match(helper, /Authorization: `DeepL-Auth-Key \$\{DEEPL_API_KEY\}`/);
+  assert.match(helper, /target_lang: "RU"/);
+});
+
+test("learning phrases persist and render their translation", async () => {
+  const route = await readFile(
+    new URL("../app/api/phrases/route.ts", import.meta.url),
+    "utf8",
+  );
+  const page = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(route, /translation TEXT NOT NULL DEFAULT ''/);
+  assert.match(route, /translateEnglishToRussian/);
+  assert.match(route, /status != 'pick' AND translation = ''/);
+  assert.match(page, /className="phrase-translation"/);
 });

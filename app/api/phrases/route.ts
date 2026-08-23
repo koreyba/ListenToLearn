@@ -1,4 +1,5 @@
 import { getD1 } from "@/db";
+import { DeepLError, translateEnglishToRussian } from "@/lib/deepl";
 import { PRESET_PHRASES } from "@/lib/preset-phrases";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +11,7 @@ type PhraseRow = {
   text: string;
   pattern: string;
   ipa: string;
+  translation: string;
   source_type: "preset" | "custom";
   catalog_order: number | null;
   status: "pick" | "to_learn" | "learning_now" | "learnt";
@@ -25,6 +27,7 @@ async function ensureData() {
       text TEXT NOT NULL,
       pattern TEXT NOT NULL,
       ipa TEXT NOT NULL DEFAULT '',
+      translation TEXT NOT NULL DEFAULT '',
       source_type TEXT NOT NULL CHECK (source_type IN ('preset', 'custom')),
       catalog_order INTEGER,
       status TEXT NOT NULL DEFAULT 'pick' CHECK (status IN ('pick', 'to_learn', 'learning_now', 'learnt')),
@@ -33,16 +36,52 @@ async function ensureData() {
     )
   `).run();
 
+  const columns = await db.prepare("PRAGMA table_info(phrases)").all<{ name: string }>();
+  if (!columns.results.some((column) => column.name === "translation")) {
+    await db.prepare("ALTER TABLE phrases ADD COLUMN translation TEXT NOT NULL DEFAULT ''").run();
+  }
+
   const now = new Date().toISOString();
   await db.batch(
     PRESET_PHRASES.map((phrase, index) =>
       db.prepare(`
         INSERT OR IGNORE INTO phrases
-          (id, text, pattern, ipa, source_type, catalog_order, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'preset', ?, 'pick', ?, ?)
+          (id, text, pattern, ipa, translation, source_type, catalog_order, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, '', 'preset', ?, 'pick', ?, ?)
       `).bind(`preset-${index}`, phrase.text, phrase.pattern, phrase.ipa, index, now, now)
     )
   );
+}
+
+async function backfillTranslations() {
+  const db = getD1();
+  const missing = await db.prepare(`
+    SELECT id, text
+    FROM phrases
+    WHERE status != 'pick' AND translation = ''
+    ORDER BY updated_at ASC
+  `).all<{ id: string; text: string }>();
+  if (!missing.results.length) return;
+
+  try {
+    for (let offset = 0; offset < missing.results.length; offset += 50) {
+      const rows = missing.results.slice(offset, offset + 50);
+      const translations = await translateEnglishToRussian(rows.map((row) => row.text));
+      await db.batch(rows.map((row, index) =>
+        db.prepare(
+          "UPDATE phrases SET translation = ? WHERE id = ? AND translation = ''",
+        ).bind(translations[index], row.id)
+      ));
+    }
+  } catch (error) {
+    console.error("Phrase translation backfill failed:", error);
+  }
+}
+
+async function translationForPhrase(text: string, existing = "") {
+  if (existing) return existing;
+  const [translation] = await translateEnglishToRussian([text]);
+  return translation;
 }
 
 function cleanText(value: unknown) {
@@ -52,9 +91,10 @@ function cleanText(value: unknown) {
 export async function GET() {
   try {
     await ensureData();
+    await backfillTranslations();
     const db = getD1();
     const result = await db.prepare(`
-      SELECT id, text, pattern, ipa, source_type, catalog_order, status, created_at, updated_at
+      SELECT id, text, pattern, ipa, translation, source_type, catalog_order, status, created_at, updated_at
       FROM phrases
       ORDER BY
         CASE WHEN status = 'pick' THEN 0 ELSE 1 END,
@@ -78,27 +118,34 @@ export async function POST(request: Request) {
 
     const db = getD1();
     const existing = await db.prepare(
-      "SELECT id, status FROM phrases WHERE text = ? COLLATE NOCASE LIMIT 1"
-    ).bind(text).first<{ id: string; status: PhraseRow["status"] }>();
+      "SELECT id, status, translation FROM phrases WHERE text = ? COLLATE NOCASE LIMIT 1"
+    ).bind(text).first<{ id: string; status: PhraseRow["status"]; translation: string }>();
     if (existing) {
       const status = existing.status === "pick" ? "to_learn" : existing.status;
-      if (status !== existing.status) {
+      const translation = status === "pick"
+        ? existing.translation
+        : await translationForPhrase(text, existing.translation);
+      if (status !== existing.status || translation !== existing.translation) {
         await db.prepare(
-          "UPDATE phrases SET status = ?, updated_at = ? WHERE id = ?"
-        ).bind(status, new Date().toISOString(), existing.id).run();
+          "UPDATE phrases SET status = ?, translation = ?, updated_at = ? WHERE id = ?"
+        ).bind(status, translation, new Date().toISOString(), existing.id).run();
       }
-      return Response.json({ id: existing.id, status, created: false });
+      return Response.json({ id: existing.id, status, translation, created: false });
     }
 
+    const translation = await translationForPhrase(text);
     const id = `custom-${crypto.randomUUID()}`;
     const now = new Date().toISOString();
     await db.prepare(`
       INSERT INTO phrases
-        (id, text, pattern, ipa, source_type, catalog_order, status, created_at, updated_at)
-      VALUES (?, ?, ?, '', 'custom', NULL, 'to_learn', ?, ?)
-    `).bind(id, text, `[${text}]`, now, now).run();
-    return Response.json({ id, status: "to_learn", created: true }, { status: 201 });
+        (id, text, pattern, ipa, translation, source_type, catalog_order, status, created_at, updated_at)
+      VALUES (?, ?, ?, '', ?, 'custom', NULL, 'to_learn', ?, ?)
+    `).bind(id, text, `[${text}]`, translation, now, now).run();
+    return Response.json({ id, status: "to_learn", translation, created: true }, { status: 201 });
   } catch (error) {
+    if (error instanceof DeepLError) {
+      return Response.json({ error: error.message }, { status: error.code === "not_configured" ? 503 : 502 });
+    }
     const message = error instanceof Error ? error.message : "Не удалось добавить фразу.";
     return Response.json({ error: message }, { status: 500 });
   }
@@ -115,12 +162,22 @@ export async function PATCH(request: Request) {
     }
 
     const db = getD1();
+    const phrase = await db.prepare(
+      "SELECT text, translation FROM phrases WHERE id = ?",
+    ).bind(id).first<{ text: string; translation: string }>();
+    if (!phrase) return Response.json({ error: "Фраза не найдена." }, { status: 404 });
+    const translation = status === "pick"
+      ? phrase.translation
+      : await translationForPhrase(phrase.text, phrase.translation);
     const result = await db.prepare(
-      "UPDATE phrases SET status = ?, updated_at = ? WHERE id = ?"
-    ).bind(status, new Date().toISOString(), id).run();
+      "UPDATE phrases SET status = ?, translation = ?, updated_at = ? WHERE id = ?"
+    ).bind(status, translation, new Date().toISOString(), id).run();
     if (!result.meta.changes) return Response.json({ error: "Фраза не найдена." }, { status: 404 });
-    return Response.json({ ok: true });
+    return Response.json({ ok: true, translation });
   } catch (error) {
+    if (error instanceof DeepLError) {
+      return Response.json({ error: error.message }, { status: error.code === "not_configured" ? 503 : 502 });
+    }
     const message = error instanceof Error ? error.message : "Не удалось изменить статус.";
     return Response.json({ error: message }, { status: 500 });
   }

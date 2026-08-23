@@ -874,8 +874,7 @@
       custom: [],
       selectedId: "base-0",
       source: "tatoeba",
-      speed: 1,
-      translationCache: {}
+      speed: 1
     };
 
     let widget = null;
@@ -968,9 +967,7 @@
       s.selectedId = typeof s.selectedId === "string" ? s.selectedId : "base-0";
       s.source = ["tatoeba", "youglish"].includes(s.source) ? s.source : "tatoeba";
       s.speed = Number.isFinite(Number(s.speed)) ? Number(s.speed) : 1;
-      s.translationCache = s.translationCache && typeof s.translationCache === "object" && !Array.isArray(s.translationCache)
-        ? s.translationCache
-        : {};
+      delete s.translationCache;
       s.custom = Array.isArray(s.custom)
         ? s.custom
             .filter(x => x && typeof x.q === "string" && x.q.trim())
@@ -995,6 +992,9 @@
         el.stateMessage.textContent = "Не удалось сохранить состояние в localStorage этого браузера.";
       }
     }
+
+    // Перезаписываем старое состояние без ранее сохранённого кэша переводов.
+    saveState();
 
     function allPhrases() {
       return [...BASE_PHRASES, ...state.custom];
@@ -1471,20 +1471,9 @@
       el.clearTranslationBtn.hidden = false;
     }
 
-    function translationCacheKey(text, context) {
-      return `${String(text || "").trim().toLowerCase()}\n${String(context || "").trim().toLowerCase()}`;
-    }
-
     async function translateText(text, sourceLabel, context = currentCaptionText) {
       const source = String(text || "").trim();
       if (!source) return;
-
-      const cacheKey = translationCacheKey(source, context);
-      const cached = state.translationCache[cacheKey];
-      if (typeof cached === "string" && cached) {
-        showTranslation(sourceLabel, cached);
-        return;
-      }
 
       showTranslation(sourceLabel, "Перевожу…", "loading");
 
@@ -1505,11 +1494,6 @@
 
         if (!translated) throw new Error("DeepL вернул пустой перевод.");
 
-        state.translationCache[cacheKey] = translated;
-        // Ограничиваем локальный кэш, чтобы state не рос бесконечно.
-        const keys = Object.keys(state.translationCache);
-        if (keys.length > 500) delete state.translationCache[keys[0]];
-        saveState();
         showTranslation(sourceLabel, translated);
       } catch (err) {
         console.error(err);

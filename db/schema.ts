@@ -5,6 +5,7 @@ export const phrases = sqliteTable("phrases", {
   text: text("text").notNull(),
   pattern: text("pattern").notNull(),
   ipa: text("ipa").notNull().default(""),
+  translation: text("translation").notNull().default(""),
   sourceType: text("source_type").notNull(),
   catalogOrder: integer("catalog_order"),
   status: text("status").notNull().default("pick"),

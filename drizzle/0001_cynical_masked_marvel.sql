@@ -1,0 +1,1 @@
+ALTER TABLE `phrases` ADD `translation` text DEFAULT '' NOT NULL;

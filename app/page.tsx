@@ -8,6 +8,7 @@ type Phrase = {
   text: string;
   pattern: string;
   ipa: string;
+  translation: string;
   source_type: "preset" | "custom";
   status: PhraseStatus;
 };
@@ -123,7 +124,7 @@ export default function Home() {
       setCustomText("");
       await loadPhrases();
       setActiveTab((data.status as PhraseStatus) || "to_learn");
-      setNotice(data.created === false ? "Эта фраза уже есть в вашей библиотеке." : "Фраза добавлена в To Learn.");
+      setNotice(data.created === false ? "Эта фраза уже есть в вашей библиотеке." : "Фраза добавлена в To Learn с переводом.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось добавить фразу.");
     } finally {
@@ -191,6 +192,9 @@ export default function Home() {
               <article className="phrase-card" key={phrase.id}>
                 <button className="phrase-open" onClick={() => openPhrase(phrase)} type="button">
                   <span className="phrase-text">{phrase.text}</span>
+                  {phrase.status !== "pick" && phrase.translation && (
+                    <span className="phrase-translation">{phrase.translation}</span>
+                  )}
                   <span className="phrase-pattern">{renderPattern(phrase.pattern)}</span>
                   <span className="phrase-ipa">{phrase.ipa || "Транскрипция появится позже"}</span>
                   <span className="listen-link">Слушать <span aria-hidden="true">↗</span></span>

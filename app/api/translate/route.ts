@@ -1,14 +1,9 @@
-import { env } from "cloudflare:workers";
+import { cleanTranslationText, DeepLError, translateEnglishToRussian } from "@/lib/deepl";
 
 export const dynamic = "force-dynamic";
 
-type TranslationResponse = {
-  translations?: Array<{ text?: string }>;
-  message?: string;
-};
-
 function cleanText(value: unknown) {
-  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+  return cleanTranslationText(value);
 }
 
 export async function POST(request: Request) {
@@ -25,44 +20,21 @@ export async function POST(request: Request) {
     if (!text) return Response.json({ error: "Выдели слово или фразу." }, { status: 400 });
     if (text.length > 500) return Response.json({ error: "Для перевода выбери не больше 500 символов." }, { status: 400 });
 
-    const { DEEPL_API_KEY } = env as unknown as { DEEPL_API_KEY?: string };
-    if (!DEEPL_API_KEY) {
-      return Response.json({ error: "Перевод временно не настроен." }, { status: 503 });
-    }
-
-    const endpoint = DEEPL_API_KEY.endsWith(":fx")
-      ? "https://api-free.deepl.com/v2/translate"
-      : "https://api.deepl.com/v2/translate";
-
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: `DeepL-Auth-Key ${DEEPL_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text: [text],
-        source_lang: "EN",
-        target_lang: "RU",
-        ...(context && context !== text ? { context } : {}),
-      }),
-    });
-
-    const data = (await response.json().catch(() => null)) as TranslationResponse | null;
-    if (!response.ok) {
-      const message = data?.message || `DeepL returned HTTP ${response.status}`;
-      console.error("DeepL translation failed:", message);
-      return Response.json({ error: "Не удалось получить перевод. Попробуй ещё раз." }, { status: 502 });
-    }
-
-    const translation = cleanText(data?.translations?.[0]?.text);
-    if (!translation) {
-      return Response.json({ error: "DeepL вернул пустой перевод." }, { status: 502 });
-    }
+    const [translation] = await translateEnglishToRussian(
+      [text],
+      context && context !== text ? context : "",
+    );
 
     return Response.json({ translation });
   } catch (error) {
     console.error("Translation route failed:", error);
+    if (error instanceof DeepLError) {
+      const status = error.code === "not_configured" ? 503 : 502;
+      const message = error.code === "not_configured"
+        ? error.message
+        : "Не удалось получить перевод. Попробуй ещё раз.";
+      return Response.json({ error: message }, { status });
+    }
     return Response.json({ error: "Не удалось получить перевод. Попробуй ещё раз." }, { status: 500 });
   }
 }

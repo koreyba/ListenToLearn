@@ -65,7 +65,6 @@ test("YouGlish videos and Tatoeba tracks can be randomized and saved per phrase"
     new URL("../app/page.tsx", import.meta.url),
     "utf8",
   );
-
   assert.match(trainer, /id="exampleMode"/);
   assert.match(trainer, /id="saveExampleBtn"/);
   assert.match(trainer, /`\$\{query\} :r`/);
@@ -73,7 +72,8 @@ test("YouGlish videos and Tatoeba tracks can be randomized and saved per phrase"
   assert.match(trainer, /event && event\.video/);
   assert.match(trainer, /provider: state\.source/);
   assert.match(trainer, /audioId: Number\(example\.external_id\)/);
-  assert.match(trainer, /tatoebaTracks = shuffled/);
+  assert.match(trainer, /tatoebaTracks = orderProviderItems/);
+  assert.match(trainer, /exampleOrder === "random"/);
   assert.match(examplesRoute, /CREATE TABLE IF NOT EXISTS phrase_examples/);
   assert.match(examplesRoute, /provider === "tatoeba"/);
   assert.match(examplesRoute, /metadata: parseMetadata/);
@@ -110,13 +110,63 @@ test("learning phrases persist and render their translation", async () => {
     new URL("../app/page.tsx", import.meta.url),
     "utf8",
   );
-
   assert.match(route, /translation TEXT NOT NULL DEFAULT ''/);
   assert.match(route, /translateEnglishToRussian/);
   assert.match(route, /optionalTranslationForPhrase/);
   assert.match(route, /translationPending/);
   assert.match(route, /status != 'pick' AND translation = ''/);
   assert.match(page, /className="phrase-translation"/);
+});
+
+test("MVP UX persists phrase context and exposes global library sorting", async () => {
+  const route = await readFile(
+    new URL("../app/api/phrases/route.ts", import.meta.url),
+    "utf8",
+  );
+  const schema = await readFile(
+    new URL("../db/schema.ts", import.meta.url),
+    "utf8",
+  );
+  const page = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
+  const migration = await readFile(
+    new URL("../drizzle/0005_special_ogun.sql", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(route, /context TEXT NOT NULL DEFAULT ''/);
+  assert.match(route, /payload\.context/);
+  assert.match(route, /payload\.translation/);
+  assert.match(route, /SELECT id, text, pattern, ipa, translation, context/);
+  assert.match(schema, /context: text\("context"\)/);
+  assert.match(migration, /ALTER TABLE [`]phrases[`] ADD [`]context[`]/);
+  assert.match(page, /phrase-sort/);
+  assert.match(page, /added_desc/);
+  assert.match(page, /localStorage/);
+  assert.match(page, /created_at/);
+});
+
+test("MVP UX keeps example settings global and separates caption/video navigation", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(trainer, /id="prevCaptionBtn"/);
+  assert.match(trainer, /id="nextCaptionBtn"/);
+  assert.match(trainer, /id="prevVideoBtn"/);
+  assert.match(trainer, /id="nextVideoBtn"/);
+  assert.match(trainer, /data-example-order="random"/);
+  assert.match(trainer, /data-example-order="ordered"/);
+  assert.match(trainer, /exampleOrder/);
+  assert.match(trainer, /captionHistory/);
+  assert.match(trainer, /previousCaption/);
+  assert.doesNotMatch(trainer, /move\(-5\)/);
+  assert.match(trainer, /class="learning-workspace"/);
+  assert.match(trainer, /class="media-panel"/);
+  assert.match(trainer, /id="translationAddBtn"/);
 });
 
 test("integrations keep provider keys server-side and expose only status", async () => {

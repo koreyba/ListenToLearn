@@ -75,7 +75,7 @@
     }
 
     .app {
-      width: min(820px, 100%);
+      width: min(1120px, 100%);
       margin: 0 auto;
       padding: 0 12px 40px;
     }
@@ -122,11 +122,36 @@
       background: rgba(15,17,21,.96);
       backdrop-filter: blur(10px);
       border-bottom: 1px solid var(--line);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+      grid-template-areas: "workspace media";
+      align-items: start;
+      gap: 16px;
+    }
+
+    .learning-workspace {
+      grid-area: workspace;
+      min-width: 0;
+    }
+
+    .media-panel {
+      grid-area: media;
+      min-width: 200px;
+    }
+
+    .media-label {
+      margin: 0 0 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: .07em;
+      text-transform: uppercase;
     }
 
     .widget-frame {
       width: 100%;
       min-height: 220px;
+      min-width: 200px;
       background: #000;
       border: 1px solid var(--line);
       border-radius: 14px;
@@ -208,9 +233,38 @@
 
     .player-controls {
       display: grid;
-      grid-template-columns: repeat(6, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 6px;
       margin-top: 8px;
+    }
+
+    .control-group {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .control-group-label {
+      grid-column: 1 / -1;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 750;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+    }
+
+    .control-group-hint {
+      grid-column: 1 / -1;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .control-group button:disabled,
+    .caption-navigation button:disabled {
+      cursor: not-allowed;
+      opacity: .5;
     }
 
     .player-controls button {
@@ -230,7 +284,15 @@
 
     .example-tools[hidden] { display: none; }
 
-    .example-mode { flex: 0 1 auto; }
+    .example-settings {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .example-mode,
+    .example-order { flex: 0 1 auto; }
 
     .example-count {
       display: inline-grid;
@@ -365,6 +427,7 @@
       font-size: 12px;
     }
     .translation-head button { padding: 5px 9px; font-size: 12px; }
+    .translation-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     .translation-result {
       font-size: 17px;
       color: var(--ok);
@@ -667,14 +730,10 @@
       display: none;
     }
 
-    .viewer-mode .app { width: min(980px, 100%); }
+    .viewer-mode .app { width: min(1120px, 100%); }
     .viewer-mode .sticky-stage {
-      position: static;
-      margin: 0;
-      padding: 0 0 24px;
-      background: transparent;
-      backdrop-filter: none;
-      border-bottom: 0;
+      margin-left: -12px;
+      margin-right: -12px;
     }
     .viewer-mode .current,
     .viewer-mode .toolbar,
@@ -684,21 +743,29 @@
     .viewer-mode .state-box,
     .viewer-mode footer { display: none !important; }
 
+    @media (max-width: 760px) {
+      .sticky-stage {
+        position: static;
+        display: block;
+        margin-left: -8px;
+        margin-right: -8px;
+        padding-left: 8px;
+        padding-right: 8px;
+      }
+      .media-panel { margin-top: 14px; }
+      .example-tools { align-items: stretch; flex-direction: column; }
+      .example-settings { display: grid; grid-template-columns: 1fr 1fr; }
+      .example-settings .segmented { display: grid; grid-template-columns: 1fr 1fr; }
+      .save-example-btn { width: 100%; }
+    }
+
     @media (max-width: 560px) {
       .app { padding-left: 8px; padding-right: 8px; }
-      .sticky-stage { margin-left: -8px; margin-right: -8px; padding-left: 8px; padding-right: 8px; }
       .widget-frame, #yg-widget { min-height: 205px; }
       .player-controls {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: 1fr;
       }
-      .example-tools {
-        align-items: stretch;
-        flex-direction: column;
-      }
-      .example-mode {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-      }
+      .example-settings { grid-template-columns: 1fr; }
       .phrase-card {
         grid-template-columns: minmax(0, 1fr);
       }
@@ -720,79 +787,109 @@
     </header>
 
     <section class="sticky-stage" id="playerTop">
-      <div class="source-row">
-        <span>Источник примеров</span>
-        <div id="sourceSwitch" class="segmented" role="group" aria-label="Источник примеров">
-          <button type="button" data-source="tatoeba">Tatoeba</button>
-          <button type="button" data-source="youglish">YouGlish</button>
-        </div>
-      </div>
-
-      <div class="widget-frame">
-        <div id="youglishPlayer" class="youglish-player">
-          <div id="yg-widget" aria-label="Плеер YouGlish"></div>
-        </div>
-        <div id="tatoebaPlayer" class="tatoeba-player" hidden aria-label="Аудиоплеер Tatoeba">
-          <div class="tatoeba-kicker">Human-recorded audio</div>
-          <div id="tatoebaSentence" class="tatoeba-sentence">Ищу подходящую запись…</div>
-          <div id="tatoebaTimeline" class="tatoeba-timeline" role="slider" aria-label="Позиция аудио" tabindex="0">
-            <div id="tatoebaProgress" class="tatoeba-progress"></div>
+      <div class="learning-workspace">
+        <div class="source-row">
+          <span>Источник примеров</span>
+          <div id="sourceSwitch" class="segmented" role="group" aria-label="Источник примеров">
+            <button type="button" data-source="tatoeba">Tatoeba</button>
+            <button type="button" data-source="youglish">YouGlish</button>
           </div>
-          <div class="tatoeba-meta">
-            <span id="tatoebaTime">0:00 / 0:00</span>
-            <a id="tatoebaAttribution" href="https://tatoeba.org/" target="_blank" rel="noopener noreferrer">Tatoeba</a>
+        </div>
+
+        <div class="player-controls" aria-label="Навигация и управление плеером">
+          <div class="control-group caption-navigation" aria-label="Навигация по субтитрам">
+            <span class="control-group-label">Фразы в видео</span>
+            <button id="prevCaptionBtn" type="button" disabled>Предыдущая фраза</button>
+            <button id="nextCaptionBtn" type="button" disabled>Следующая фраза</button>
+            <span id="captionNavigationHint" class="control-group-hint">Точный переход появится, если его поддержит API.</span>
           </div>
-          <audio id="tatoebaAudio" preload="metadata"></audio>
-        </div>
-      </div>
-
-      <div class="player-controls" aria-label="Управление плеером">
-        <button id="prevBtn" type="button">Назад</button>
-        <button id="pauseBtn" type="button">Пауза</button>
-        <button id="replayBtn" type="button">Повтор</button>
-        <button id="nextBtn" type="button">Вперёд</button>
-        <button class="speed-btn" data-speed="0.75" type="button">0.75×</button>
-        <button class="speed-btn speed-active" data-speed="1" type="button">1×</button>
-      </div>
-
-      <div id="exampleTools" class="example-tools" hidden>
-        <div id="exampleMode" class="segmented example-mode" role="group" aria-label="Режим примеров">
-          <button type="button" data-example-mode="all">Все · случайно</button>
-          <button type="button" data-example-mode="saved">
-            Сохранённые <span id="savedExampleCount" class="example-count">0</span>
-          </button>
-        </div>
-        <button id="saveExampleBtn" class="save-example-btn" type="button" disabled>☆ Сохранить пример</button>
-      </div>
-      <div id="exampleMessage" class="example-message" role="status"></div>
-
-      <div class="caption-box" aria-live="polite">
-        <div class="caption-label">
-          <span>Субтитры</span>
-          <span>нажми слово или выдели фразу</span>
-        </div>
-        <div id="captionText" class="caption-text">Субтитры появятся при воспроизведении.</div>
-        <div id="selectionActions" class="caption-actions" hidden>
-          <div id="selectionPreview" class="selection-preview"></div>
-          <button id="translateSelectionBtn" type="button">Перевести</button>
-          <button id="listenSelectionBtn" type="button">Слушать</button>
-          <button id="addSelectionBtn" type="button">+ To Learn</button>
-        </div>
-        <div id="selectionMessage" class="selection-message" role="status"></div>
-        <div id="translationBox" class="translation-box">
-          <div class="translation-head">
-            <div id="translationSource" class="translation-source"></div>
-            <button id="clearTranslationBtn" type="button">Скрыть</button>
+          <div class="control-group video-navigation" aria-label="Навигация по видео">
+            <span class="control-group-label">Видео и аудио</span>
+            <button id="prevVideoBtn" type="button">Предыдущее видео</button>
+            <button id="nextVideoBtn" type="button">Следующее видео</button>
           </div>
-          <div id="translationResult" class="translation-result"></div>
+          <div class="control-group media-navigation" aria-label="Управление воспроизведением">
+            <span class="control-group-label">Воспроизведение</span>
+            <button id="pauseBtn" type="button">Пауза</button>
+            <button id="replayBtn" type="button">Повтор</button>
+          </div>
+          <div class="control-group speed-navigation" aria-label="Скорость">
+            <span class="control-group-label">Скорость</span>
+            <button class="speed-btn" data-speed="0.75" type="button">0.75×</button>
+            <button class="speed-btn speed-active" data-speed="1" type="button">1×</button>
+          </div>
+        </div>
+
+        <div id="exampleTools" class="example-tools" hidden>
+          <div class="example-settings">
+            <div id="exampleMode" class="segmented example-mode" role="group" aria-label="Режим примеров">
+              <button type="button" data-example-mode="all">Все</button>
+              <button type="button" data-example-mode="saved">
+                Сохранённые <span id="savedExampleCount" class="example-count">0</span>
+              </button>
+            </div>
+            <div id="exampleOrder" class="segmented example-order" role="group" aria-label="Порядок примеров">
+              <button type="button" data-example-order="random">Случайно</button>
+              <button type="button" data-example-order="ordered">По порядку</button>
+            </div>
+          </div>
+          <button id="saveExampleBtn" class="save-example-btn" type="button" disabled>☆ Сохранить пример</button>
+        </div>
+
+        <div id="exampleMessage" class="example-message" role="status"></div>
+
+        <div class="caption-box" aria-live="polite">
+          <div class="caption-label">
+            <span>Субтитры</span>
+            <span>нажми слово или выдели фразу</span>
+          </div>
+          <div id="captionText" class="caption-text">Субтитры появятся при воспроизведении.</div>
+          <div id="selectionActions" class="caption-actions" hidden>
+            <div id="selectionPreview" class="selection-preview"></div>
+            <button id="translateSelectionBtn" type="button">Перевести</button>
+            <button id="listenSelectionBtn" type="button">Слушать</button>
+            <button id="addSelectionBtn" type="button">+ To Learn</button>
+          </div>
+          <div id="selectionMessage" class="selection-message" role="status"></div>
+          <div id="translationBox" class="translation-box">
+            <div class="translation-head">
+              <div id="translationSource" class="translation-source"></div>
+              <button id="clearTranslationBtn" type="button">Скрыть</button>
+            </div>
+            <div id="translationResult" class="translation-result"></div>
+            <div class="translation-actions">
+              <button id="translationAddBtn" type="button">+ To Learn</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="status" class="status">Загрузка YouGlish API…</div>
+        <div id="noResults" class="no-results">
+          <div id="noResultsText"></div>
+          <button id="shorterBtn" type="button"></button>
         </div>
       </div>
 
-      <div id="status" class="status">Загрузка YouGlish API…</div>
-      <div id="noResults" class="no-results">
-        <div id="noResultsText"></div>
-        <button id="shorterBtn" type="button"></button>
-      </div>
+      <aside class="media-panel" aria-label="Медиа пример">
+        <div class="media-label">Компактный плеер</div>
+        <div class="widget-frame">
+          <div id="youglishPlayer" class="youglish-player">
+            <div id="yg-widget" aria-label="Плеер YouGlish"></div>
+          </div>
+          <div id="tatoebaPlayer" class="tatoeba-player" hidden aria-label="Аудиоплеер Tatoeba">
+            <div class="tatoeba-kicker">Human-recorded audio</div>
+            <div id="tatoebaSentence" class="tatoeba-sentence">Ищу подходящую запись…</div>
+            <div id="tatoebaTimeline" class="tatoeba-timeline" role="slider" aria-label="Позиция аудио" tabindex="0">
+              <div id="tatoebaProgress" class="tatoeba-progress"></div>
+            </div>
+            <div class="tatoeba-meta">
+              <span id="tatoebaTime">0:00 / 0:00</span>
+              <a id="tatoebaAttribution" href="https://tatoeba.org/" target="_blank" rel="noopener noreferrer">Tatoeba</a>
+            </div>
+            <audio id="tatoebaAudio" preload="metadata"></audio>
+          </div>
+        </div>
+      </aside>
     </section>
 
     <section class="current" id="currentSection">
@@ -928,7 +1025,7 @@
 
     const STORAGE_KEY = "connected-speech-trainer-v1";
     const DEFAULT_STATE = {
-      version: 1,
+      version: 2,
       done: [],
       accent: "us",
       blind: false,
@@ -937,7 +1034,9 @@
       custom: [],
       selectedId: "base-0",
       source: "tatoeba",
-      speed: 1
+      speed: 1,
+      exampleMode: "all",
+      exampleOrder: "random"
     };
 
     let widget = null;
@@ -954,6 +1053,12 @@
     let savedExamples = [];
     let savedExampleIndex = 0;
     let exampleMode = "all";
+    let exampleOrder = "random";
+    let savedExampleSequenceKey = "";
+    let savedExampleSequence = [];
+    let captionHistory = [];
+    let captionHistoryIndex = -1;
+    let lastTranslation = { source: "", context: "", translation: "" };
     let examplesRequest = 0;
     let youglishHasFetched = false;
 
@@ -970,11 +1075,13 @@
       translationBox: document.getElementById("translationBox"),
       translationSource: document.getElementById("translationSource"),
       translationResult: document.getElementById("translationResult"),
+      translationAddBtn: document.getElementById("translationAddBtn"),
       noResults: document.getElementById("noResults"),
       noResultsText: document.getElementById("noResultsText"),
       shorterBtn: document.getElementById("shorterBtn"),
       exampleTools: document.getElementById("exampleTools"),
       exampleMode: document.getElementById("exampleMode"),
+      exampleOrder: document.getElementById("exampleOrder"),
       savedExampleCount: document.getElementById("savedExampleCount"),
       saveExampleBtn: document.getElementById("saveExampleBtn"),
       exampleMessage: document.getElementById("exampleMessage"),
@@ -1008,10 +1115,13 @@
       importFile: document.getElementById("importFile"),
       stateMessage: document.getElementById("stateMessage"),
       playerTop: document.getElementById("playerTop"),
-      prevBtn: document.getElementById("prevBtn"),
+      prevCaptionBtn: document.getElementById("prevCaptionBtn"),
+      nextCaptionBtn: document.getElementById("nextCaptionBtn"),
+      captionNavigationHint: document.getElementById("captionNavigationHint"),
+      prevVideoBtn: document.getElementById("prevVideoBtn"),
+      nextVideoBtn: document.getElementById("nextVideoBtn"),
       pauseBtn: document.getElementById("pauseBtn"),
-      replayBtn: document.getElementById("replayBtn"),
-      nextBtn: document.getElementById("nextBtn")
+      replayBtn: document.getElementById("replayBtn")
     };
 
     function cloneDefaultState() {
@@ -1032,7 +1142,7 @@
 
     function normalizeState(input) {
       const s = { ...cloneDefaultState(), ...(input || {}) };
-      s.version = 1;
+      s.version = 2;
       s.done = Array.isArray(s.done) ? [...new Set(s.done.filter(x => typeof x === "string"))] : [];
       s.accent = ["us", "uk", ""].includes(s.accent) ? s.accent : "us";
       s.blind = Boolean(s.blind);
@@ -1041,6 +1151,8 @@
       s.selectedId = typeof s.selectedId === "string" ? s.selectedId : "base-0";
       s.source = ["tatoeba", "youglish"].includes(s.source) ? s.source : "tatoeba";
       s.speed = Number.isFinite(Number(s.speed)) ? Number(s.speed) : 1;
+      s.exampleMode = ["all", "saved"].includes(s.exampleMode) ? s.exampleMode : "all";
+      s.exampleOrder = ["random", "ordered"].includes(s.exampleOrder) ? s.exampleOrder : "random";
       delete s.translationCache;
       s.custom = Array.isArray(s.custom)
         ? s.custom
@@ -1058,6 +1170,8 @@
     }
 
     let state = safeLoad();
+    exampleMode = state.exampleMode;
+    exampleOrder = state.exampleOrder;
 
     function saveState() {
       try {
@@ -1291,7 +1405,19 @@
     }
 
     function examplesForCurrentSource() {
-      return savedExamples.filter(example => example.provider === state.source);
+      const raw = savedExamples.filter(example => example.provider === state.source);
+      const key = `${state.source}|${exampleOrder}|${raw.map(example => `${example.id}:${example.created_at}`).join(",")}`;
+      if (key !== savedExampleSequenceKey) {
+        savedExampleSequenceKey = key;
+        savedExampleSequence = exampleOrder === "random"
+          ? shuffled(raw)
+          : [...raw].sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")) || String(a.id).localeCompare(String(b.id)));
+      }
+      return savedExampleSequence;
+    }
+
+    function usingSavedExamples() {
+      return exampleMode === "saved" && examplesForCurrentSource().length > 0;
     }
 
     function currentTatoebaTrack() {
@@ -1313,10 +1439,15 @@
       el.exampleTools.hidden = false;
       el.savedExampleCount.textContent = String(providerExamples.length);
       el.exampleMode.querySelectorAll("button[data-example-mode]").forEach(btn => {
-        const active = btn.dataset.exampleMode === exampleMode;
+        const active = btn.dataset.exampleMode === (providerExamples.length && exampleMode === "saved" ? "saved" : "all");
         btn.classList.toggle("active", active);
         btn.setAttribute("aria-pressed", active ? "true" : "false");
         if (btn.dataset.exampleMode === "saved") btn.disabled = providerExamples.length === 0;
+      });
+      el.exampleOrder.querySelectorAll("button[data-example-order]").forEach(btn => {
+        const active = btn.dataset.exampleOrder === exampleOrder;
+        btn.classList.toggle("active", active);
+        btn.setAttribute("aria-pressed", active ? "true" : "false");
       });
 
       const saved = currentSavedExample();
@@ -1335,7 +1466,7 @@
       const requestId = ++examplesRequest;
       if (!VIEWER_PHRASE_ID) {
         savedExamples = [];
-        exampleMode = "all";
+        savedExampleSequenceKey = "";
         renderExampleTools();
         return;
       }
@@ -1347,13 +1478,12 @@
         if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
         savedExamples = Array.isArray(data && data.examples) ? data.examples : [];
         const providerExamples = examplesForCurrentSource();
-        if (!providerExamples.length) exampleMode = "all";
         savedExampleIndex = Math.min(savedExampleIndex, Math.max(0, providerExamples.length - 1));
         renderExampleTools();
       } catch (error) {
         if (requestId !== examplesRequest) return;
         savedExamples = [];
-        exampleMode = "all";
+        savedExampleSequenceKey = "";
         renderExampleTools();
         showExampleMessage("Не удалось загрузить сохранённые примеры.", "error");
         console.error(error);
@@ -1398,6 +1528,7 @@
       });
       el.pauseBtn.textContent = tatoeba && el.tatoebaAudio.paused ? "Слушать" : "Пауза";
       renderExampleTools();
+      renderCaptionNavigation();
     }
 
     function setSource(source) {
@@ -1408,7 +1539,6 @@
       }
       state.source = source;
       if (!savedExamples.some(example => example.provider === source)) {
-        exampleMode = "all";
         savedExampleIndex = 0;
       }
       saveState();
@@ -1447,6 +1577,75 @@
       return result;
     }
 
+    function orderProviderItems(items) {
+      return exampleOrder === "random" ? shuffled(items) : [...items];
+    }
+
+    function captionNavigationMethod(direction) {
+      if (state.source !== "youglish" || !widget) return null;
+      const candidates = direction === "previous"
+        ? ["previousCaption", "prevCaption"]
+        : ["nextCaption"];
+      const name = candidates.find(candidate => typeof widget[candidate] === "function");
+      if (!name) return null;
+      return { name, acceptsId: widget[name].length > 0 };
+    }
+
+    function resetCaptionHistory() {
+      captionHistory = [];
+      captionHistoryIndex = -1;
+      renderCaptionNavigation();
+    }
+
+    function renderCaptionNavigation() {
+      if (!el.prevCaptionBtn || !el.nextCaptionBtn) return;
+      const previousMethod = captionNavigationMethod("previous");
+      const nextMethod = captionNavigationMethod("next");
+      const previousAvailable = Boolean(previousMethod)
+        && captionHistoryIndex > 0;
+      const nextAvailable = Boolean(nextMethod)
+        && captionHistoryIndex >= 0
+        && captionHistoryIndex < captionHistory.length - 1;
+      el.prevCaptionBtn.disabled = !previousAvailable;
+      el.nextCaptionBtn.disabled = !nextAvailable;
+      const unavailable = state.source !== "youglish"
+        ? "У этого источника нет таймкодированных caption."
+        : "YouGlish не предоставляет точный переход к caption в текущем API.";
+      el.captionNavigationHint.textContent = state.source !== "youglish"
+        ? "Tatoeba не передаёт историю caption; доступна навигация по аудиопримерам."
+        : (!previousMethod && !nextMethod
+          ? "Точный переход к caption не поддержан API; перемотка на 5 секунд здесь не используется."
+          : `История caption: ${captionHistory.length}`);
+      el.prevCaptionBtn.title = previousAvailable ? "Перейти к предыдущему caption" : unavailable;
+      el.nextCaptionBtn.title = nextAvailable ? "Перейти к следующему caption" : unavailable;
+    }
+
+    function navigateCaption(direction) {
+      const method = captionNavigationMethod(direction);
+      const targetIndex = direction === "previous" ? captionHistoryIndex - 1 : captionHistoryIndex + 1;
+      const target = captionHistory[targetIndex];
+      if (!method || !target) {
+        el.status.textContent = "Точный переход к этой фразе недоступен в API YouGlish.";
+        return;
+      }
+
+      const previousIndex = captionHistoryIndex;
+      captionHistoryIndex = targetIndex;
+      try {
+        if (method.acceptsId) widget[method.name](target.id);
+        else widget[method.name]();
+        renderCaption(target.raw);
+        currentCaptionRaw = target.raw;
+        currentCaptionText = target.text;
+        hideTranslation();
+        renderCaptionNavigation();
+      } catch (error) {
+        captionHistoryIndex = previousIndex;
+        el.status.textContent = "Не удалось перейти к сохранённому caption.";
+        console.error(error);
+      }
+    }
+
     async function playTatoeba() {
       try {
         await el.tatoebaAudio.play();
@@ -1467,6 +1666,7 @@
       el.tatoebaAudio.src = `/api/tatoeba/audio?id=${encodeURIComponent(track.audioId)}`;
       el.tatoebaAudio.playbackRate = state.speed;
       el.tatoebaAudio.load();
+      resetCaptionHistory();
       currentCaptionRaw = markQueryInSentence(track.text, currentQueryOverride || VIEWER_PHRASE);
       currentCaptionText = track.text;
       renderCaption(currentCaptionRaw);
@@ -1474,9 +1674,9 @@
       hideNoResults();
       el.status.classList.remove("error");
       const providerExamples = examplesForCurrentSource();
-      el.status.textContent = exampleMode === "saved"
+      el.status.textContent = usingSavedExamples()
         ? `Сохранённая дорожка ${savedExampleIndex + 1}/${providerExamples.length} · Tatoeba`
-        : `Найдено аудиопримеров: ${tatoebaTracks.length} · случайный порядок · пример ${tatoebaIndex + 1}/${tatoebaTracks.length} · Tatoeba`;
+        : `Найдено аудиопримеров: ${tatoebaTracks.length} · ${exampleOrder === "random" ? "случайный порядок" : "по порядку"} · пример ${tatoebaIndex + 1}/${tatoebaTracks.length} · Tatoeba`;
       renderExampleTools();
       if (autoplay) playTatoeba();
     }
@@ -1500,7 +1700,7 @@
         const data = await response.json().catch(() => null);
         if (requestId !== tatoebaRequest || state.source !== "tatoeba") return;
         if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
-        tatoebaTracks = shuffled(Array.isArray(data && data.tracks) ? data.tracks : []);
+        tatoebaTracks = orderProviderItems(Array.isArray(data && data.tracks) ? data.tracks : []);
         if (!tatoebaTracks.length) {
           el.tatoebaSentence.textContent = "Записей не найдено.";
           el.status.textContent = "Примеров не найдено.";
@@ -1525,7 +1725,7 @@
       el.status.classList.remove("error");
       el.status.textContent = savedLabel
         ? `Ищу «${displayQuery}» в ${savedLabel}…`
-        : `Ищу случайные примеры: «${displayQuery}» · акцент: ${accentLabel()}…`;
+        : `Ищу ${exampleOrder === "random" ? "случайные" : "последовательные"} примеры: «${displayQuery}» · акцент: ${accentLabel()}…`;
 
       try {
         if (state.accent) widget.fetch(query, "english", state.accent);
@@ -1540,7 +1740,6 @@
     function playSavedExample(index) {
       const providerExamples = examplesForCurrentSource();
       if (!providerExamples.length) {
-        exampleMode = "all";
         renderExampleTools();
         fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
         return;
@@ -1578,12 +1777,13 @@
       currentCaptionRaw = "";
       currentCaptionText = "";
       currentYouglishVideoId = "";
+      resetCaptionHistory();
       renderCaption("");
       hideTranslation();
       hideNoResults();
       renderExampleTools();
 
-      if (exampleMode === "saved" && examplesForCurrentSource().length) {
+      if (usingSavedExamples()) {
         playSavedExample(savedExampleIndex);
         return;
       }
@@ -1591,7 +1791,7 @@
         fetchTatoeba(query);
         return;
       }
-      fetchYouglish(`${query} :r`, query);
+      fetchYouglish(exampleOrder === "random" ? `${query} :r` : query, query);
     }
 
     function choosePhrase(id, scrollToPlayer = false) {
@@ -1698,9 +1898,11 @@
     function hideTranslation() {
       el.translationBox.classList.remove("visible");
       el.clearTranslationBtn.hidden = true;
+      el.translationAddBtn.disabled = true;
       el.translationSource.textContent = "";
       el.translationResult.textContent = "";
       el.translationResult.className = "translation-result";
+      lastTranslation = { source: "", context: "", translation: "" };
     }
 
     function showTranslation(sourceLabel, result, kind = "ok") {
@@ -1711,12 +1913,14 @@
       if (kind === "error") el.translationResult.classList.add("error");
       el.translationBox.classList.add("visible");
       el.clearTranslationBtn.hidden = false;
+      el.translationAddBtn.disabled = kind !== "ok";
     }
 
     async function translateText(text, sourceLabel, context = currentCaptionText) {
       const source = String(text || "").trim();
       if (!source) return;
 
+      lastTranslation = { source, context: cleanCaptionText(context), translation: "" };
       showTranslation(sourceLabel, "Перевожу…", "loading");
 
       try {
@@ -1736,6 +1940,7 @@
 
         if (!translated) throw new Error("DeepL вернул пустой перевод.");
 
+        lastTranslation.translation = translated;
         showTranslation(sourceLabel, translated);
       } catch (err) {
         console.error(err);
@@ -1792,8 +1997,8 @@
       VIEWER_PHRASE_ID = "";
       VIEWER_PHRASE_STATUS = "";
       savedExamples = [];
+      savedExampleSequenceKey = "";
       savedExampleIndex = 0;
-      exampleMode = "all";
       currentYouglishVideoId = "";
       el.viewerPhrase.textContent = query;
       document.title = `${query} · Connected speech trainer`;
@@ -1807,16 +2012,18 @@
       void resolveViewerPhrase();
     }
 
-    async function addTextToLearn(text) {
+    async function addTextToLearn(text, context = currentCaptionText, translation = "") {
       const phrase = cleanCaptionText(text).slice(0, 240);
       if (!phrase) return;
+      const sourceContext = cleanCaptionText(context).slice(0, 1_000);
+      const availableTranslation = cleanCaptionText(translation).slice(0, 1_000);
       el.addSelectionBtn.disabled = true;
       showSelectionMessage("Добавляю в To Learn…");
       try {
         const response = await fetch("/api/phrases", {
           method: "POST",
           headers: { "Content-Type": "application/json; charset=utf-8" },
-          body: JSON.stringify({ text: phrase })
+          body: JSON.stringify({ text: phrase, context: sourceContext, translation: availableTranslation })
         });
         const data = await response.json().catch(() => null);
         if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
@@ -1858,7 +2065,7 @@
       if (!VIEWER_PHRASE_ID || !externalId) return;
       const existing = currentSavedExample();
       const shouldPromote = !existing && VIEWER_PHRASE_STATUS === "pick";
-      const wasSavedMode = exampleMode === "saved";
+      const wasSavedMode = usingSavedExamples();
       const itemLabel = state.source === "tatoeba" ? "дорожку" : "видео";
       const savedMessage = state.source === "tatoeba"
         ? (existing ? "Дорожка удалена из сохранённых." : shouldPromote ? "Дорожка сохранена; фраза добавлена в To Learn." : "Дорожка сохранена для этой фразы.")
@@ -1911,9 +2118,22 @@
       if (mode !== "all" && mode !== "saved") return;
       if (mode === "saved" && !examplesForCurrentSource().length) return;
       exampleMode = mode;
+      state.exampleMode = mode;
+      saveState();
       savedExampleIndex = 0;
       currentYouglishVideoId = "";
       showExampleMessage("");
+      renderExampleTools();
+      fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
+    }
+
+    function setExampleOrder(order) {
+      if (order !== "random" && order !== "ordered") return;
+      exampleOrder = order;
+      state.exampleOrder = order;
+      savedExampleSequenceKey = "";
+      savedExampleIndex = 0;
+      saveState();
       renderExampleTools();
       fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
     }
@@ -1928,8 +2148,21 @@
       if (state.source !== "youglish") return;
       currentCaptionRaw = decodeCaption(event && event.caption);
       currentCaptionText = cleanCaptionText(currentCaptionRaw);
+      const captionId = event && event.id != null ? String(event.id) : `${currentCaptionText}:${captionHistory.length}`;
+      const currentHistoryItem = captionHistory[captionHistoryIndex];
+      if (!currentHistoryItem || currentHistoryItem.id !== captionId || currentHistoryItem.text !== currentCaptionText) {
+        captionHistory = captionHistory.slice(0, captionHistoryIndex + 1);
+        captionHistory.push({
+          videoId: currentYouglishVideoId,
+          id: captionId,
+          raw: currentCaptionRaw,
+          text: currentCaptionText
+        });
+        captionHistoryIndex = captionHistory.length - 1;
+      }
       renderCaption(currentCaptionRaw);
       hideTranslation();
+      renderCaptionNavigation();
     }
 
     function showWidgetError(message) {
@@ -1949,14 +2182,15 @@
       hideNoResults();
       el.status.classList.remove("error");
       const providerExamples = examplesForCurrentSource();
-      el.status.textContent = exampleMode === "saved"
+      el.status.textContent = usingSavedExamples()
         ? `Сохранённое видео ${savedExampleIndex + 1}/${providerExamples.length} · найдено фрагментов: ${event.totalResult}`
-        : `Найдено примеров: ${event.totalResult} · случайный порядок · акцент: ${accentLabel()}`;
+        : `Найдено примеров: ${event.totalResult} · ${exampleOrder === "random" ? "случайный порядок" : "по порядку"} · акцент: ${accentLabel()}`;
     }
 
     function onVideoChange(event) {
       if (state.source !== "youglish") return;
       currentYouglishVideoId = String(event && event.video || "").trim();
+      resetCaptionHistory();
       currentCaptionRaw = "";
       currentCaptionText = "";
       renderCaption("");
@@ -1967,6 +2201,7 @@
         el.status.textContent = existing.replace(/\s·\sпример\s\d+$/i, "") + ` · пример ${n + 1}`;
       }
       renderExampleTools();
+      renderCaptionNavigation();
     }
 
     function onPlayerReady() {
@@ -2129,6 +2364,9 @@
         const parsed = JSON.parse(text);
         const candidate = parsed && parsed.state ? parsed.state : parsed;
         state = normalizeState(candidate);
+        exampleMode = state.exampleMode;
+        exampleOrder = state.exampleOrder;
+        savedExampleSequenceKey = "";
         blindRevealed = false;
         saveState();
         render();
@@ -2171,19 +2409,35 @@
       if (selectedCaptionText) listenToText(selectedCaptionText);
     });
     el.addSelectionBtn.addEventListener("click", () => {
-      if (selectedCaptionText) addTextToLearn(selectedCaptionText);
+      if (selectedCaptionText) {
+        const translation = lastTranslation.source.toLocaleLowerCase("en") === selectedCaptionText.toLocaleLowerCase("en")
+          ? lastTranslation.translation
+          : "";
+        addTextToLearn(selectedCaptionText, currentCaptionText, translation);
+      }
     });
     el.clearTranslationBtn.addEventListener("click", hideTranslation);
+    el.translationAddBtn.addEventListener("click", () => {
+      if (lastTranslation.source && lastTranslation.translation) {
+        addTextToLearn(lastTranslation.source, lastTranslation.context, lastTranslation.translation);
+      }
+    });
     el.saveExampleBtn.addEventListener("click", toggleSavedExample);
     el.exampleMode.addEventListener("click", event => {
       const btn = event.target.closest("button[data-example-mode]");
       if (btn) setExampleMode(btn.dataset.exampleMode);
     });
+    el.exampleOrder.addEventListener("click", event => {
+      const btn = event.target.closest("button[data-example-order]");
+      if (btn) setExampleOrder(btn.dataset.exampleOrder);
+    });
 
-    el.prevBtn.addEventListener("click", () => {
-      if (state.source === "tatoeba" && exampleMode === "saved") playSavedExample(savedExampleIndex - 1);
+    el.prevCaptionBtn.addEventListener("click", () => navigateCaption("previous"));
+    el.nextCaptionBtn.addEventListener("click", () => navigateCaption("next"));
+    el.prevVideoBtn.addEventListener("click", () => {
+      if (state.source === "tatoeba" && usingSavedExamples()) playSavedExample(savedExampleIndex - 1);
       else if (state.source === "tatoeba") loadTatoebaTrack(tatoebaIndex - 1, true);
-      else if (exampleMode === "saved") playSavedExample(savedExampleIndex - 1);
+      else if (usingSavedExamples()) playSavedExample(savedExampleIndex - 1);
       else callWidget("previous");
     });
     el.pauseBtn.addEventListener("click", () => {
@@ -2202,10 +2456,10 @@
         callWidget("replay");
       }
     });
-    el.nextBtn.addEventListener("click", () => {
-      if (state.source === "tatoeba" && exampleMode === "saved") playSavedExample(savedExampleIndex + 1);
+    el.nextVideoBtn.addEventListener("click", () => {
+      if (state.source === "tatoeba" && usingSavedExamples()) playSavedExample(savedExampleIndex + 1);
       else if (state.source === "tatoeba") loadTatoebaTrack(tatoebaIndex + 1, true);
-      else if (exampleMode === "saved") playSavedExample(savedExampleIndex + 1);
+      else if (usingSavedExamples()) playSavedExample(savedExampleIndex + 1);
       else callWidget("next");
     });
 
@@ -2221,7 +2475,7 @@
       if (state.source === "tatoeba") el.pauseBtn.textContent = "Слушать";
     });
     el.tatoebaAudio.addEventListener("ended", () => {
-      if (state.source === "tatoeba" && exampleMode === "saved" && examplesForCurrentSource().length > 1) {
+      if (state.source === "tatoeba" && usingSavedExamples() && examplesForCurrentSource().length > 1) {
         playSavedExample(savedExampleIndex + 1);
       } else if (state.source === "tatoeba" && tatoebaTracks.length > 1) {
         loadTatoebaTrack(tatoebaIndex + 1, true);

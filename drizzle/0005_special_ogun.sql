@@ -1,0 +1,1 @@
+ALTER TABLE `phrases` ADD `context` text DEFAULT '' NOT NULL;

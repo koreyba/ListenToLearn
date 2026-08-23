@@ -48,6 +48,9 @@ button { cursor: pointer; }
 .section-heading { display: flex; align-items: end; justify-content: space-between; gap: 18px; min-height: 72px; margin-bottom: 16px; }
 .section-heading h2 { margin: 0; font-size: 26px; letter-spacing: -.025em; }
 .section-heading p { margin: 5px 0 0; color: var(--muted); }
+.section-tools { display: flex; align-items: end; justify-content: flex-end; gap: 10px; width: min(760px, 100%); }
+.sort-control { display: grid; gap: 5px; color: var(--muted); font-size: 12px; font-weight: 750; white-space: nowrap; }
+.phrase-sort { min-height: 46px; max-width: 245px; padding: 0 34px 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); }
 .add-form { display: flex; gap: 8px; width: min(520px, 100%); }
 .add-form input { flex: 1; min-width: 0; height: 46px; padding: 0 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); }
 .add-form button, .card-actions button { min-height: 42px; padding: 9px 13px; border: 1px solid #3f7d96; border-radius: 11px; background: var(--accent-soft); color: #c8efff; font-weight: 750; }
@@ -58,6 +61,7 @@ button { cursor: pointer; }
 .phrase-open { display: flex; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; flex-direction: column; align-items: flex-start; text-align: left; }
 .phrase-text { font-size: 21px; font-weight: 800; line-height: 1.2; overflow-wrap: anywhere; }
 .phrase-translation { margin-top: 8px; color: #a8e6ce; font-size: 16px; line-height: 1.35; overflow-wrap: anywhere; }
+.phrase-context { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
 .phrase-pattern { margin-top: 11px; color: #c9d4df; line-height: 1.8; }
 .sound-block { position: relative; display: inline-block; margin-right: .28em; padding-bottom: .15em; }
 .sound-block::after { content: ""; position: absolute; left: 4%; right: 4%; bottom: 0; height: 5px; border-bottom: 1px solid #6e8092; border-radius: 0 0 50% 50%; }
@@ -103,6 +107,8 @@ button { cursor: pointer; }
   .header-tools { display: block; }
   .tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .section-heading { align-items: stretch; flex-direction: column; }
+  .section-tools { align-items: stretch; flex-direction: column; width: 100%; }
+  .phrase-sort { max-width: none; width: 100%; }
   .add-form { width: 100%; }
   .phrase-grid { grid-template-columns: 1fr; }
 }

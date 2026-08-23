@@ -24,6 +24,29 @@ test("trainer exposes word and selected-phrase actions", async () => {
   assert.doesNotMatch(trainer, /Google Cloud Translation API key/);
 });
 
+test("trainer can switch between Tatoeba and YouGlish", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+  const tatoebaRoute = await readFile(
+    new URL("../app/api/tatoeba/route.ts", import.meta.url),
+    "utf8",
+  );
+  const audioRoute = await readFile(
+    new URL("../app/api/tatoeba/audio/route.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(trainer, /id="sourceSwitch"/);
+  assert.match(trainer, /data-source="tatoeba"/);
+  assert.match(trainer, /data-source="youglish"/);
+  assert.match(trainer, /id="tatoebaAudio"/);
+  assert.match(trainer, /fetch\(`\/api\/tatoeba\?q=/);
+  assert.match(tatoebaRoute, /https:\/\/api\.tatoeba\.org\/v1\/sentences/);
+  assert.match(audioRoute, /https:\/\/api\.tatoeba\.org\/v1\/audios\/\$\{id\}\/file/);
+});
+
 test("DeepL credentials stay in the server route", async () => {
   const route = await readFile(
     new URL("../app/api/translate/route.ts", import.meta.url),

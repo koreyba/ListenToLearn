@@ -136,10 +136,75 @@
       place-items: stretch;
     }
 
+    .youglish-player,
     #yg-widget {
       width: 100%;
       min-height: 220px;
     }
+    .youglish-player[hidden] { display: none; }
+
+    .source-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .source-row > span {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+    }
+
+    .tatoeba-player {
+      min-height: 220px;
+      padding: 22px;
+      background:
+        radial-gradient(circle at 90% 15%, rgba(125,211,252,.14), transparent 34%),
+        linear-gradient(145deg, #111820, #090d12);
+      display: grid;
+      align-content: center;
+      gap: 15px;
+    }
+    .tatoeba-player[hidden] { display: none; }
+    .tatoeba-kicker {
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .tatoeba-sentence {
+      max-width: 760px;
+      font-size: clamp(23px, 5vw, 36px);
+      font-weight: 720;
+      line-height: 1.2;
+      overflow-wrap: anywhere;
+    }
+    .tatoeba-timeline {
+      height: 7px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #29313b;
+      cursor: pointer;
+    }
+    .tatoeba-progress {
+      width: 0;
+      height: 100%;
+      background: var(--accent);
+    }
+    .tatoeba-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .tatoeba-meta a { color: #b9dbea; }
 
     .player-controls {
       display: grid;
@@ -603,8 +668,30 @@
     </header>
 
     <section class="sticky-stage" id="playerTop">
+      <div class="source-row">
+        <span>Источник примеров</span>
+        <div id="sourceSwitch" class="segmented" role="group" aria-label="Источник примеров">
+          <button type="button" data-source="tatoeba">Tatoeba</button>
+          <button type="button" data-source="youglish">YouGlish</button>
+        </div>
+      </div>
+
       <div class="widget-frame">
-        <div id="yg-widget" aria-label="Плеер YouGlish"></div>
+        <div id="youglishPlayer" class="youglish-player">
+          <div id="yg-widget" aria-label="Плеер YouGlish"></div>
+        </div>
+        <div id="tatoebaPlayer" class="tatoeba-player" hidden aria-label="Аудиоплеер Tatoeba">
+          <div class="tatoeba-kicker">Human-recorded audio</div>
+          <div id="tatoebaSentence" class="tatoeba-sentence">Ищу подходящую запись…</div>
+          <div id="tatoebaTimeline" class="tatoeba-timeline" role="slider" aria-label="Позиция аудио" tabindex="0">
+            <div id="tatoebaProgress" class="tatoeba-progress"></div>
+          </div>
+          <div class="tatoeba-meta">
+            <span id="tatoebaTime">0:00 / 0:00</span>
+            <a id="tatoebaAttribution" href="https://tatoeba.org/" target="_blank" rel="noopener noreferrer">Tatoeba</a>
+          </div>
+          <audio id="tatoebaAudio" preload="metadata"></audio>
+        </div>
       </div>
 
       <div class="player-controls" aria-label="Управление плеером">
@@ -786,6 +873,7 @@
       tag: "all",
       custom: [],
       selectedId: "base-0",
+      source: "tatoeba",
       speed: 1,
       translationCache: {}
     };
@@ -797,6 +885,9 @@
     let currentCaptionRaw = "";
     let currentCaptionText = "";
     let selectedCaptionText = "";
+    let tatoebaTracks = [];
+    let tatoebaIndex = 0;
+    let tatoebaRequest = 0;
 
     const el = {
       status: document.getElementById("status"),
@@ -814,6 +905,15 @@
       noResults: document.getElementById("noResults"),
       noResultsText: document.getElementById("noResultsText"),
       shorterBtn: document.getElementById("shorterBtn"),
+      sourceSwitch: document.getElementById("sourceSwitch"),
+      youglishPlayer: document.getElementById("youglishPlayer"),
+      tatoebaPlayer: document.getElementById("tatoebaPlayer"),
+      tatoebaSentence: document.getElementById("tatoebaSentence"),
+      tatoebaTimeline: document.getElementById("tatoebaTimeline"),
+      tatoebaProgress: document.getElementById("tatoebaProgress"),
+      tatoebaTime: document.getElementById("tatoebaTime"),
+      tatoebaAttribution: document.getElementById("tatoebaAttribution"),
+      tatoebaAudio: document.getElementById("tatoebaAudio"),
       currentQ: document.getElementById("currentQ"),
       currentP: document.getElementById("currentP"),
       currentIpa: document.getElementById("currentIpa"),
@@ -866,6 +966,7 @@
       s.hideDone = Boolean(s.hideDone);
       s.tag = typeof s.tag === "string" ? s.tag : "all";
       s.selectedId = typeof s.selectedId === "string" ? s.selectedId : "base-0";
+      s.source = ["tatoeba", "youglish"].includes(s.source) ? s.source : "tatoeba";
       s.speed = Number.isFinite(Number(s.speed)) ? Number(s.speed) : 1;
       s.translationCache = s.translationCache && typeof s.translationCache === "object" && !Array.isArray(s.translationCache)
         ? s.translationCache
@@ -1106,6 +1207,121 @@
       return "любой";
     }
 
+    function sourceLabel() {
+      return state.source === "tatoeba" ? "Tatoeba" : "YouGlish";
+    }
+
+    function renderSource() {
+      const tatoeba = state.source === "tatoeba";
+      el.youglishPlayer.hidden = tatoeba;
+      el.tatoebaPlayer.hidden = !tatoeba;
+      el.sourceSwitch.querySelectorAll("button[data-source]").forEach(btn => {
+        const active = btn.dataset.source === state.source;
+        btn.classList.toggle("active", active);
+        btn.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+      el.pauseBtn.textContent = tatoeba && el.tatoebaAudio.paused ? "Слушать" : "Пауза";
+    }
+
+    function setSource(source) {
+      if (!["tatoeba", "youglish"].includes(source) || source === state.source) return;
+      el.tatoebaAudio.pause();
+      if (widgetReady && widget && typeof widget.pause === "function") {
+        try { widget.pause(); } catch (_) {}
+      }
+      state.source = source;
+      saveState();
+      renderSource();
+      fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
+    }
+
+    function formatAudioTime(value) {
+      const seconds = Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+      return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+    }
+
+    function updateTatoebaProgress() {
+      const duration = el.tatoebaAudio.duration;
+      const current = el.tatoebaAudio.currentTime;
+      const progress = Number.isFinite(duration) && duration > 0 ? (current / duration) * 100 : 0;
+      el.tatoebaProgress.style.width = `${Math.min(100, Math.max(0, progress))}%`;
+      el.tatoebaTime.textContent = `${formatAudioTime(current)} / ${formatAudioTime(duration)}`;
+      el.tatoebaTimeline.setAttribute("aria-valuenow", String(Math.round(progress)));
+    }
+
+    function markQueryInSentence(sentence, query) {
+      const cleanQuery = String(query || "").trim();
+      if (!cleanQuery) return sentence;
+      const index = sentence.toLocaleLowerCase("en").indexOf(cleanQuery.toLocaleLowerCase("en"));
+      if (index < 0) return sentence;
+      return `${sentence.slice(0, index)}[[[${sentence.slice(index, index + cleanQuery.length)}]]]${sentence.slice(index + cleanQuery.length)}`;
+    }
+
+    async function playTatoeba() {
+      try {
+        await el.tatoebaAudio.play();
+      } catch (error) {
+        el.pauseBtn.textContent = "Слушать";
+        el.status.textContent = "Запись готова — нажми «Слушать».";
+        console.info("Autoplay was blocked:", error);
+      }
+    }
+
+    function loadTatoebaTrack(index, autoplay = true) {
+      if (!tatoebaTracks.length) return;
+      tatoebaIndex = (index + tatoebaTracks.length) % tatoebaTracks.length;
+      const track = tatoebaTracks[tatoebaIndex];
+      el.tatoebaSentence.textContent = track.text;
+      el.tatoebaAttribution.textContent = `Voice: ${track.author} · ${track.license} · Tatoeba`;
+      el.tatoebaAttribution.href = track.attributionUrl || `https://tatoeba.org/en/sentences/show/${track.sentenceId}`;
+      el.tatoebaAudio.src = `/api/tatoeba/audio?id=${encodeURIComponent(track.audioId)}`;
+      el.tatoebaAudio.playbackRate = state.speed;
+      el.tatoebaAudio.load();
+      currentCaptionRaw = markQueryInSentence(track.text, currentQueryOverride || VIEWER_PHRASE);
+      currentCaptionText = track.text;
+      renderCaption(currentCaptionRaw);
+      hideTranslation();
+      hideNoResults();
+      el.status.classList.remove("error");
+      el.status.textContent = `Найдено аудиопримеров: ${tatoebaTracks.length} · пример ${tatoebaIndex + 1}/${tatoebaTracks.length} · Tatoeba`;
+      if (autoplay) playTatoeba();
+    }
+
+    async function fetchTatoeba(query) {
+      const requestId = ++tatoebaRequest;
+      el.tatoebaAudio.pause();
+      el.tatoebaAudio.removeAttribute("src");
+      el.tatoebaAudio.load();
+      tatoebaTracks = [];
+      tatoebaIndex = 0;
+      el.tatoebaSentence.textContent = "Ищу подходящую запись…";
+      el.tatoebaAttribution.textContent = "Tatoeba";
+      el.tatoebaAttribution.href = "https://tatoeba.org/";
+      updateTatoebaProgress();
+      el.status.classList.remove("error");
+      el.status.textContent = `Ищу аудиопримеры: «${query}» · Tatoeba…`;
+
+      try {
+        const response = await fetch(`/api/tatoeba?q=${encodeURIComponent(query)}`);
+        const data = await response.json().catch(() => null);
+        if (requestId !== tatoebaRequest || state.source !== "tatoeba") return;
+        if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
+        tatoebaTracks = Array.isArray(data && data.tracks) ? data.tracks : [];
+        if (!tatoebaTracks.length) {
+          el.tatoebaSentence.textContent = "Записей не найдено.";
+          el.status.textContent = "Примеров не найдено.";
+          showNoResults(query);
+          return;
+        }
+        loadTatoebaTrack(0, true);
+      } catch (error) {
+        if (requestId !== tatoebaRequest) return;
+        el.tatoebaSentence.textContent = "Не удалось загрузить записи.";
+        showWidgetError(error.message || "Tatoeba временно недоступна.");
+        console.error(error);
+      }
+    }
+
     function fetchPhrase(query, isOverride = false) {
       currentQueryOverride = isOverride ? query : null;
       currentCaptionRaw = "";
@@ -1113,6 +1329,11 @@
       renderCaption("");
       hideTranslation();
       hideNoResults();
+
+      if (state.source === "tatoeba") {
+        fetchTatoeba(query);
+        return;
+      }
 
       if (!widgetReady || !widget) {
         el.status.textContent = "YouGlish API ещё загружается. Фраза будет запущена сразу после готовности.";
@@ -1163,7 +1384,7 @@
 
     function showNoResults(query) {
       const shorter = shorterSuggestion(query);
-      el.noResultsText.textContent = `YouGlish не нашёл примеров для «${query}».`;
+      el.noResultsText.textContent = `${sourceLabel()} не нашёл примеров для «${query}».`;
       el.noResults.classList.add("visible");
 
       if (shorter && shorter !== query) {
@@ -1390,6 +1611,7 @@
     }
 
     function onCaptionChange(event) {
+      if (state.source !== "youglish") return;
       currentCaptionRaw = decodeCaption(event && event.caption);
       currentCaptionText = cleanCaptionText(currentCaptionRaw);
       renderCaption(currentCaptionRaw);
@@ -1402,6 +1624,7 @@
     }
 
     function onFetchDone(event) {
+      if (state.source !== "youglish") return;
       const query = event.query || currentQueryOverride || VIEWER_PHRASE;
       if (Number(event.totalResult) === 0) {
         el.status.textContent = "Примеров не найдено.";
@@ -1415,6 +1638,7 @@
     }
 
     function onVideoChange(event) {
+      if (state.source !== "youglish") return;
       currentCaptionRaw = "";
       currentCaptionText = "";
       renderCaption("");
@@ -1428,12 +1652,17 @@
 
     function onPlayerReady() {
       widgetReady = true;
+      if (widget && typeof widget.setSpeed === "function") {
+        try { widget.setSpeed(state.speed); } catch (_) {}
+      }
+      if (state.source !== "youglish") return;
       el.status.classList.remove("error");
       el.status.textContent = "Плеер готов.";
-      setSpeed(state.speed);
+      fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
     }
 
     function onSpeedChange(event) {
+      if (state.source !== "youglish") return;
       const speed = Number(event.speed);
       if (Number.isFinite(speed)) {
         state.speed = speed;
@@ -1443,6 +1672,7 @@
     }
 
     function onError(event) {
+      if (state.source !== "youglish") return;
       const code = event && event.code != null ? ` Код: ${event.code}.` : "";
       showWidgetError(`Ошибка плеера YouGlish.${code}`);
     }
@@ -1471,8 +1701,10 @@
         // Некоторые версии виджета готовы принимать fetch сразу после создания.
         // onPlayerReady ниже повторно подтвердит готовность и загрузит текущую фразу.
         widgetReady = true;
-        el.status.textContent = "YouGlish API загружен.";
-        fetchPhrase(VIEWER_PHRASE, true);
+        if (state.source === "youglish") {
+          el.status.textContent = "YouGlish API загружен.";
+          fetchPhrase(VIEWER_PHRASE, true);
+        }
       } catch (err) {
         showWidgetError("YouGlish API загрузился, но виджет не удалось создать.");
         console.error(err);
@@ -1498,7 +1730,8 @@
       state.speed = rate;
       saveState();
       renderFilters();
-      callWidget("setSpeed", rate);
+      el.tatoebaAudio.playbackRate = rate;
+      if (state.source === "youglish") callWidget("setSpeed", rate);
     }
 
     function randomUndone() {
@@ -1621,10 +1854,61 @@
     });
     el.clearTranslationBtn.addEventListener("click", hideTranslation);
 
-    el.prevBtn.addEventListener("click", () => callWidget("previous"));
-    el.pauseBtn.addEventListener("click", () => callWidget("pause"));
-    el.replayBtn.addEventListener("click", () => callWidget("replay"));
-    el.nextBtn.addEventListener("click", () => callWidget("next"));
+    el.prevBtn.addEventListener("click", () => {
+      if (state.source === "tatoeba") loadTatoebaTrack(tatoebaIndex - 1, true);
+      else callWidget("previous");
+    });
+    el.pauseBtn.addEventListener("click", () => {
+      if (state.source === "tatoeba") {
+        if (el.tatoebaAudio.paused) playTatoeba();
+        else el.tatoebaAudio.pause();
+      } else {
+        callWidget("pause");
+      }
+    });
+    el.replayBtn.addEventListener("click", () => {
+      if (state.source === "tatoeba") {
+        el.tatoebaAudio.currentTime = 0;
+        playTatoeba();
+      } else {
+        callWidget("replay");
+      }
+    });
+    el.nextBtn.addEventListener("click", () => {
+      if (state.source === "tatoeba") loadTatoebaTrack(tatoebaIndex + 1, true);
+      else callWidget("next");
+    });
+
+    el.sourceSwitch.addEventListener("click", event => {
+      const btn = event.target.closest("button[data-source]");
+      if (btn) setSource(btn.dataset.source);
+    });
+
+    el.tatoebaAudio.addEventListener("loadedmetadata", updateTatoebaProgress);
+    el.tatoebaAudio.addEventListener("timeupdate", updateTatoebaProgress);
+    el.tatoebaAudio.addEventListener("play", () => { el.pauseBtn.textContent = "Пауза"; });
+    el.tatoebaAudio.addEventListener("pause", () => {
+      if (state.source === "tatoeba") el.pauseBtn.textContent = "Слушать";
+    });
+    el.tatoebaAudio.addEventListener("ended", () => {
+      if (state.source === "tatoeba" && tatoebaTracks.length > 1) loadTatoebaTrack(tatoebaIndex + 1, true);
+    });
+    el.tatoebaAudio.addEventListener("error", () => {
+      if (state.source === "tatoeba" && el.tatoebaAudio.currentSrc) showWidgetError("Не удалось воспроизвести эту запись Tatoeba.");
+    });
+    el.tatoebaTimeline.addEventListener("click", event => {
+      const duration = el.tatoebaAudio.duration;
+      if (!Number.isFinite(duration) || duration <= 0) return;
+      const box = el.tatoebaTimeline.getBoundingClientRect();
+      const ratio = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
+      el.tatoebaAudio.currentTime = duration * ratio;
+    });
+    el.tatoebaTimeline.addEventListener("keydown", event => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      event.preventDefault();
+      const delta = event.key === "ArrowLeft" ? -5 : 5;
+      el.tatoebaAudio.currentTime = Math.max(0, Math.min(el.tatoebaAudio.duration || 0, el.tatoebaAudio.currentTime + delta));
+    });
 
     document.querySelectorAll(".speed-btn").forEach(btn => {
       btn.addEventListener("click", () => setSpeed(Number(btn.dataset.speed)));
@@ -1687,13 +1971,17 @@
     });
     renderCaption("");
     render();
+    renderSource();
+    if (state.source === "tatoeba") fetchPhrase(VIEWER_PHRASE, true);
 
     // Подключаем официальный YouGlish Widget API.
     const ygScript = document.createElement("script");
     ygScript.src = "https://youglish.com/public/emb/widget.js";
     ygScript.async = true;
     ygScript.onerror = () => {
-      showWidgetError("Не удалось загрузить YouGlish Widget API. Проверь интернет или блокировщик контента.");
+      if (state.source === "youglish") {
+        showWidgetError("Не удалось загрузить YouGlish Widget API. Проверь интернет или блокировщик контента.");
+      }
     };
     document.head.appendChild(ygScript);
   </script>

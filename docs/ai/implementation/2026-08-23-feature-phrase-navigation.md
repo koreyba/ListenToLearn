@@ -56,6 +56,9 @@ description: Technical implementation notes, patterns, and code guidelines
   a fixed five-second rewind as phrase navigation.
 - If a movement fails, the corresponding direction is blocked until a fresh
   caption observation resets the boundary state.
+- When `state.source` is `tatoeba`, the timed caption-navigation group and
+  `repeatCaptionBtn` are hidden. Whole-track previous/next, replay, and native
+  audio controls remain available.
 
 ### Repeat current caption
 
@@ -74,14 +77,15 @@ description: Technical implementation notes, patterns, and code guidelines
 - The helper script is loaded before the existing inline trainer controller.
 - YouGlish remains an embedded cross-origin widget; the implementation uses
   only `move`, caption events, player state, and existing track controls.
-- Tatoeba keeps its existing audio-track controls and does not enable timed
-  caption actions.
+- Tatoeba keeps its existing audio-track controls; timed caption-navigation and
+  phrase-repeat controls are hidden because the source has no timed chunks.
 - No server route, database schema, binding, secret, or auth behavior changed.
 
 ## Error Handling
 
 - Missing helper, missing `move`, missing/invalid `current_time`, or provider
-  event drift leaves phrase controls disabled with an explicit explanation.
+  event drift leaves YouGlish phrase controls disabled with an explicit
+  explanation. Tatoeba hides those controls because it has no timed chunks.
 - Movement exceptions are caught, the failed direction is blocked, and repeat
   is disabled rather than retried indefinitely.
 - Caption navigation status is updated after a local cached target or movement

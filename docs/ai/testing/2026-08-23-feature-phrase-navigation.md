@@ -52,8 +52,9 @@ Controller scenarios to cover with a fake widget/event harness:
   `widget.next()` and are not intercepted by caption navigation.
 - [ ] Caption navigation resets on `onVideoChange`, source switching, query
   changes, and saved-example changes.
-- [ ] Tatoeba keeps its audio-track controls and does not expose timed caption
-  actions.
+- [x] Tatoeba keeps its audio-track controls and hides timed caption actions;
+  the rendered-source contract covers both visibility decisions and whole-track
+  previous/next controls.
 - [ ] Translation selection and `+ To Learn` still use the latest caption after
   a successful phrase navigation.
 
@@ -98,7 +99,7 @@ of the documented public contract.
 
 Fresh evidence on 2026-08-23:
 
-- `node --test tests/rendered-html.test.mjs`: 13 passed, 0 failed, including
+- `node --test tests/rendered-html.test.mjs`: 14 passed, 0 failed, including
   the merged Google-auth Worker contract test.
 - `bash scripts/sites-env.sh -- ./node_modules/.bin/vinext build`: passed.
 - `npx tsc --noEmit`: passed.
@@ -111,11 +112,12 @@ Fresh evidence on 2026-08-23:
 - `npm test`: blocked before build by the repository wrapper's GNU `timeout`
   requirement on this macOS host; direct equivalent build and test commands
   above passed.
-- Read-only local browser smoke served `public/` successfully: the helper
-  loaded, Tatoeba kept phrase controls disabled, YouGlish showed the timing
-  fallback, and the repeat button exposed the disabled/pressed contract.
-- At a 390px viewport, `document.documentElement.scrollWidth` was 390px and
-  all three phrase controls remained visible and disabled without timing data.
+- Local Chrome smoke against the static `public/` server at a 390px viewport
+  confirmed `source=tatoeba`, hidden `captionNavigation` and
+  `repeatCaptionBtn`, visible whole-track previous/next controls, and
+  `document.documentElement.scrollWidth === 390`; switching to YouGlish made
+  both timed-control regions visible again. The static server returned 404 for
+  application APIs, so this smoke covered source/UI state only.
 - A real YouGlish caption navigation/repeat cycle was not verified: the live
   widget reported that its daily search quota was exceeded, and the Worker
   dev server is incompatible with this installed Miniflare compatibility-date
@@ -123,7 +125,8 @@ Fresh evidence on 2026-08-23:
 
 ## Manual Testing
 
-- [ ] Confirm labels, disabled state, focus order, `aria-pressed`, and status text.
+- [ ] Confirm labels, source-specific hidden/disabled state, focus order,
+  `aria-pressed`, and status text.
 - [ ] Confirm no phrase button changes the YouGlish video track.
 - [ ] Confirm repeat does not survive a query/video/source reset.
 - [ ] Confirm fallback remains honest after a widget update that omits timing.

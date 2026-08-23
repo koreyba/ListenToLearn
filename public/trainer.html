@@ -809,7 +809,7 @@
         </div>
 
         <div class="player-controls" aria-label="Навигация и управление плеером">
-          <div class="control-group caption-navigation" aria-label="Навигация по субтитрам">
+          <div id="captionNavigation" class="control-group caption-navigation" aria-label="Навигация по субтитрам" hidden>
             <span class="control-group-label">Фразы в видео</span>
             <button id="prevCaptionBtn" type="button" disabled>Предыдущая фраза</button>
             <button id="nextCaptionBtn" type="button" disabled>Следующая фраза</button>
@@ -824,7 +824,7 @@
             <span class="control-group-label">Воспроизведение</span>
             <button id="pauseBtn" type="button">Пауза</button>
             <button id="replayBtn" type="button">Повтор</button>
-            <button id="repeatCaptionBtn" type="button" aria-pressed="false" disabled>Повтор фразы: выкл</button>
+            <button id="repeatCaptionBtn" type="button" aria-pressed="false" disabled hidden>Повтор фразы: выкл</button>
           </div>
           <div class="control-group speed-navigation" aria-label="Скорость">
             <span class="control-group-label">Скорость</span>
@@ -1141,6 +1141,7 @@
       stateMessage: document.getElementById("stateMessage"),
       loginLink: document.getElementById("loginLink"),
       playerTop: document.getElementById("playerTop"),
+      captionNavigation: document.getElementById("captionNavigation"),
       prevCaptionBtn: document.getElementById("prevCaptionBtn"),
       nextCaptionBtn: document.getElementById("nextCaptionBtn"),
       captionNavigationHint: document.getElementById("captionNavigationHint"),
@@ -1935,7 +1936,10 @@
     }
 
     function renderCaptionNavigation() {
-      if (!el.prevCaptionBtn || !el.nextCaptionBtn || !el.repeatCaptionBtn) return;
+      if (!el.captionNavigation || !el.prevCaptionBtn || !el.nextCaptionBtn || !el.repeatCaptionBtn) return;
+      const timedCaptionControlsVisible = state.source === "youglish";
+      el.captionNavigation.hidden = !timedCaptionControlsVisible;
+      el.repeatCaptionBtn.hidden = !timedCaptionControlsVisible;
       const timingAvailable = captionTimingAvailable();
       const current = currentCaptionEntry();
       const { previous: previousTarget, next: nextTarget } = captionNavigation

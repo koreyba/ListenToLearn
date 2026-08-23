@@ -195,6 +195,21 @@ test("phrase controls use timing-aware caption events and expose repeat state", 
   assert.doesNotMatch(trainer, /move\(-5\)/);
 });
 
+test("Tatoeba hides timed caption controls but keeps whole-track navigation", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(trainer, /id="captionNavigation"[^>]*hidden/);
+  assert.match(trainer, /id="repeatCaptionBtn"[^>]*hidden/);
+  assert.match(trainer, /const timedCaptionControlsVisible = state\.source === "youglish"/);
+  assert.match(trainer, /el\.captionNavigation\.hidden = !timedCaptionControlsVisible/);
+  assert.match(trainer, /el\.repeatCaptionBtn\.hidden = !timedCaptionControlsVisible/);
+  assert.match(trainer, /id="prevVideoBtn"/);
+  assert.match(trainer, /id="nextVideoBtn"/);
+});
+
 test("caption timeline keeps opaque IDs ordered by timing and computes relative seeks", async () => {
   const source = await readFile(
     new URL("../public/caption-navigation.js", import.meta.url),

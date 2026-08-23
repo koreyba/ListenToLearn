@@ -8,9 +8,8 @@ description: Technical implementation notes, patterns, and code guidelines
 
 ## Development Setup
 
-- Worktree: `feature-phrase-navigation`, initially based on the merged MVP
-  commit `b6c357108cc3d605438a12b389f20fb87e1e5359`; the Google-auth base now
-  exists on `origin/main` as `3b607bf` and must be synchronized before push.
+- Worktree: `feature-phrase-navigation-fix`, based on the merged phrase
+  navigation commit `e6cc2bf`; the branch remains local until fresh gates pass.
 - Dependencies were installed with `npm ci`.
 - Repository checks are `npm test`, `npx tsc --noEmit`, `npm run lint`,
   `git diff --check`, and `npx ai-devkit@latest lint --feature
@@ -21,8 +20,8 @@ description: Technical implementation notes, patterns, and code guidelines
 ## Code Structure
 
 - `public/caption-navigation.js`: small browser-safe pure helper module for
-  finite timing validation, idempotent timeline upserts, adjacent lookup, and
-  repeat/relative seek delta calculations.
+  finite timing validation, idempotent timeline upserts, cached-neighbor lookup,
+  and repeat/relative seek delta calculations.
 - `public/trainer.html`: existing trainer controller, YouGlish event wiring,
   controls, asynchronous navigation state, and provider fallback UI.
 - `tests/rendered-html.test.mjs`: rendered-source contracts, inline-script
@@ -45,15 +44,18 @@ description: Technical implementation notes, patterns, and code guidelines
 ### Previous/next navigation
 
 - A cached neighbor is reached with a relative `widget.move(delta)` derived
-  from observed start times, then confirmed by the expected caption ID.
-- An unobserved neighbor is discovered by paused, bounded `0.5` second moves;
-  it stops at the first different caption event with a valid timestamp.
-- One navigation may be in flight. Waiters have a timeout, and a token makes
-  reset/source/video changes invalidate stale asynchronous results.
+  from observed start times, then selected immediately from the local timeline.
+  The provider callback can reconcile the display later, but it is not required
+  to unlock the button.
+- An unobserved neighbor is not discovered by repeated movement. The relevant
+  button stays disabled until normal playback observes the caption.
+- One navigation movement may be in flight. The synchronous guard prevents
+  overlapping click handlers, and a movement error blocks that direction until
+  fresh caption evidence resets the boundary state.
 - The controls never call `widget.previous()`/`widget.next()` and never treat
   a fixed five-second rewind as phrase navigation.
-- If no target event is confirmed, the corresponding direction is blocked until
-  a fresh caption observation resets the boundary state.
+- If a movement fails, the corresponding direction is blocked until a fresh
+  caption observation resets the boundary state.
 
 ### Repeat current caption
 
@@ -80,15 +82,15 @@ description: Technical implementation notes, patterns, and code guidelines
 
 - Missing helper, missing `move`, missing/invalid `current_time`, or provider
   event drift leaves phrase controls disabled with an explicit explanation.
-- Movement exceptions are caught, pending waiters are cleared, and repeat is
-  disabled rather than retried indefinitely.
-- Caption navigation status is updated only after a verified target or bounded
+- Movement exceptions are caught, the failed direction is blocked, and repeat
+  is disabled rather than retried indefinitely.
+- Caption navigation status is updated after a local cached target or movement
   failure; existing video navigation remains available independently.
 
 ## Performance Considerations
 
 - Idle playback has no polling or interval.
-- Discovery is limited to 80 half-second steps and 2.5 seconds per command.
+- Cached navigation performs one relative movement and one local state update.
 - Timeline data is kept only for the active video and is bounded by observed
   caption events.
 

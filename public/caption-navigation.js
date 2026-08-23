@@ -41,6 +41,13 @@
     return target && target.videoId === videoId ? target : null;
   }
 
+  function neighbors(history, index, videoId) {
+    return {
+      previous: adjacent(history, index, -1, videoId),
+      next: adjacent(history, index, 1, videoId)
+    };
+  }
+
   function relativeSeekDelta(currentTime, targetStartTime) {
     return Number(targetStartTime) - Number(currentTime);
   }
@@ -61,6 +68,7 @@
     finiteTime,
     upsert,
     adjacent,
+    neighbors,
     relativeSeekDelta,
     repeatSeekDelta
   });

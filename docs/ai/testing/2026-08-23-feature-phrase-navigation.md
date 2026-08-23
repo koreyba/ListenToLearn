@@ -8,8 +8,8 @@ description: Define testing approach, test cases, and quality assurance
 
 ## Test Coverage Goals
 
-- Cover every new branch in timing detection, timeline upsert, adjacent-target
-  selection, timeout/cancellation, repeat-off, and provider fallback.
+- Cover every new branch in timing detection, timeline upsert, cached-neighbor
+  selection, movement errors, repeat-off, and provider fallback.
 - Keep the existing rendered HTML, TypeScript, lint, build, and diff gates green.
 - Use a deterministic fake `YG.Widget` for controller behavior; use a live
   YouGlish smoke check only for provider compatibility, not as the sole test.
@@ -34,13 +34,13 @@ Controller scenarios to cover with a fake widget/event harness:
 
 - [ ] A valid caption event is stored once; duplicate IDs refresh observation
   time without duplicating the timeline.
-- [ ] Cached previous/next uses the same video and expected target ID.
-- [ ] An unobserved neighbor is found by bounded half-second steps.
+- [x] Cached previous/next uses the same video and updates the local target
+  without waiting for a duplicate caption event.
+- [x] An unobserved neighbor leaves the corresponding direction disabled.
 - [ ] First/last caption disables the corresponding direction.
 - [ ] Missing/invalid `current_time` disables exact controls without calling
   `move(-5)`.
-- [ ] A timeout, source/video reset, or newer command invalidates an older
-  waiter and leaves controls consistent.
+- [ ] A source/video reset or newer command leaves controls consistent.
 - [ ] Repeat handles only the active caption ID, and repeat-off prevents the
   next consumed event from seeking.
 - [ ] Repeat failure on an unexpected caption disables repeat rather than
@@ -60,8 +60,8 @@ Controller scenarios to cover with a fake widget/event harness:
 ## End-to-End Tests
 
 - [ ] In a live YouGlish widget that emits finite `current_time`, play two or
-  more captions, navigate back/forward, and confirm the visible caption and
-  video ID stay aligned.
+  more captions, navigate back/forward through already observed captions, and
+  confirm the visible caption and video ID stay aligned without a busy wait.
 - [ ] Enable repeat on a short caption, observe at least two consumption cycles,
   disable repeat, and confirm playback proceeds to the next caption.
 - [ ] Run the same smoke path on desktop and a 390px mobile viewport.
@@ -98,7 +98,7 @@ of the documented public contract.
 
 Fresh evidence on 2026-08-23:
 
-- `node --test tests/rendered-html.test.mjs`: 12 passed, 0 failed, including
+- `node --test tests/rendered-html.test.mjs`: 13 passed, 0 failed, including
   the merged Google-auth Worker contract test.
 - `bash scripts/sites-env.sh -- ./node_modules/.bin/vinext build`: passed.
 - `npx tsc --noEmit`: passed.
@@ -106,6 +106,8 @@ Fresh evidence on 2026-08-23:
   `worker-configuration.d.ts`, with 0 errors.
 - `git diff --check`: passed.
 - `npx ai-devkit@latest lint --feature phrase-navigation`: passed.
+- Regression gate: removing the cached-neighbor helper produced 1 failing test;
+  restoring it returned the suite to 13 passed.
 - `npm test`: blocked before build by the repository wrapper's GNU `timeout`
   requirement on this macOS host; direct equivalent build and test commands
   above passed.
@@ -131,9 +133,9 @@ Fresh evidence on 2026-08-23:
 ## Performance & Reliability
 
 - Idle path has no polling.
-- Each navigation has a finite timeout and a maximum of 80 half-second steps.
-- No second navigation or repeat loop may start while a prior operation is
-  pending.
+- Cached navigation is one relative move plus one local update.
+- No second navigation or repeat loop may start while a prior movement call is
+  in progress.
 
 ## Bug Tracking
 

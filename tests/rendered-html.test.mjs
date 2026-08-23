@@ -189,7 +189,8 @@ test("phrase controls use timing-aware caption events and expose repeat state", 
   assert.match(trainer, /event\.current_time/);
   assert.match(trainer, /lastKnownTime/);
   assert.match(trainer, /captionNavigationBusy/);
-  assert.match(trainer, /CAPTION_SEEK_STEP_SECONDS/);
+  assert.match(trainer, /captionNavigation\.neighbors/);
+  assert.doesNotMatch(trainer, /seekByCaptionSteps/);
   assert.doesNotMatch(trainer, /captionNavigationMethod/);
   assert.doesNotMatch(trainer, /move\(-5\)/);
 });
@@ -247,6 +248,45 @@ test("caption timeline keeps opaque IDs ordered by timing and computes relative 
   assert.equal(navigation.repeatSeekDelta(10, 12, 13), -3);
   assert.equal(navigation.repeatSeekDelta(10, 12, null), -2);
   assert.equal(navigation.repeatSeekDelta(10, null, 10.2), -0.5);
+});
+
+test("phrase navigation uses cached neighbors without waiting for a new caption event", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+  const source = await readFile(
+    new URL("../public/caption-navigation.js", import.meta.url),
+    "utf8",
+  );
+  const sandbox = { window: {} };
+  vm.runInNewContext(source, sandbox);
+  const navigation = sandbox.window.ListenToLearnCaptionNavigation;
+  const first = navigation.upsert([], {
+    videoId: "video-1",
+    id: "opaque-a",
+    raw: "first",
+    text: "first",
+    startTime: 10,
+  }, 0, 10);
+  const second = navigation.upsert(first.history, {
+    videoId: "video-1",
+    id: "opaque-b",
+    raw: "second",
+    text: "second",
+    startTime: 12,
+  }, first.nextSequence, 20);
+  const neighbors = navigation.neighbors(second.history, second.index, "video-1");
+
+  assert.equal(neighbors.previous.id, "opaque-a");
+  assert.equal(neighbors.next, null);
+  assert.match(trainer, /captionNavigation\.neighbors\(captionHistory, captionHistoryIndex, currentYouglishVideoId\)/);
+  assert.match(trainer, /Boolean\(previousTarget\)/);
+  assert.match(trainer, /Boolean\(nextTarget\)/);
+  const knownSeek = trainer.match(/function seekToKnownCaption\([\s\S]*?\n    function navigateCaption/)?.[0];
+  assert.ok(knownSeek);
+  assert.doesNotMatch(knownSeek, /waitForCaption/);
+  assert.match(knownSeek, /renderCaption\(targetEntry\.raw\)/);
 });
 
 test("integrations keep provider keys server-side and expose only status", async () => {

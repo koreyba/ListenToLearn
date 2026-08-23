@@ -15,7 +15,8 @@ and adds no analytics or personal-data telemetry.
 
 - YouGlish `onError` events or a widget that stops exposing callable `move`.
 - Caption events without finite `current_time` after a widget update.
-- Repeated bounded navigation failures or unexpected caption IDs during repeat.
+- Repeated cached-navigation movement failures or unexpected caption IDs during
+  repeat.
 - Any regression where phrase controls call video-track `previous()`/`next()`.
 
 ## Logging and Privacy

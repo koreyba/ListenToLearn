@@ -10,9 +10,9 @@ description: Define the technical architecture, components, and data models
 
 The feature stays in the existing inline browser controller. It does not add a
 server route or database state. The controller treats the YouGlish widget as an
-asynchronous state machine: caption events are the source of truth, `move()` is
-only a request, and a navigation operation completes only after the expected
-caption event arrives.
+asynchronous provider around a local timeline: caption events populate and
+reconcile the timeline, while a cached target can be selected immediately after
+its relative `move()` request.
 
 ```mermaid
 flowchart LR
@@ -29,7 +29,7 @@ The design has four responsibilities:
 
 - normalize and retain timing-bearing caption observations per video;
 - compute adjacent targets without comparing opaque caption IDs numerically;
-- execute one bounded movement at a time and verify the resulting caption;
+- execute one cached movement at a time and update the local target immediately;
 - repeat only the active caption and fail closed on provider drift.
 
 ## Data Models
@@ -55,11 +55,9 @@ caption text or timing is persisted to localStorage or D1.
 
 Navigation state is local and ephemeral:
 
-- `captionNavigationBusy` prevents overlapping requests;
-- `captionNavigationToken` invalidates stale waits after reset/source changes;
-- `captionWaiters` resolves only on a matching caption event or a timeout;
-- `captionNavigationBlocked` disables a direction after a bounded failure until
-  a fresh caption observation provides new boundary evidence;
+- `captionNavigationBusy` prevents overlapping movement calls;
+- `captionNavigationBlocked` disables a direction after a movement failure until
+  a fresh caption observation provides new evidence;
 - `repeatCaptionEnabled` and `repeatTargetId` control the active repeat loop;
 - `playerState`, `observedAt`, and `lastKnownTime` provide a bounded estimate of
   current playback time when `onCaptionConsumed` lacks a timestamp, including a
@@ -91,23 +89,18 @@ the existing honest fallback text.
 ### Caption event normalizer
 
 `onCaptionChange` decodes the caption, validates `current_time`, upserts the
-entry for the current video, updates the visible caption, and notifies pending
-navigation waiters. Repeated events for the same caption refresh observation
-time instead of adding duplicates.
+entry for the current video, and updates the visible caption. Repeated events
+for the same caption refresh observation time instead of adding duplicates.
 
 ### Navigation controller
 
 For a cached adjacent caption, the controller estimates current playback time,
-calls `move(target.startTime - estimatedCurrentTime)`, and waits for that target
-ID. If no adjacent entry is cached, it pauses playback, moves in bounded 0.5
-second steps in the requested direction, and stops on the first different
-caption with a valid time. It resumes playback only if it was playing before
-the operation.
-
-Every operation has a timeout and token check. A stale event cannot resolve a
-new operation. If the provider does not confirm a target, the controller makes
-no claim that the target was reached, blocks that direction until fresh caption
-evidence arrives, and reports the bounded failure.
+calls `move(target.startTime - estimatedCurrentTime)`, and immediately selects
+the cached target in the local timeline. It updates the visible caption and
+unlocks the controls in the same command path; a later caption event can
+reconcile the local state. If no adjacent entry is cached, the corresponding
+control is disabled instead of starting a blind step search. A movement
+exception blocks that direction and reports the failure.
 
 ### Repeat controller
 
@@ -127,9 +120,9 @@ navigation command is busy. Existing replay and video controls remain separate.
 
 ## Design Decisions
 
-- Use timing-bearing caption events plus verification rather than fixed seeks.
-  This is the only path that can approximate one-caption navigation without
-  pretending that `move(-5)` is exact.
+- Use timing-bearing caption events plus a cached-target fast path rather than
+  fixed seeks or blind discovery. This approximates one-caption navigation
+  without pretending that `move(-5)` is exact.
 - Keep the feature client-only. The provider timing is transient playback state;
   persisting it would add no value and could become stale.
 - Use an opaque-ID timeline sorted by provider timestamps. Numeric ID ordering is
@@ -137,8 +130,8 @@ navigation command is busy. Existing replay and video controls remain separate.
 - Feature-detect undocumented `current_time` and fail closed. This accepts the
   current widget behavior without making a future provider change a silent UX
   regression.
-- Use bounded steps only to discover an unobserved neighbor. Never loop without
-  a maximum duration or use a video-track fallback.
+- Do not attempt to discover an unobserved neighbor by repeated movement. Keep
+  the direction disabled until ordinary caption playback adds that neighbor.
 
 Alternatives rejected in requirements review: fixed five-second movement,
 private endpoint/iframe scraping, and replacing the provider widget with an
@@ -146,12 +139,12 @@ independent player.
 
 ## Non-Functional Requirements
 
-- Reliability: one in-flight operation, bounded waits, reset cancellation, and
-  verified target IDs.
+- Reliability: one in-flight movement, cached target identity, reset handling,
+  and fail-closed movement errors.
 - Accessibility: native buttons, disabled states, `aria-pressed`, status text,
   and no keyboard-only path hidden inside the iframe.
-- Performance: no polling while idle; step search is at most 80 half-second
-  requests and stops immediately when a caption changes.
+- Performance: no polling while idle; cached navigation performs one relative
+  movement and one local state update.
 - Security: no new secrets, network routes, cross-origin DOM access, or storage
   of provider captions/timestamps.
 - Compatibility: if the current widget omits timing or `move`, existing video

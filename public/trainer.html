@@ -1058,16 +1058,11 @@
     let exampleOrder = "random";
     let savedExampleSequenceKey = "";
     let savedExampleSequence = [];
-    const CAPTION_SEEK_STEP_SECONDS = 0.5;
-    const CAPTION_SEEK_MAX_STEPS = 80;
-    const CAPTION_NAVIGATION_TIMEOUT_MS = 2500;
     const captionNavigation = window.ListenToLearnCaptionNavigation || null;
     let captionHistory = [];
     let captionHistoryIndex = -1;
     let captionNavigationBlocked = { previous: false, next: false };
     let captionNavigationBusy = false;
-    let captionNavigationToken = 0;
-    let captionWaiters = [];
     let repeatCaptionEnabled = false;
     let repeatTargetId = "";
     let repeatPending = false;
@@ -1617,17 +1612,7 @@
         && finiteCaptionTime(current.startTime) !== null;
     }
 
-    function clearCaptionWaiters() {
-      for (const waiter of captionWaiters) {
-        clearTimeout(waiter.timeoutId);
-        waiter.resolve(null);
-      }
-      captionWaiters = [];
-    }
-
     function cancelCaptionNavigation() {
-      captionNavigationToken += 1;
-      clearCaptionWaiters();
       captionNavigationBusy = false;
     }
 
@@ -1643,33 +1628,6 @@
       captionNavigationBlocked = { previous: false, next: false };
       if (captionNavigationBusy) cancelCaptionNavigation();
       if (repeatCaptionEnabled || repeatPending) disableRepeatCaption(message);
-    }
-
-    function waitForCaption(predicate, timeout = CAPTION_NAVIGATION_TIMEOUT_MS) {
-      return new Promise(resolve => {
-        const waiter = {
-          predicate,
-          resolve,
-          timeoutId: setTimeout(() => {
-            captionWaiters = captionWaiters.filter(item => item !== waiter);
-            resolve(null);
-          }, timeout)
-        };
-        captionWaiters.push(waiter);
-      });
-    }
-
-    function notifyCaptionWaiters(entry) {
-      const remaining = [];
-      for (const waiter of captionWaiters) {
-        if (waiter.predicate(entry)) {
-          clearTimeout(waiter.timeoutId);
-          waiter.resolve(entry);
-        } else {
-          remaining.push(waiter);
-        }
-      }
-      captionWaiters = remaining;
     }
 
     function upsertCaptionEntry(raw, text, id, startTime) {
@@ -1709,15 +1667,20 @@
       if (!el.prevCaptionBtn || !el.nextCaptionBtn || !el.repeatCaptionBtn) return;
       const timingAvailable = captionTimingAvailable();
       const current = currentCaptionEntry();
+      const { previous: previousTarget, next: nextTarget } = captionNavigation
+        ? captionNavigation.neighbors(captionHistory, captionHistoryIndex, currentYouglishVideoId)
+        : { previous: null, next: null };
       const previousAvailable = timingAvailable
-        && captionHistoryIndex >= 0
+        && Boolean(previousTarget)
         && !captionNavigationBlocked.previous;
       const nextAvailable = timingAvailable
-        && captionHistoryIndex >= 0
+        && Boolean(nextTarget)
         && !captionNavigationBlocked.next;
       const unavailable = state.source !== "youglish"
         ? "У этого источника нет таймкодированных caption."
-        : "Точный переход ждёт таймкод текущего caption.";
+        : (!current || !timingAvailable
+          ? "Точный переход ждёт таймкод текущего caption."
+          : "Соседний caption ещё не наблюдался в этом видео.");
       el.prevCaptionBtn.disabled = captionNavigationBusy || !previousAvailable;
       el.nextCaptionBtn.disabled = captionNavigationBusy || !nextAvailable;
       el.repeatCaptionBtn.disabled = captionNavigationBusy || !timingAvailable;
@@ -1745,66 +1708,46 @@
       return finiteCaptionTime(entry.lastKnownTime) ?? startTime;
     }
 
-    async function seekToKnownCaption(target, token, wasPlaying) {
+    function seekToKnownCaption(target, wasPlaying) {
       const current = currentCaptionEntry();
       if (!current || !target || !sameCaptionVideo(target)) return null;
-      const expected = waitForCaption(entry => entry.videoId === target.videoId && entry.id === target.id);
       const currentTime = estimatedCaptionTime(current) ?? current.startTime;
       const delta = captionNavigation.relativeSeekDelta(currentTime, target.startTime);
       if (wasPlaying && typeof widget.pause === "function") widget.pause();
       try {
         widget.move(delta);
-        const reached = await expected;
-        if (token !== captionNavigationToken || !reached) return null;
-        return reached;
+        const targetIndex = captionHistory.findIndex(entry =>
+          entry.videoId === target.videoId && entry.id === target.id
+        );
+        if (targetIndex < 0) return null;
+        const targetEntry = captionHistory[targetIndex];
+        captionHistoryIndex = targetIndex;
+        targetEntry.lastKnownTime = targetEntry.startTime;
+        targetEntry.observedAt = performance.now();
+        currentCaptionRaw = targetEntry.raw;
+        currentCaptionText = targetEntry.text;
+        renderCaption(targetEntry.raw);
+        hideTranslation();
+        return targetEntry;
       } finally {
-        if (wasPlaying && token === captionNavigationToken && typeof widget.play === "function") widget.play();
+        if (wasPlaying && typeof widget.play === "function") widget.play();
       }
     }
 
-    async function seekByCaptionSteps(direction, token, wasPlaying) {
-      const sign = direction === "previous" ? -1 : 1;
-      const deadline = Date.now() + CAPTION_NAVIGATION_TIMEOUT_MS;
-      if (wasPlaying && typeof widget.pause === "function") widget.pause();
-      try {
-        for (let step = 0; step < CAPTION_SEEK_MAX_STEPS && Date.now() < deadline; step += 1) {
-          const before = currentCaptionEntry();
-          if (!before) return null;
-          const remaining = Math.max(1, deadline - Date.now());
-          const expected = waitForCaption(entry => {
-            if (!sameCaptionVideo(entry) || entry.id === before.id) return false;
-            return direction === "previous"
-              ? entry.startTime < before.startTime
-              : entry.startTime > before.startTime;
-          }, Math.min(350, remaining));
-          widget.move(sign * CAPTION_SEEK_STEP_SECONDS);
-          const reached = await expected;
-          if (token !== captionNavigationToken) return null;
-          if (reached) return reached;
-        }
-      } finally {
-        if (wasPlaying && token === captionNavigationToken && typeof widget.play === "function") widget.play();
-      }
-      return null;
-    }
-
-    async function navigateCaption(direction) {
+    function navigateCaption(direction) {
       if (captionNavigationBusy || !captionTimingAvailable()) return;
-      const token = captionNavigationToken;
       const target = captionNavigation.adjacent(
         captionHistory,
         captionHistoryIndex,
         direction === "previous" ? -1 : 1,
         currentYouglishVideoId
       );
+      if (!target) return;
       captionNavigationBusy = true;
       renderCaptionNavigation();
       const wasPlaying = playerState === 1;
       try {
-        const reached = target
-          ? await seekToKnownCaption(target, token, wasPlaying)
-          : await seekByCaptionSteps(direction, token, wasPlaying);
-        if (token !== captionNavigationToken) return;
+        const reached = seekToKnownCaption(target, wasPlaying);
         if (!reached) {
           captionNavigationBlocked[direction] = true;
           if (repeatCaptionEnabled) disableRepeatCaption("Повтор фразы отключён: переход к соседнему caption не подтверждён.");
@@ -1815,17 +1758,12 @@
         if (repeatCaptionEnabled) repeatTargetId = reached.id;
         hideTranslation();
       } catch (error) {
-        if (token === captionNavigationToken) {
-          clearCaptionWaiters();
-          if (repeatCaptionEnabled) disableRepeatCaption("Повтор фразы отключён: навигация по caption не подтверждена.");
-          el.status.textContent = "Навигация по caption временно недоступна.";
-          console.error(error);
-        }
+        if (repeatCaptionEnabled) disableRepeatCaption("Повтор фразы отключён: навигация по caption не подтверждена.");
+        el.status.textContent = "Навигация по caption временно недоступна.";
+        console.error(error);
       } finally {
-        if (token === captionNavigationToken) {
-          captionNavigationBusy = false;
-          renderCaptionNavigation();
-        }
+        captionNavigationBusy = false;
+        renderCaptionNavigation();
       }
     }
 
@@ -2378,7 +2316,6 @@
         if (repeatCaptionEnabled && entry.id !== repeatTargetId && !captionNavigationBusy) {
           disableRepeatCaption("Повтор фразы отключён: воспроизведение ушло в другой caption.");
         }
-        notifyCaptionWaiters(entry);
       } else {
         invalidateCaptionTiming("Повтор фразы отключён: YouGlish не передал таймкод.");
       }

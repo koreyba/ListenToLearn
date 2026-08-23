@@ -8,12 +8,13 @@ description: Clarify the problem space, gather requirements, and define success 
 
 ## Problem Statement
 
-The merged MVP already receives YouGlish caption chunks and displays the current
-caption, but its `Previous phrase` and `Next phrase` controls are disabled unless
-the provider exposes undocumented caption-navigation methods. The documented
-YouGlish API exposes second-based movement and previous/next video-track
-movement, not a caption seek operation. A five-second rewind therefore cannot be
-represented as an exact phrase transition.
+The merged MVP receives YouGlish caption chunks and keeps observed captions in a
+per-video in-memory timeline, but its cached navigation path still waits for a
+fresh `onCaptionChange` event after `widget.move()`. When the learner returns to
+an already observed previous caption, YouGlish may not emit that event again, so
+the UI stays busy until the navigation timeout. An unobserved neighbor cannot be
+reliably addressed from the documented API and stays unavailable until normal
+playback observes it.
 
 The target user needs to stay in the current video and move one caption at a
 time while listening. They also need an optional repeat mode for the current
@@ -36,12 +37,12 @@ Verified baseline on 2026-08-23:
 ### Goals
 
 - Add reliable YouGlish-only previous-caption and next-caption navigation inside
-  the current video.
+  the current video for captions already observed in the current video.
 - Add a toggle that repeats the current YouGlish caption until disabled or until
   the current video/query changes.
 - Keep video-track navigation separate from caption navigation.
-- Serialize navigation commands, verify the caption event reached the requested
-  target, and prevent stale asynchronous commands from changing the UI.
+- Serialize navigation commands, update cached targets immediately, and let
+  later caption events reconcile the UI without blocking known navigation.
 - Keep the existing public trainer, examples, saved-example flow, and auth/data
   boundaries unchanged.
 
@@ -58,8 +59,8 @@ Verified baseline on 2026-08-23:
 - As a learner, I can press `Предыдущая фраза` to move to the previous observed
   caption in the same YouGlish video.
 - As a learner, I can press `Следующая фраза` to move to the next caption in the
-  same video; if it has not been observed yet, the client performs a bounded,
-  verified step search using the provider's movement API.
+  same video when it has already been observed; an unknown neighbor stays
+  disabled until normal playback observes it.
 - As a learner, I can enable `Повтор фразы` and hear the current caption again
   when it is consumed; disabling it lets playback continue normally.
 - As a learner, I see disabled controls and an honest explanation when the
@@ -72,10 +73,10 @@ Verified baseline on 2026-08-23:
 ## Success Criteria
 
 - With timing-bearing `onCaptionChange` events, previous/next navigation lands on
-  a different caption ID in the same video and does not call `widget.next()` or
-  `widget.previous()`.
-- Navigation controls are disabled while a seek command is pending; a timeout
-  or unexpected caption ID restores a consistent state and shows an actionable
+  a cached different caption ID in the same video, updates the visible caption
+  immediately, and does not call `widget.next()` or `widget.previous()`.
+- A direction is disabled when its adjacent caption is not in the local timeline;
+  a movement exception restores a consistent state and shows an actionable
   status message.
 - Repeat requests the same caption ID, does not change the video, and does not
   create overlapping timers or navigation loops. Turning repeat off prevents
@@ -99,10 +100,11 @@ Verified baseline on 2026-08-23:
 - Caption IDs are treated as opaque strings. Ordering comes from observed
   events/history, not from numeric comparison.
 - `widget.move(seconds)` is the only supported movement primitive available for
-  local seeking. Movement must be bounded and confirmed by a caption event.
-- The user explicitly permits local development now, but this branch must not be
-  pushed until the neighboring Google-auth task has merged; the already merged
-  MVP is the base.
+  local seeking. For a cached target, the client uses the known timing and
+  updates its local caption immediately; a later provider event can reconcile
+  the display. Unknown neighbors are not discovered by blind stepping.
+- The already merged MVP, including Google auth, is the base. Push remains a
+  separate review/publish step after fresh validation.
 
 ## Alternatives Considered
 
@@ -111,9 +113,9 @@ Verified baseline on 2026-08-23:
 - Scrape private YouGlish endpoints or iframe internals: may expose richer
   timings, but is cross-origin/undocumented and can break without notice.
   Rejected for the production path.
-- Timing-aware client state machine with a fail-closed fallback: uses only the
-  public widget movement/events, verifies outcomes, and degrades honestly.
-  Recommended.
+- Timing-aware client state machine with a local cached-target fast path and a
+  fail-closed boundary for unknown neighbors: uses only the public widget
+  movement/events and degrades honestly. Recommended.
 
 ## Questions & Open Items
 

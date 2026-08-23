@@ -66,6 +66,7 @@ button { cursor: pointer; }
 
 .notice, .empty-state { padding: 26px; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); color: var(--muted); }
 .notice.error { border-color: #633a43; background: #26171b; color: var(--danger); }
+.notice.success { margin-bottom: 12px; border-color: #315f51; background: #13251f; color: #a8e6ce; }
 .empty-state { display: grid; place-items: center; min-height: 220px; text-align: center; }
 .empty-state strong { color: var(--text); font-size: 20px; }
 .empty-state span { margin-top: 6px; }

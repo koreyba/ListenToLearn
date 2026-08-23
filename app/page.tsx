@@ -34,6 +34,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [customText, setCustomText] = useState("");
 
   const loadPhrases = useCallback(async () => {
@@ -110,6 +111,7 @@ export default function Home() {
     if (!text) return;
     setBusyId("new");
     setError("");
+    setNotice("");
     try {
       const response = await fetch("/api/phrases", {
         method: "POST",
@@ -120,6 +122,8 @@ export default function Home() {
       if (!response.ok) throw new Error(data.error || "Не удалось добавить фразу.");
       setCustomText("");
       await loadPhrases();
+      setActiveTab((data.status as PhraseStatus) || "to_learn");
+      setNotice(data.created === false ? "Эта фраза уже есть в вашей библиотеке." : "Фраза добавлена в To Learn.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Не удалось добавить фразу.");
     } finally {
@@ -162,21 +166,20 @@ export default function Home() {
       <section className="library-section" role="tabpanel">
         <div className="section-heading">
           <div><h2>{current.label}</h2><p>{current.hint}</p></div>
-          {activeTab === "to_learn" && (
-            <form className="add-form" onSubmit={addCustom}>
-              <input
-                aria-label="Своя фраза"
-                maxLength={240}
-                onChange={(event) => setCustomText(event.target.value)}
-                placeholder="Добавить свою фразу"
-                value={customText}
-              />
-              <button disabled={busyId === "new" || !customText.trim()} type="submit">Add to Learn</button>
-            </form>
-          )}
+          <form className="add-form" onSubmit={addCustom}>
+            <input
+              aria-label="Своя фраза"
+              maxLength={240}
+              onChange={(event) => setCustomText(event.target.value)}
+              placeholder="Введите свою фразу"
+              value={customText}
+            />
+            <button disabled={busyId === "new" || !customText.trim()} type="submit">+ В To Learn</button>
+          </form>
         </div>
 
         {error && <div className="notice error" role="alert">{error}</div>}
+        {notice && <div className="notice success" role="status">{notice}</div>}
         {loading ? <div className="notice">Загружаю библиотеку…</div> : visible.length === 0 ? (
           <div className="empty-state">
             <strong>Здесь пока пусто</strong>

@@ -198,6 +198,15 @@
 
     .caption-word {
       display: inline;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: color .15s ease, background .15s ease;
+    }
+    .caption-word:hover,
+    .caption-word:focus-visible {
+      background: #263640;
+      color: var(--accent-2);
+      outline: none;
     }
     .caption-word.query-word {
       color: var(--accent-2);
@@ -212,6 +221,21 @@
       gap: 8px;
       margin-top: 9px;
     }
+    .caption-actions[hidden] { display: none; }
+    .selection-preview {
+      flex: 1 0 100%;
+      color: var(--muted);
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+    .selection-message {
+      min-height: 20px;
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .selection-message.ok { color: var(--ok); }
+    .selection-message.error { color: var(--danger); }
 
     .translation-box {
       display: none;
@@ -220,21 +244,24 @@
       border-top: 1px solid var(--line);
     }
     .translation-box.visible { display: block; }
+    .translation-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 4px;
+    }
     .translation-source {
       color: var(--muted);
       font-size: 12px;
-      margin-bottom: 4px;
     }
+    .translation-head button { padding: 5px 9px; font-size: 12px; }
     .translation-result {
       font-size: 17px;
       color: var(--ok);
     }
     .translation-result.loading { color: var(--muted); }
     .translation-result.error { color: var(--danger); }
-
-    .api-key-row input {
-      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
-    }
 
     .no-results {
       display: none;
@@ -540,8 +567,6 @@
       backdrop-filter: none;
       border-bottom: 0;
     }
-    .viewer-mode .caption-actions,
-    .viewer-mode .translation-box,
     .viewer-mode .current,
     .viewer-mode .toolbar,
     .viewer-mode .progress,
@@ -594,15 +619,21 @@
       <div class="caption-box" aria-live="polite">
         <div class="caption-label">
           <span>Субтитры</span>
-          <span>текст можно выделить</span>
+          <span>нажми слово или выдели фразу</span>
         </div>
         <div id="captionText" class="caption-text">Субтитры появятся при воспроизведении.</div>
-        <div class="caption-actions">
-          <button id="translateCaptionBtn" type="button">Перевести реплику</button>
-          <button id="clearTranslationBtn" type="button" hidden>Скрыть перевод</button>
+        <div id="selectionActions" class="caption-actions" hidden>
+          <div id="selectionPreview" class="selection-preview"></div>
+          <button id="translateSelectionBtn" type="button">Перевести</button>
+          <button id="listenSelectionBtn" type="button">Слушать</button>
+          <button id="addSelectionBtn" type="button">+ To Learn</button>
         </div>
+        <div id="selectionMessage" class="selection-message" role="status"></div>
         <div id="translationBox" class="translation-box">
-          <div id="translationSource" class="translation-source"></div>
+          <div class="translation-head">
+            <div id="translationSource" class="translation-source"></div>
+            <button id="clearTranslationBtn" type="button">Скрыть</button>
+          </div>
           <div id="translationResult" class="translation-result"></div>
         </div>
       </div>
@@ -671,16 +702,6 @@
         <button id="addPhraseBtn" type="button">Добавить</button>
       </div>
       <p class="hint">Для своей фразы транскрипция не выдумывается: сохраняется только текст, а вся фраза считается одним звуковым блоком.</p>
-    </section>
-
-    <section class="state-box">
-      <h2 class="section-title">Перевод субтитров</h2>
-      <div class="row api-key-row">
-        <input id="googleApiKey" class="grow" type="password" placeholder="Google Cloud Translation API key" autocomplete="off" />
-        <button id="saveApiKeyBtn" type="button">Сохранить ключ</button>
-        <button id="clearApiKeyBtn" type="button">Удалить ключ</button>
-      </div>
-      <p id="apiKeyMessage" class="hint">Ключ хранится только в localStorage этого браузера и не попадает в экспорт JSON. Для Google Cloud Translation нужно включить billing; первые 500 000 символов в месяц покрываются бесплатным кредитом.</p>
     </section>
 
     <section class="state-box">
@@ -756,7 +777,6 @@
     ].map((item, i) => ({ ...item, id: `base-${i}` }));
 
     const STORAGE_KEY = "connected-speech-trainer-v1";
-    const GOOGLE_API_KEY_STORAGE = "connected-speech-google-api-key-v1";
     const DEFAULT_STATE = {
       version: 1,
       done: [],
@@ -776,19 +796,21 @@
     let currentQueryOverride = null;
     let currentCaptionRaw = "";
     let currentCaptionText = "";
+    let selectedCaptionText = "";
 
     const el = {
       status: document.getElementById("status"),
       captionText: document.getElementById("captionText"),
-      translateCaptionBtn: document.getElementById("translateCaptionBtn"),
+      selectionActions: document.getElementById("selectionActions"),
+      selectionPreview: document.getElementById("selectionPreview"),
+      selectionMessage: document.getElementById("selectionMessage"),
+      translateSelectionBtn: document.getElementById("translateSelectionBtn"),
+      listenSelectionBtn: document.getElementById("listenSelectionBtn"),
+      addSelectionBtn: document.getElementById("addSelectionBtn"),
       clearTranslationBtn: document.getElementById("clearTranslationBtn"),
       translationBox: document.getElementById("translationBox"),
       translationSource: document.getElementById("translationSource"),
       translationResult: document.getElementById("translationResult"),
-      googleApiKey: document.getElementById("googleApiKey"),
-      saveApiKeyBtn: document.getElementById("saveApiKeyBtn"),
-      clearApiKeyBtn: document.getElementById("clearApiKeyBtn"),
-      apiKeyMessage: document.getElementById("apiKeyMessage"),
       noResults: document.getElementById("noResults"),
       noResultsText: document.getElementById("noResultsText"),
       shorterBtn: document.getElementById("shorterBtn"),
@@ -1184,19 +1206,21 @@
         const span = document.createElement("span");
         span.className = "caption-word" + (highlighted ? " query-word" : "");
         span.textContent = part;
+        span.tabIndex = 0;
+        span.setAttribute("role", "button");
+        span.setAttribute("aria-label", `Перевести слово ${normalizeWordForTranslation(part)}`);
         el.captionText.appendChild(span);
       }
     }
 
     function renderCaption(raw) {
       el.captionText.textContent = "";
+      hideSelectionActions();
       if (!raw) {
         el.captionText.textContent = "Субтитры появятся при воспроизведении.";
-        el.translateCaptionBtn.disabled = true;
         return;
       }
 
-      el.translateCaptionBtn.disabled = false;
       const marker = /\[\[\[([\s\S]*?)\]\]\]/g;
       let last = 0;
       let match;
@@ -1226,80 +1250,39 @@
       el.clearTranslationBtn.hidden = false;
     }
 
-    function translationCacheKey(text) {
-      return String(text || "").trim().toLowerCase();
+    function translationCacheKey(text, context) {
+      return `${String(text || "").trim().toLowerCase()}\n${String(context || "").trim().toLowerCase()}`;
     }
 
-    function getGoogleApiKey() {
-      try { return localStorage.getItem(GOOGLE_API_KEY_STORAGE) || ""; }
-      catch (_) { return ""; }
-    }
-
-    function saveGoogleApiKey() {
-      const key = el.googleApiKey.value.trim();
-      if (!key) {
-        el.apiKeyMessage.textContent = "Вставь API key, затем нажми «Сохранить ключ».";
-        return;
-      }
-      try {
-        localStorage.setItem(GOOGLE_API_KEY_STORAGE, key);
-        el.apiKeyMessage.textContent = "Ключ сохранён локально. Можно тапать по словам или переводить всю реплику.";
-      } catch (err) {
-        el.apiKeyMessage.textContent = "Не удалось сохранить ключ в localStorage.";
-      }
-    }
-
-    function clearGoogleApiKey() {
-      try { localStorage.removeItem(GOOGLE_API_KEY_STORAGE); } catch (_) {}
-      el.googleApiKey.value = "";
-      el.apiKeyMessage.textContent = "Ключ удалён из localStorage.";
-    }
-
-    async function translateText(text, sourceLabel) {
+    async function translateText(text, sourceLabel, context = currentCaptionText) {
       const source = String(text || "").trim();
       if (!source) return;
 
-      const cacheKey = translationCacheKey(source);
+      const cacheKey = translationCacheKey(source, context);
       const cached = state.translationCache[cacheKey];
       if (typeof cached === "string" && cached) {
         showTranslation(sourceLabel, cached);
         return;
       }
 
-      const apiKey = getGoogleApiKey();
-      if (!apiKey) {
-        showTranslation(sourceLabel, "Сначала сохрани Google Cloud Translation API key ниже на странице.", "error");
-        el.googleApiKey.focus({ preventScroll: false });
-        return;
-      }
-
       showTranslation(sourceLabel, "Перевожу…", "loading");
 
       try {
-        const response = await fetch(`https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(apiKey)}`, {
+        const response = await fetch("/api/translate", {
           method: "POST",
           headers: { "Content-Type": "application/json; charset=utf-8" },
-          body: JSON.stringify({
-            q: source,
-            source: "en",
-            target: "ru",
-            format: "text"
-          })
+          body: JSON.stringify({ text: source, context })
         });
 
         const data = await response.json().catch(() => null);
         if (!response.ok) {
-          const message = data && data.error && data.error.message
-            ? data.error.message
-            : `HTTP ${response.status}`;
+          const message = data && data.error ? data.error : `HTTP ${response.status}`;
           throw new Error(message);
         }
 
-        const translated = data && data.data && data.data.translations && data.data.translations[0]
-          ? data.data.translations[0].translatedText
-          : "";
+        const translated = data && data.translation ? data.translation : "";
 
-        if (!translated) throw new Error("Google вернул пустой перевод.");
+        if (!translated) throw new Error("DeepL вернул пустой перевод.");
 
         state.translationCache[cacheKey] = translated;
         // Ограничиваем локальный кэш, чтобы state не рос бесконечно.
@@ -1310,6 +1293,93 @@
       } catch (err) {
         console.error(err);
         showTranslation(sourceLabel, `Перевод не получен: ${err.message || err}`, "error");
+      }
+    }
+
+    function showSelectionMessage(message, kind = "") {
+      el.selectionMessage.textContent = message;
+      el.selectionMessage.className = "selection-message";
+      if (kind) el.selectionMessage.classList.add(kind);
+    }
+
+    function hideSelectionActions() {
+      selectedCaptionText = "";
+      el.selectionActions.hidden = true;
+      el.selectionPreview.textContent = "";
+      showSelectionMessage("");
+    }
+
+    function showSelectionActions(text) {
+      const selected = cleanCaptionText(text).slice(0, 500);
+      if (!selected) return;
+      selectedCaptionText = selected;
+      el.selectionPreview.textContent = `Выбрано: «${selected}»`;
+      el.selectionActions.hidden = false;
+      showSelectionMessage("");
+    }
+
+    function nodeInsideCaption(node) {
+      if (!node) return false;
+      const element = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+      return Boolean(element && el.captionText.contains(element));
+    }
+
+    function captureCaptionSelection() {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || !selection.rangeCount) return false;
+      if (!nodeInsideCaption(selection.anchorNode) || !nodeInsideCaption(selection.focusNode)) return false;
+      const selected = cleanCaptionText(selection.toString());
+      if (!selected) return false;
+      showSelectionActions(selected);
+      return true;
+    }
+
+    function translationLabel(text) {
+      return /\s/.test(text) ? `Фраза: ${text}` : `Слово: ${text}`;
+    }
+
+    function listenToText(text) {
+      const query = cleanCaptionText(text).slice(0, 240);
+      if (!query) return;
+      VIEWER_PHRASE = query;
+      el.viewerPhrase.textContent = query;
+      document.title = `${query} · Connected speech trainer`;
+      const url = new URL(window.location.href);
+      url.searchParams.set("phrase", query);
+      history.replaceState(null, "", url);
+      fetchPhrase(query, true);
+    }
+
+    async function addTextToLearn(text) {
+      const phrase = cleanCaptionText(text).slice(0, 240);
+      if (!phrase) return;
+      el.addSelectionBtn.disabled = true;
+      showSelectionMessage("Добавляю в To Learn…");
+      try {
+        const response = await fetch("/api/phrases", {
+          method: "POST",
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+          body: JSON.stringify({ text: phrase })
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
+        const labels = {
+          to_learn: "To Learn",
+          learning_now: "Learning Now",
+          learnt: "Learnt"
+        };
+        const statusLabel = labels[data.status] || "To Learn";
+        const message = data.created === false && data.status !== "to_learn"
+          ? `Фраза уже находится в ${statusLabel}.`
+          : data.created === false
+            ? "Фраза уже была в To Learn."
+            : "Добавлено в To Learn.";
+        showSelectionMessage(message, "ok");
+      } catch (err) {
+        console.error(err);
+        showSelectionMessage(`Не удалось добавить: ${err.message || err}`, "error");
+      } finally {
+        el.addSelectionBtn.disabled = false;
       }
     }
 
@@ -1518,15 +1588,38 @@
       }
     }
 
-    el.translateCaptionBtn.addEventListener("click", () => {
-      if (currentCaptionText) translateText(currentCaptionText, `Реплика: ${currentCaptionText}`);
+    el.captionText.addEventListener("click", event => {
+      if (captureCaptionSelection()) return;
+      const wordElement = event.target.closest(".caption-word");
+      if (!wordElement) return;
+      const word = normalizeWordForTranslation(wordElement.textContent);
+      if (word) translateText(word, translationLabel(word));
+    });
+    el.captionText.addEventListener("keydown", event => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const wordElement = event.target.closest(".caption-word");
+      if (!wordElement) return;
+      event.preventDefault();
+      const word = normalizeWordForTranslation(wordElement.textContent);
+      if (word) translateText(word, translationLabel(word));
+    });
+    el.captionText.addEventListener("mouseup", () => requestAnimationFrame(captureCaptionSelection));
+    el.captionText.addEventListener("touchend", () => setTimeout(captureCaptionSelection, 0));
+    el.captionText.addEventListener("keyup", captureCaptionSelection);
+    document.addEventListener("selectionchange", () => {
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed) captureCaptionSelection();
+    });
+    el.translateSelectionBtn.addEventListener("click", () => {
+      if (selectedCaptionText) translateText(selectedCaptionText, translationLabel(selectedCaptionText));
+    });
+    el.listenSelectionBtn.addEventListener("click", () => {
+      if (selectedCaptionText) listenToText(selectedCaptionText);
+    });
+    el.addSelectionBtn.addEventListener("click", () => {
+      if (selectedCaptionText) addTextToLearn(selectedCaptionText);
     });
     el.clearTranslationBtn.addEventListener("click", hideTranslation);
-    el.saveApiKeyBtn.addEventListener("click", saveGoogleApiKey);
-    el.clearApiKeyBtn.addEventListener("click", clearGoogleApiKey);
-    el.googleApiKey.addEventListener("keydown", event => {
-      if (event.key === "Enter") saveGoogleApiKey();
-    });
 
     el.prevBtn.addEventListener("click", () => callWidget("previous"));
     el.pauseBtn.addEventListener("click", () => callWidget("pause"));
@@ -1583,8 +1676,7 @@
       if (file) importState(file);
     });
 
-    el.googleApiKey.value = getGoogleApiKey();
-    const VIEWER_PHRASE = new URLSearchParams(window.location.search).get("phrase")?.trim() || BASE_PHRASES[0].q;
+    let VIEWER_PHRASE = new URLSearchParams(window.location.search).get("phrase")?.trim() || BASE_PHRASES[0].q;
     el.viewerPhrase = document.getElementById("viewerPhrase");
     el.backBtn = document.getElementById("backBtn");
     el.viewerPhrase.textContent = VIEWER_PHRASE;

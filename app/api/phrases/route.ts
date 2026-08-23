@@ -77,6 +77,19 @@ export async function POST(request: Request) {
     if (text.length > 240) return Response.json({ error: "Фраза слишком длинная." }, { status: 400 });
 
     const db = getD1();
+    const existing = await db.prepare(
+      "SELECT id, status FROM phrases WHERE text = ? COLLATE NOCASE LIMIT 1"
+    ).bind(text).first<{ id: string; status: PhraseRow["status"] }>();
+    if (existing) {
+      const status = existing.status === "pick" ? "to_learn" : existing.status;
+      if (status !== existing.status) {
+        await db.prepare(
+          "UPDATE phrases SET status = ?, updated_at = ? WHERE id = ?"
+        ).bind(status, new Date().toISOString(), existing.id).run();
+      }
+      return Response.json({ id: existing.id, status, created: false });
+    }
+
     const id = `custom-${crypto.randomUUID()}`;
     const now = new Date().toISOString();
     await db.prepare(`
@@ -84,7 +97,7 @@ export async function POST(request: Request) {
         (id, text, pattern, ipa, source_type, catalog_order, status, created_at, updated_at)
       VALUES (?, ?, ?, '', 'custom', NULL, 'to_learn', ?, ?)
     `).bind(id, text, `[${text}]`, now, now).run();
-    return Response.json({ id }, { status: 201 });
+    return Response.json({ id, status: "to_learn", created: true }, { status: 201 });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Не удалось добавить фразу.";
     return Response.json({ error: message }, { status: 500 });

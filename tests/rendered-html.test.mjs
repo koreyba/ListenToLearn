@@ -48,6 +48,37 @@ test("trainer can switch between Tatoeba and YouGlish", async () => {
   assert.match(audioRoute, /https:\/\/api\.tatoeba\.org\/v1\/audios\/\$\{id\}\/file/);
 });
 
+test("YouGlish examples are randomized and videos can be saved per phrase", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+  const examplesRoute = await readFile(
+    new URL("../app/api/examples/route.ts", import.meta.url),
+    "utf8",
+  );
+  const schema = await readFile(
+    new URL("../db/schema.ts", import.meta.url),
+    "utf8",
+  );
+  const page = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(trainer, /id="exampleMode"/);
+  assert.match(trainer, /id="saveExampleBtn"/);
+  assert.match(trainer, /`\$\{query\} :r`/);
+  assert.match(trainer, /`\$\{query\} #\$\{example\.external_id\}`/);
+  assert.match(trainer, /event && event\.video/);
+  assert.match(examplesRoute, /CREATE TABLE IF NOT EXISTS phrase_examples/);
+  assert.match(schema, /export const phraseExamples/);
+  assert.match(page, /phraseId: phrase\.id/);
+  const inlineScript = trainer.match(/<script>([\s\S]+)<\/script>/)?.[1];
+  assert.ok(inlineScript);
+  assert.doesNotThrow(() => new Function(inlineScript));
+});
+
 test("DeepL credentials stay in the shared server helper", async () => {
   const helper = await readFile(
     new URL("../lib/deepl.ts", import.meta.url),

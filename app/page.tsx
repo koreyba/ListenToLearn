@@ -133,7 +133,7 @@ export default function Home() {
   }
 
   function openPhrase(phrase: Phrase) {
-    const query = new URLSearchParams({ phrase: phrase.text });
+    const query = new URLSearchParams({ phrase: phrase.text, phraseId: phrase.id });
     window.location.assign(`/trainer.html?${query.toString()}`);
   }
 

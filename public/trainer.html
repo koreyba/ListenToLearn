@@ -220,6 +220,50 @@
       white-space: nowrap;
     }
 
+    .example-tools {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .example-tools[hidden] { display: none; }
+
+    .example-mode { flex: 0 1 auto; }
+
+    .example-count {
+      display: inline-grid;
+      min-width: 20px;
+      height: 20px;
+      margin-left: 4px;
+      padding: 0 5px;
+      place-items: center;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.1);
+      font-size: 11px;
+    }
+
+    .save-example-btn.saved {
+      border-color: var(--accent);
+      color: var(--accent-2);
+    }
+
+    .save-example-btn:disabled,
+    .example-mode button:disabled {
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
+    .example-message {
+      min-height: 18px;
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .example-message.error { color: var(--danger); }
+
     .speed-active {
       border-color: var(--accent) !important;
       color: var(--accent-2);
@@ -647,6 +691,14 @@
       .player-controls {
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
+      .example-tools {
+        align-items: stretch;
+        flex-direction: column;
+      }
+      .example-mode {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
       .phrase-card {
         grid-template-columns: minmax(0, 1fr);
       }
@@ -702,6 +754,17 @@
         <button class="speed-btn" data-speed="0.75" type="button">0.75×</button>
         <button class="speed-btn speed-active" data-speed="1" type="button">1×</button>
       </div>
+
+      <div id="exampleTools" class="example-tools" hidden>
+        <div id="exampleMode" class="segmented example-mode" role="group" aria-label="Режим примеров">
+          <button type="button" data-example-mode="all">Все · случайно</button>
+          <button type="button" data-example-mode="saved">
+            Сохранённые <span id="savedExampleCount" class="example-count">0</span>
+          </button>
+        </div>
+        <button id="saveExampleBtn" class="save-example-btn" type="button" disabled>☆ Сохранить видео</button>
+      </div>
+      <div id="exampleMessage" class="example-message" role="status"></div>
 
       <div class="caption-box" aria-live="polite">
         <div class="caption-label">
@@ -887,6 +950,12 @@
     let tatoebaTracks = [];
     let tatoebaIndex = 0;
     let tatoebaRequest = 0;
+    let currentYouglishVideoId = "";
+    let savedExamples = [];
+    let savedExampleIndex = 0;
+    let exampleMode = "all";
+    let examplesRequest = 0;
+    let youglishHasFetched = false;
 
     const el = {
       status: document.getElementById("status"),
@@ -904,6 +973,11 @@
       noResults: document.getElementById("noResults"),
       noResultsText: document.getElementById("noResultsText"),
       shorterBtn: document.getElementById("shorterBtn"),
+      exampleTools: document.getElementById("exampleTools"),
+      exampleMode: document.getElementById("exampleMode"),
+      savedExampleCount: document.getElementById("savedExampleCount"),
+      saveExampleBtn: document.getElementById("saveExampleBtn"),
+      exampleMessage: document.getElementById("exampleMessage"),
       sourceSwitch: document.getElementById("sourceSwitch"),
       youglishPlayer: document.getElementById("youglishPlayer"),
       tatoebaPlayer: document.getElementById("tatoebaPlayer"),
@@ -1211,6 +1285,97 @@
       return state.source === "tatoeba" ? "Tatoeba" : "YouGlish";
     }
 
+    function showExampleMessage(message, kind = "") {
+      el.exampleMessage.textContent = message;
+      el.exampleMessage.classList.toggle("error", kind === "error");
+    }
+
+    function currentSavedExample() {
+      return savedExamples.find(example => example.external_id === currentYouglishVideoId) || null;
+    }
+
+    function renderExampleTools() {
+      const youglish = state.source === "youglish";
+      el.exampleTools.hidden = !youglish;
+      if (!youglish) {
+        showExampleMessage("");
+        return;
+      }
+
+      el.savedExampleCount.textContent = String(savedExamples.length);
+      el.exampleMode.querySelectorAll("button[data-example-mode]").forEach(btn => {
+        const active = btn.dataset.exampleMode === exampleMode;
+        btn.classList.toggle("active", active);
+        btn.setAttribute("aria-pressed", active ? "true" : "false");
+        if (btn.dataset.exampleMode === "saved") btn.disabled = savedExamples.length === 0;
+      });
+
+      const saved = currentSavedExample();
+      const learningPhrase = Boolean(VIEWER_PHRASE_ID && VIEWER_PHRASE_STATUS && VIEWER_PHRASE_STATUS !== "pick");
+      el.saveExampleBtn.classList.toggle("saved", Boolean(saved));
+      el.saveExampleBtn.textContent = saved ? "★ Сохранено" : "☆ Сохранить видео";
+      el.saveExampleBtn.disabled = !learningPhrase || !currentYouglishVideoId;
+
+      if (!learningPhrase && !el.exampleMessage.textContent) {
+        showExampleMessage("Чтобы сохранять видео, сначала добавьте фразу в To Learn.");
+      }
+    }
+
+    async function loadSavedExamples() {
+      const requestId = ++examplesRequest;
+      if (!VIEWER_PHRASE_ID || VIEWER_PHRASE_STATUS === "pick") {
+        savedExamples = [];
+        exampleMode = "all";
+        renderExampleTools();
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/examples?phraseId=${encodeURIComponent(VIEWER_PHRASE_ID)}`, { cache: "no-store" });
+        const data = await response.json().catch(() => null);
+        if (requestId !== examplesRequest) return;
+        if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
+        savedExamples = Array.isArray(data && data.examples) ? data.examples : [];
+        if (!savedExamples.length) exampleMode = "all";
+        savedExampleIndex = Math.min(savedExampleIndex, Math.max(0, savedExamples.length - 1));
+        renderExampleTools();
+      } catch (error) {
+        if (requestId !== examplesRequest) return;
+        savedExamples = [];
+        exampleMode = "all";
+        renderExampleTools();
+        showExampleMessage("Не удалось загрузить сохранённые видео.", "error");
+        console.error(error);
+      }
+    }
+
+    async function resolveViewerPhrase() {
+      const phraseAtRequest = VIEWER_PHRASE;
+      try {
+        const response = await fetch("/api/phrases", { cache: "no-store" });
+        const data = await response.json().catch(() => null);
+        if (phraseAtRequest !== VIEWER_PHRASE) return;
+        if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
+        const phrases = Array.isArray(data && data.phrases) ? data.phrases : [];
+        const normalized = phraseAtRequest.toLocaleLowerCase("en");
+        const phrase = phrases.find(item => item.id === VIEWER_PHRASE_ID)
+          || phrases.find(item => String(item.text || "").toLocaleLowerCase("en") === normalized);
+        VIEWER_PHRASE_ID = phrase ? phrase.id : "";
+        VIEWER_PHRASE_STATUS = phrase ? phrase.status : "";
+        const url = new URL(window.location.href);
+        if (VIEWER_PHRASE_ID) url.searchParams.set("phraseId", VIEWER_PHRASE_ID);
+        else url.searchParams.delete("phraseId");
+        history.replaceState(null, "", url);
+        showExampleMessage("");
+        await loadSavedExamples();
+      } catch (error) {
+        if (phraseAtRequest !== VIEWER_PHRASE) return;
+        renderExampleTools();
+        showExampleMessage("Не удалось проверить библиотеку фраз.", "error");
+        console.error(error);
+      }
+    }
+
     function renderSource() {
       const tatoeba = state.source === "tatoeba";
       el.youglishPlayer.hidden = tatoeba;
@@ -1221,6 +1386,7 @@
         btn.setAttribute("aria-pressed", active ? "true" : "false");
       });
       el.pauseBtn.textContent = tatoeba && el.tatoebaAudio.paused ? "Слушать" : "Пауза";
+      renderExampleTools();
     }
 
     function setSource(source) {
@@ -1322,34 +1488,67 @@
       }
     }
 
-    function fetchPhrase(query, isOverride = false) {
-      currentQueryOverride = isOverride ? query : null;
-      currentCaptionRaw = "";
-      currentCaptionText = "";
-      renderCaption("");
-      hideTranslation();
-      hideNoResults();
-
-      if (state.source === "tatoeba") {
-        fetchTatoeba(query);
-        return;
-      }
-
+    function fetchYouglish(query, displayQuery, savedLabel = "") {
       if (!widgetReady || !widget) {
         el.status.textContent = "YouGlish API ещё загружается. Фраза будет запущена сразу после готовности.";
         return;
       }
 
       el.status.classList.remove("error");
-      el.status.textContent = `Ищу примеры: «${query}» · акцент: ${accentLabel()}…`;
+      el.status.textContent = savedLabel
+        ? `Ищу «${displayQuery}» в ${savedLabel}…`
+        : `Ищу случайные примеры: «${displayQuery}» · акцент: ${accentLabel()}…`;
 
       try {
         if (state.accent) widget.fetch(query, "english", state.accent);
         else widget.fetch(query, "english");
+        youglishHasFetched = true;
       } catch (err) {
         showWidgetError("Не удалось отправить запрос в YouGlish.");
         console.error(err);
       }
+    }
+
+    function playSavedExample(index) {
+      if (!savedExamples.length) {
+        exampleMode = "all";
+        renderExampleTools();
+        fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
+        return;
+      }
+
+      savedExampleIndex = (index + savedExamples.length) % savedExamples.length;
+      const example = savedExamples[savedExampleIndex];
+      currentYouglishVideoId = example.external_id;
+      renderExampleTools();
+      const query = example.query || VIEWER_PHRASE;
+      fetchYouglish(
+        `${query} #${example.external_id}`,
+        query,
+        `сохранённом видео ${savedExampleIndex + 1}/${savedExamples.length}`
+      );
+    }
+
+    function fetchPhrase(query, isOverride = false) {
+      currentQueryOverride = isOverride ? query : null;
+      currentCaptionRaw = "";
+      currentCaptionText = "";
+      currentYouglishVideoId = "";
+      renderCaption("");
+      hideTranslation();
+      hideNoResults();
+      renderExampleTools();
+
+      if (state.source === "tatoeba") {
+        fetchTatoeba(query);
+        return;
+      }
+
+      if (exampleMode === "saved" && savedExamples.length) {
+        playSavedExample(savedExampleIndex);
+        return;
+      }
+      fetchYouglish(`${query} :r`, query);
     }
 
     function choosePhrase(id, scrollToPlayer = false) {
@@ -1547,12 +1746,22 @@
       const query = cleanCaptionText(text).slice(0, 240);
       if (!query) return;
       VIEWER_PHRASE = query;
+      VIEWER_PHRASE_ID = "";
+      VIEWER_PHRASE_STATUS = "";
+      savedExamples = [];
+      savedExampleIndex = 0;
+      exampleMode = "all";
+      currentYouglishVideoId = "";
       el.viewerPhrase.textContent = query;
       document.title = `${query} · Connected speech trainer`;
       const url = new URL(window.location.href);
       url.searchParams.set("phrase", query);
+      url.searchParams.delete("phraseId");
       history.replaceState(null, "", url);
+      showExampleMessage("");
+      renderExampleTools();
       fetchPhrase(query, true);
+      void resolveViewerPhrase();
     }
 
     async function addTextToLearn(text) {
@@ -1580,12 +1789,71 @@
             ? "Фраза уже была в To Learn."
             : "Добавлено в To Learn.";
         showSelectionMessage(message, "ok");
+        if (phrase.toLocaleLowerCase("en") === VIEWER_PHRASE.toLocaleLowerCase("en")) {
+          VIEWER_PHRASE_ID = data.id || VIEWER_PHRASE_ID;
+          VIEWER_PHRASE_STATUS = data.status || "to_learn";
+          const url = new URL(window.location.href);
+          if (VIEWER_PHRASE_ID) url.searchParams.set("phraseId", VIEWER_PHRASE_ID);
+          history.replaceState(null, "", url);
+          showExampleMessage("");
+          await loadSavedExamples();
+        }
       } catch (err) {
         console.error(err);
         showSelectionMessage(`Не удалось добавить: ${err.message || err}`, "error");
       } finally {
         el.addSelectionBtn.disabled = false;
       }
+    }
+
+    async function toggleSavedExample() {
+      if (!VIEWER_PHRASE_ID || VIEWER_PHRASE_STATUS === "pick" || !currentYouglishVideoId) return;
+      const existing = currentSavedExample();
+      const wasSavedMode = exampleMode === "saved";
+      el.saveExampleBtn.disabled = true;
+      el.saveExampleBtn.setAttribute("aria-busy", "true");
+      showExampleMessage(existing ? "Убираю видео из сохранённых…" : "Сохраняю видео…");
+
+      try {
+        const response = existing
+          ? await fetch(`/api/examples?id=${encodeURIComponent(existing.id)}`, { method: "DELETE" })
+          : await fetch("/api/examples", {
+              method: "POST",
+              headers: { "Content-Type": "application/json; charset=utf-8" },
+              body: JSON.stringify({
+                phraseId: VIEWER_PHRASE_ID,
+                externalId: currentYouglishVideoId,
+                query: currentQueryOverride || VIEWER_PHRASE,
+                caption: currentCaptionText,
+                accent: state.accent
+              })
+            });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
+        await loadSavedExamples();
+        showExampleMessage(existing ? "Видео удалено из сохранённых." : "Видео сохранено для этой фразы.");
+        if (existing && wasSavedMode) {
+          if (savedExamples.length) playSavedExample(Math.min(savedExampleIndex, savedExamples.length - 1));
+          else fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
+        }
+      } catch (error) {
+        showExampleMessage(error.message || "Не удалось изменить сохранённые видео.", "error");
+        console.error(error);
+      } finally {
+        el.saveExampleBtn.removeAttribute("aria-busy");
+        renderExampleTools();
+      }
+    }
+
+    function setExampleMode(mode) {
+      if (mode !== "all" && mode !== "saved") return;
+      if (mode === "saved" && !savedExamples.length) return;
+      exampleMode = mode;
+      savedExampleIndex = 0;
+      currentYouglishVideoId = "";
+      showExampleMessage("");
+      renderExampleTools();
+      fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
     }
 
     function decodeCaption(raw) {
@@ -1609,7 +1877,7 @@
 
     function onFetchDone(event) {
       if (state.source !== "youglish") return;
-      const query = event.query || currentQueryOverride || VIEWER_PHRASE;
+      const query = currentQueryOverride || VIEWER_PHRASE;
       if (Number(event.totalResult) === 0) {
         el.status.textContent = "Примеров не найдено.";
         showNoResults(query);
@@ -1618,11 +1886,14 @@
 
       hideNoResults();
       el.status.classList.remove("error");
-      el.status.textContent = `Найдено примеров: ${event.totalResult} · акцент: ${accentLabel()}`;
+      el.status.textContent = exampleMode === "saved"
+        ? `Сохранённое видео ${savedExampleIndex + 1}/${savedExamples.length} · найдено фрагментов: ${event.totalResult}`
+        : `Найдено примеров: ${event.totalResult} · случайный порядок · акцент: ${accentLabel()}`;
     }
 
     function onVideoChange(event) {
       if (state.source !== "youglish") return;
+      currentYouglishVideoId = String(event && event.video || "").trim();
       currentCaptionRaw = "";
       currentCaptionText = "";
       renderCaption("");
@@ -1632,6 +1903,7 @@
         const existing = el.status.textContent;
         el.status.textContent = existing.replace(/\s·\sпример\s\d+$/i, "") + ` · пример ${n + 1}`;
       }
+      renderExampleTools();
     }
 
     function onPlayerReady() {
@@ -1642,7 +1914,9 @@
       if (state.source !== "youglish") return;
       el.status.classList.remove("error");
       el.status.textContent = "Плеер готов.";
-      fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
+      if (!youglishHasFetched) {
+        fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
+      }
     }
 
     function onSpeedChange(event) {
@@ -1687,7 +1961,7 @@
         widgetReady = true;
         if (state.source === "youglish") {
           el.status.textContent = "YouGlish API загружен.";
-          fetchPhrase(VIEWER_PHRASE, true);
+          fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
         }
       } catch (err) {
         showWidgetError("YouGlish API загрузился, но виджет не удалось создать.");
@@ -1837,9 +2111,15 @@
       if (selectedCaptionText) addTextToLearn(selectedCaptionText);
     });
     el.clearTranslationBtn.addEventListener("click", hideTranslation);
+    el.saveExampleBtn.addEventListener("click", toggleSavedExample);
+    el.exampleMode.addEventListener("click", event => {
+      const btn = event.target.closest("button[data-example-mode]");
+      if (btn) setExampleMode(btn.dataset.exampleMode);
+    });
 
     el.prevBtn.addEventListener("click", () => {
       if (state.source === "tatoeba") loadTatoebaTrack(tatoebaIndex - 1, true);
+      else if (exampleMode === "saved") playSavedExample(savedExampleIndex - 1);
       else callWidget("previous");
     });
     el.pauseBtn.addEventListener("click", () => {
@@ -1860,6 +2140,7 @@
     });
     el.nextBtn.addEventListener("click", () => {
       if (state.source === "tatoeba") loadTatoebaTrack(tatoebaIndex + 1, true);
+      else if (exampleMode === "saved") playSavedExample(savedExampleIndex + 1);
       else callWidget("next");
     });
 
@@ -1928,7 +2209,7 @@
       state.accent = btn.dataset.accent;
       saveState();
       renderFilters();
-      fetchPhrase(currentQueryOverride || selectedPhrase().q, Boolean(currentQueryOverride));
+      fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
     });
 
     el.randomBtn.addEventListener("click", randomUndone);
@@ -1944,7 +2225,10 @@
       if (file) importState(file);
     });
 
-    let VIEWER_PHRASE = new URLSearchParams(window.location.search).get("phrase")?.trim() || BASE_PHRASES[0].q;
+    const viewerParams = new URLSearchParams(window.location.search);
+    let VIEWER_PHRASE = viewerParams.get("phrase")?.trim() || BASE_PHRASES[0].q;
+    let VIEWER_PHRASE_ID = viewerParams.get("phraseId")?.trim() || "";
+    let VIEWER_PHRASE_STATUS = "";
     el.viewerPhrase = document.getElementById("viewerPhrase");
     el.backBtn = document.getElementById("backBtn");
     el.viewerPhrase.textContent = VIEWER_PHRASE;
@@ -1957,6 +2241,7 @@
     render();
     renderSource();
     if (state.source === "tatoeba") fetchPhrase(VIEWER_PHRASE, true);
+    void resolveViewerPhrase();
 
     // Подключаем официальный YouGlish Widget API.
     const ygScript = document.createElement("script");

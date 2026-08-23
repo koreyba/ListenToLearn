@@ -812,6 +812,7 @@
             <span class="control-group-label">Воспроизведение</span>
             <button id="pauseBtn" type="button">Пауза</button>
             <button id="replayBtn" type="button">Повтор</button>
+            <button id="repeatCaptionBtn" type="button" aria-pressed="false" disabled>Повтор фразы: выкл</button>
           </div>
           <div class="control-group speed-navigation" aria-label="Скорость">
             <span class="control-group-label">Скорость</span>
@@ -967,6 +968,7 @@
     </footer>
   </main>
 
+  <script src="/caption-navigation.js"></script>
   <script>
     "use strict";
 
@@ -1056,8 +1058,21 @@
     let exampleOrder = "random";
     let savedExampleSequenceKey = "";
     let savedExampleSequence = [];
+    const CAPTION_SEEK_STEP_SECONDS = 0.5;
+    const CAPTION_SEEK_MAX_STEPS = 80;
+    const CAPTION_NAVIGATION_TIMEOUT_MS = 2500;
+    const captionNavigation = window.ListenToLearnCaptionNavigation || null;
     let captionHistory = [];
     let captionHistoryIndex = -1;
+    let captionNavigationBlocked = { previous: false, next: false };
+    let captionNavigationBusy = false;
+    let captionNavigationToken = 0;
+    let captionWaiters = [];
+    let repeatCaptionEnabled = false;
+    let repeatTargetId = "";
+    let repeatPending = false;
+    let playerState = null;
+    let captionEntrySequence = 0;
     let lastTranslation = { source: "", context: "", translation: "" };
     let examplesRequest = 0;
     let youglishHasFetched = false;
@@ -1121,7 +1136,8 @@
       prevVideoBtn: document.getElementById("prevVideoBtn"),
       nextVideoBtn: document.getElementById("nextVideoBtn"),
       pauseBtn: document.getElementById("pauseBtn"),
-      replayBtn: document.getElementById("replayBtn")
+      replayBtn: document.getElementById("replayBtn"),
+      repeatCaptionBtn: document.getElementById("repeatCaptionBtn")
     };
 
     function cloneDefaultState() {
@@ -1578,69 +1594,278 @@
       return exampleOrder === "random" ? shuffled(items) : [...items];
     }
 
-    function captionNavigationMethod(direction) {
-      if (state.source !== "youglish" || !widget) return null;
-      const candidates = direction === "previous"
-        ? ["previousCaption", "prevCaption"]
-        : ["nextCaption"];
-      const name = candidates.find(candidate => typeof widget[candidate] === "function");
-      if (!name) return null;
-      return { name, acceptsId: widget[name].length > 0 };
+    function finiteCaptionTime(value) {
+      return captionNavigation ? captionNavigation.finiteTime(value) : null;
+    }
+
+    function currentCaptionEntry() {
+      return captionHistory[captionHistoryIndex] || null;
+    }
+
+    function sameCaptionVideo(entry) {
+      return Boolean(entry) && entry.videoId === currentYouglishVideoId;
+    }
+
+    function captionTimingAvailable() {
+      const current = currentCaptionEntry();
+      return state.source === "youglish"
+        && Boolean(captionNavigation)
+        && widgetReady
+        && widget
+        && typeof widget.move === "function"
+        && sameCaptionVideo(current)
+        && finiteCaptionTime(current.startTime) !== null;
+    }
+
+    function clearCaptionWaiters() {
+      for (const waiter of captionWaiters) {
+        clearTimeout(waiter.timeoutId);
+        waiter.resolve(null);
+      }
+      captionWaiters = [];
+    }
+
+    function cancelCaptionNavigation() {
+      captionNavigationToken += 1;
+      clearCaptionWaiters();
+      captionNavigationBusy = false;
+    }
+
+    function disableRepeatCaption(message = "") {
+      repeatCaptionEnabled = false;
+      repeatTargetId = "";
+      repeatPending = false;
+      if (message) el.status.textContent = message;
+    }
+
+    function invalidateCaptionTiming(message = "") {
+      captionHistoryIndex = -1;
+      captionNavigationBlocked = { previous: false, next: false };
+      if (captionNavigationBusy) cancelCaptionNavigation();
+      if (repeatCaptionEnabled || repeatPending) disableRepeatCaption(message);
+    }
+
+    function waitForCaption(predicate, timeout = CAPTION_NAVIGATION_TIMEOUT_MS) {
+      return new Promise(resolve => {
+        const waiter = {
+          predicate,
+          resolve,
+          timeoutId: setTimeout(() => {
+            captionWaiters = captionWaiters.filter(item => item !== waiter);
+            resolve(null);
+          }, timeout)
+        };
+        captionWaiters.push(waiter);
+      });
+    }
+
+    function notifyCaptionWaiters(entry) {
+      const remaining = [];
+      for (const waiter of captionWaiters) {
+        if (waiter.predicate(entry)) {
+          clearTimeout(waiter.timeoutId);
+          waiter.resolve(entry);
+        } else {
+          remaining.push(waiter);
+        }
+      }
+      captionWaiters = remaining;
+    }
+
+    function upsertCaptionEntry(raw, text, id, startTime) {
+      if (!captionNavigation) return null;
+      const result = captionNavigation.upsert(
+        captionHistory,
+        {
+          videoId: currentYouglishVideoId,
+          id,
+          raw,
+          text,
+          startTime
+        },
+        captionEntrySequence,
+        performance.now()
+      );
+      captionHistory = result.history;
+      captionHistoryIndex = result.index;
+      captionEntrySequence = result.nextSequence;
+      captionNavigationBlocked = { previous: false, next: false };
+      return result.entry;
     }
 
     function resetCaptionHistory() {
+      cancelCaptionNavigation();
       captionHistory = [];
       captionHistoryIndex = -1;
+      captionNavigationBlocked = { previous: false, next: false };
+      captionEntrySequence = 0;
+      repeatCaptionEnabled = false;
+      repeatTargetId = "";
+      repeatPending = false;
       renderCaptionNavigation();
     }
 
     function renderCaptionNavigation() {
-      if (!el.prevCaptionBtn || !el.nextCaptionBtn) return;
-      const previousMethod = captionNavigationMethod("previous");
-      const nextMethod = captionNavigationMethod("next");
-      const previousAvailable = Boolean(previousMethod)
-        && captionHistoryIndex > 0;
-      const nextAvailable = Boolean(nextMethod)
+      if (!el.prevCaptionBtn || !el.nextCaptionBtn || !el.repeatCaptionBtn) return;
+      const timingAvailable = captionTimingAvailable();
+      const current = currentCaptionEntry();
+      const previousAvailable = timingAvailable
         && captionHistoryIndex >= 0
-        && captionHistoryIndex < captionHistory.length - 1;
-      el.prevCaptionBtn.disabled = !previousAvailable;
-      el.nextCaptionBtn.disabled = !nextAvailable;
+        && !captionNavigationBlocked.previous;
+      const nextAvailable = timingAvailable
+        && captionHistoryIndex >= 0
+        && !captionNavigationBlocked.next;
       const unavailable = state.source !== "youglish"
         ? "У этого источника нет таймкодированных caption."
-        : "YouGlish не предоставляет точный переход к caption в текущем API.";
+        : "Точный переход ждёт таймкод текущего caption.";
+      el.prevCaptionBtn.disabled = captionNavigationBusy || !previousAvailable;
+      el.nextCaptionBtn.disabled = captionNavigationBusy || !nextAvailable;
+      el.repeatCaptionBtn.disabled = captionNavigationBusy || !timingAvailable;
+      el.repeatCaptionBtn.setAttribute("aria-pressed", String(repeatCaptionEnabled));
+      el.repeatCaptionBtn.textContent = `Повтор фразы: ${repeatCaptionEnabled ? "вкл" : "выкл"}`;
       el.captionNavigationHint.textContent = state.source !== "youglish"
         ? "Tatoeba не передаёт историю caption; доступна навигация по аудиопримерам."
-        : (!previousMethod && !nextMethod
-          ? "Точный переход к caption не поддержан API; перемотка на 5 секунд здесь не используется."
-          : `История caption: ${captionHistory.length}`);
+        : (!widget || typeof widget.move !== "function"
+          ? "Точный переход к caption не поддержан текущим API; перемотка на 5 секунд здесь не используется."
+          : (!current || !timingAvailable
+            ? "Жду таймкод текущего caption от YouGlish; приблизительный переход не используется."
+            : `Наблюдаемые caption: ${captionHistory.length}`));
       el.prevCaptionBtn.title = previousAvailable ? "Перейти к предыдущему caption" : unavailable;
       el.nextCaptionBtn.title = nextAvailable ? "Перейти к следующему caption" : unavailable;
     }
 
-    function navigateCaption(direction) {
-      const method = captionNavigationMethod(direction);
-      const targetIndex = direction === "previous" ? captionHistoryIndex - 1 : captionHistoryIndex + 1;
-      const target = captionHistory[targetIndex];
-      if (!method || !target) {
-        el.status.textContent = "Точный переход к этой фразе недоступен в API YouGlish.";
+    function estimatedCaptionTime(entry) {
+      if (!entry) return null;
+      const startTime = finiteCaptionTime(entry.startTime);
+      if (startTime === null) return null;
+      if (playerState === 1 && Number.isFinite(entry.observedAt)) {
+        const speed = Number(state.speed) > 0 ? Number(state.speed) : 1;
+        return startTime + Math.max(0, (performance.now() - entry.observedAt) / 1000) * speed;
+      }
+      return finiteCaptionTime(entry.lastKnownTime) ?? startTime;
+    }
+
+    async function seekToKnownCaption(target, token, wasPlaying) {
+      const current = currentCaptionEntry();
+      if (!current || !target || !sameCaptionVideo(target)) return null;
+      const expected = waitForCaption(entry => entry.videoId === target.videoId && entry.id === target.id);
+      const currentTime = estimatedCaptionTime(current) ?? current.startTime;
+      const delta = captionNavigation.relativeSeekDelta(currentTime, target.startTime);
+      if (wasPlaying && typeof widget.pause === "function") widget.pause();
+      try {
+        widget.move(delta);
+        const reached = await expected;
+        if (token !== captionNavigationToken || !reached) return null;
+        return reached;
+      } finally {
+        if (wasPlaying && token === captionNavigationToken && typeof widget.play === "function") widget.play();
+      }
+    }
+
+    async function seekByCaptionSteps(direction, token, wasPlaying) {
+      const sign = direction === "previous" ? -1 : 1;
+      const deadline = Date.now() + CAPTION_NAVIGATION_TIMEOUT_MS;
+      if (wasPlaying && typeof widget.pause === "function") widget.pause();
+      try {
+        for (let step = 0; step < CAPTION_SEEK_MAX_STEPS && Date.now() < deadline; step += 1) {
+          const before = currentCaptionEntry();
+          if (!before) return null;
+          const remaining = Math.max(1, deadline - Date.now());
+          const expected = waitForCaption(entry => {
+            if (!sameCaptionVideo(entry) || entry.id === before.id) return false;
+            return direction === "previous"
+              ? entry.startTime < before.startTime
+              : entry.startTime > before.startTime;
+          }, Math.min(350, remaining));
+          widget.move(sign * CAPTION_SEEK_STEP_SECONDS);
+          const reached = await expected;
+          if (token !== captionNavigationToken) return null;
+          if (reached) return reached;
+        }
+      } finally {
+        if (wasPlaying && token === captionNavigationToken && typeof widget.play === "function") widget.play();
+      }
+      return null;
+    }
+
+    async function navigateCaption(direction) {
+      if (captionNavigationBusy || !captionTimingAvailable()) return;
+      const token = captionNavigationToken;
+      const target = captionNavigation.adjacent(
+        captionHistory,
+        captionHistoryIndex,
+        direction === "previous" ? -1 : 1,
+        currentYouglishVideoId
+      );
+      captionNavigationBusy = true;
+      renderCaptionNavigation();
+      const wasPlaying = playerState === 1;
+      try {
+        const reached = target
+          ? await seekToKnownCaption(target, token, wasPlaying)
+          : await seekByCaptionSteps(direction, token, wasPlaying);
+        if (token !== captionNavigationToken) return;
+        if (!reached) {
+          captionNavigationBlocked[direction] = true;
+          if (repeatCaptionEnabled) disableRepeatCaption("Повтор фразы отключён: переход к соседнему caption не подтверждён.");
+          el.status.textContent = "Не удалось подтвердить соседний caption; попробуй ещё раз.";
+          return;
+        }
+        repeatPending = false;
+        if (repeatCaptionEnabled) repeatTargetId = reached.id;
+        hideTranslation();
+      } catch (error) {
+        if (token === captionNavigationToken) {
+          clearCaptionWaiters();
+          if (repeatCaptionEnabled) disableRepeatCaption("Повтор фразы отключён: навигация по caption не подтверждена.");
+          el.status.textContent = "Навигация по caption временно недоступна.";
+          console.error(error);
+        }
+      } finally {
+        if (token === captionNavigationToken) {
+          captionNavigationBusy = false;
+          renderCaptionNavigation();
+        }
+      }
+    }
+
+    function toggleRepeatCaption() {
+      if (!captionTimingAvailable()) {
+        el.status.textContent = "Повтор фразы доступен только после получения таймкода caption.";
         return;
       }
+      repeatCaptionEnabled = !repeatCaptionEnabled;
+      repeatTargetId = repeatCaptionEnabled ? currentCaptionEntry().id : "";
+      repeatPending = false;
+      renderCaptionNavigation();
+      el.status.textContent = repeatCaptionEnabled ? "Повтор текущей фразы включён." : "Повтор фразы выключен.";
+    }
 
-      const previousIndex = captionHistoryIndex;
-      captionHistoryIndex = targetIndex;
+    function repeatCurrentCaption() {
+      const current = currentCaptionEntry();
+      if (captionNavigationBusy || !repeatCaptionEnabled || !captionTimingAvailable() || !current || repeatTargetId !== current.id) return;
+      const next = captionNavigation.adjacent(
+        captionHistory,
+        captionHistoryIndex,
+        1,
+        currentYouglishVideoId
+      );
+      const delta = captionNavigation.repeatSeekDelta(
+        current.startTime,
+        next && next.startTime,
+        estimatedCaptionTime(current)
+      );
+      if (delta === null || delta >= 0) return;
       try {
-        if (method.acceptsId) widget[method.name](target.id);
-        else widget[method.name]();
-        renderCaption(target.raw);
-        currentCaptionRaw = target.raw;
-        currentCaptionText = target.text;
-        hideTranslation();
-        renderCaptionNavigation();
+        repeatPending = true;
+        widget.move(delta);
+        current.observedAt = performance.now();
+        current.lastKnownTime = current.startTime;
       } catch (error) {
-        captionHistoryIndex = previousIndex;
-        el.status.textContent = "Не удалось перейти к сохранённому caption.";
+        disableRepeatCaption("Повтор фразы отключён: плеер не принял переход.");
         console.error(error);
       }
+      renderCaptionNavigation();
     }
 
     async function playTatoeba() {
@@ -2146,20 +2371,46 @@
       currentCaptionRaw = decodeCaption(event && event.caption);
       currentCaptionText = cleanCaptionText(currentCaptionRaw);
       const captionId = event && event.id != null ? String(event.id) : `${currentCaptionText}:${captionHistory.length}`;
-      const currentHistoryItem = captionHistory[captionHistoryIndex];
-      if (!currentHistoryItem || currentHistoryItem.id !== captionId || currentHistoryItem.text !== currentCaptionText) {
-        captionHistory = captionHistory.slice(0, captionHistoryIndex + 1);
-        captionHistory.push({
-          videoId: currentYouglishVideoId,
-          id: captionId,
-          raw: currentCaptionRaw,
-          text: currentCaptionText
-        });
-        captionHistoryIndex = captionHistory.length - 1;
+      const currentTime = finiteCaptionTime(event && event.current_time);
+      if (currentTime !== null && captionNavigation) {
+        const entry = upsertCaptionEntry(currentCaptionRaw, currentCaptionText, captionId, currentTime);
+        entry.lastKnownTime = currentTime;
+        if (repeatCaptionEnabled && entry.id !== repeatTargetId && !captionNavigationBusy) {
+          disableRepeatCaption("Повтор фразы отключён: воспроизведение ушло в другой caption.");
+        }
+        notifyCaptionWaiters(entry);
+      } else {
+        invalidateCaptionTiming("Повтор фразы отключён: YouGlish не передал таймкод.");
       }
       renderCaption(currentCaptionRaw);
       hideTranslation();
       renderCaptionNavigation();
+    }
+
+    function onCaptionConsumed(event) {
+      if (state.source !== "youglish" || !repeatCaptionEnabled || captionNavigationBusy) return;
+      const consumedId = event && event.id != null ? String(event.id) : "";
+      if (!consumedId || consumedId !== repeatTargetId) return;
+      if (repeatPending) repeatPending = false;
+      repeatCurrentCaption();
+    }
+
+    function onPlayerStateChange(event) {
+      const nextState = Number(event && event.state);
+      if (!Number.isFinite(nextState)) return;
+      const current = currentCaptionEntry();
+      if (current && playerState === 1 && nextState !== 1) {
+        const pausedTime = estimatedCaptionTime(current);
+        if (pausedTime !== null) current.lastKnownTime = pausedTime;
+      } else if (current && playerState !== 1 && nextState === 1) {
+        const resumedTime = finiteCaptionTime(current.lastKnownTime);
+        if (resumedTime !== null) {
+          const speed = Number(state.speed) > 0 ? Number(state.speed) : 1;
+          current.observedAt = performance.now()
+            - Math.max(0, resumedTime - current.startTime) / speed * 1000;
+        }
+      }
+      playerState = nextState;
     }
 
     function showWidgetError(message) {
@@ -2203,6 +2454,7 @@
 
     function onPlayerReady() {
       widgetReady = true;
+      if (playerState === null) playerState = 1;
       if (widget && typeof widget.setSpeed === "function") {
         try { widget.setSpeed(state.speed); } catch (_) {}
       }
@@ -2245,7 +2497,9 @@
             onFetchDone,
             onVideoChange,
             onCaptionChange,
+            onCaptionConsumed,
             onPlayerReady,
+            onPlayerStateChange,
             onSpeedChange,
             onError
           }
@@ -2431,6 +2685,7 @@
 
     el.prevCaptionBtn.addEventListener("click", () => navigateCaption("previous"));
     el.nextCaptionBtn.addEventListener("click", () => navigateCaption("next"));
+    el.repeatCaptionBtn.addEventListener("click", toggleRepeatCaption);
     el.prevVideoBtn.addEventListener("click", () => {
       if (state.source === "tatoeba" && usingSavedExamples()) playSavedExample(savedExampleIndex - 1);
       else if (state.source === "tatoeba") loadTatoebaTrack(tatoebaIndex - 1, true);

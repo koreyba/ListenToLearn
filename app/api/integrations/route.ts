@@ -1,11 +1,10 @@
-import { env } from "cloudflare:workers";
 import {
   deleteIntegrationSecret,
-  createIntegrationSession,
   getIntegrationStatus,
   storeIntegrationSecret,
   type IntegrationProvider,
 } from "@/lib/integration-secrets";
+import { getCurrentUser, unauthorizedResponse } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -15,14 +14,10 @@ function clean(value: unknown, limit: number) {
   return typeof value === "string" ? value.trim().slice(0, limit) : "";
 }
 
-function workerSecretConfigured() {
-  return Boolean((env as unknown as { DEEPL_API_KEY?: string }).DEEPL_API_KEY);
-}
-
-function response(data: unknown, status = 200, headers: Record<string, string> = {}) {
+function response(data: unknown, status = 200) {
   return Response.json(data, {
     status,
-    headers: { "Cache-Control": "no-store", ...headers },
+    headers: { "Cache-Control": "no-store" },
   });
 }
 
@@ -36,18 +31,19 @@ function bodyWithinLimit(request: Request) {
 }
 
 export async function GET(request: Request) {
+  const user = await getCurrentUser(request);
+  if (!user) return unauthorizedResponse();
+
   try {
-    const stored = await getIntegrationStatus(provider);
-    const worker = workerSecretConfigured();
-    const sessionCookie = await createIntegrationSession(request);
+    const configured = await getIntegrationStatus(user.subject, provider);
     return response({
       integrations: [{
         provider,
         label: "DeepL",
-        configured: stored || worker,
-        source: stored ? "integrations" : worker ? "worker_secret" : null,
+        configured,
+        source: configured ? "integrations" : null,
       }],
-    }, 200, sessionCookie ? { "Set-Cookie": sessionCookie } : {});
+    });
   } catch (error) {
     console.error("Integrations GET failed:", error);
     return response({ error: "Не удалось проверить интеграции." }, 500);
@@ -55,6 +51,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const user = await getCurrentUser(request);
+  if (!user) return unauthorizedResponse();
+
   try {
     if (!sameOrigin(request)) return response({ error: "Недопустимый источник запроса." }, 403);
     if (!bodyWithinLimit(request)) return response({ error: "Запрос слишком большой." }, 413);
@@ -64,7 +63,7 @@ export async function POST(request: Request) {
     }
     const key = clean(payload.key, 500);
     if (!key) return response({ error: "Введите API-ключ." }, 400);
-    await storeIntegrationSecret(provider, key);
+    await storeIntegrationSecret(user.subject, provider, key);
     return response({ ok: true, provider, configured: true });
   } catch (error) {
     console.error("Integrations POST failed:", error);
@@ -73,14 +72,17 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  const user = await getCurrentUser(request);
+  if (!user) return unauthorizedResponse();
+
   try {
     if (!sameOrigin(request)) return response({ error: "Недопустимый источник запроса." }, 403);
     const requestedProvider = new URL(request.url).searchParams.get("provider");
     if (requestedProvider !== provider) {
       return response({ error: "Эта интеграция пока не поддерживается." }, 400);
     }
-    await deleteIntegrationSecret(provider);
-    return response({ ok: true, provider, configured: workerSecretConfigured() });
+    await deleteIntegrationSecret(user.subject, provider);
+    return response({ ok: true, provider, configured: false });
   } catch (error) {
     console.error("Integrations DELETE failed:", error);
     return response({ error: "Не удалось удалить API-ключ." }, 500);

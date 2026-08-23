@@ -43,6 +43,13 @@
       "when": 1787514681004,
       "tag": "0005_special_ogun",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787517606162,
+      "tag": "0006_google_auth_per_user",
+      "breakpoints": true
     }
   ]
 }

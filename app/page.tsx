@@ -24,6 +24,7 @@ type PhraseMutationResponse = {
   created?: boolean;
   translationPending?: boolean;
 };
+type Viewer = { email: string; name: string };
 
 const tabs: Array<{ id: PhraseStatus; label: string; hint: string }> = [
   { id: "pick", label: "Pick", hint: "Наша подборка фраз для следующего шага." },
@@ -103,6 +104,7 @@ export default function Home() {
       // Browser storage is optional; the current selection still applies.
     }
   }, [phraseSort]);
+  const [viewer, setViewer] = useState<Viewer | null>(null);
 
   const loadPhrases = useCallback(async () => {
     const response = await fetch("/api/phrases", { cache: "no-store" });
@@ -126,6 +128,15 @@ export default function Home() {
       }
     })();
     return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      const response = await fetch("/api/me", { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json() as { user?: Viewer };
+      if (data.user) setViewer(data.user);
+    })();
   }, []);
 
   const counts = useMemo(() => Object.fromEntries(
@@ -217,6 +228,8 @@ export default function Home() {
         </div>
         <div className="header-tools">
           <a className="integrations-link" href="/integrations">Integrations</a>
+          {viewer && <span className="header-account" title={viewer.email}>{viewer.name || viewer.email}</span>}
+          <a className="account-link" href="/cdn-cgi/access/logout">Выйти</a>
           <div className="header-total"><strong>{phrases.length}</strong><span>фраз в библиотеке</span></div>
         </div>
       </header>

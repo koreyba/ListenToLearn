@@ -98,7 +98,8 @@ of the documented public contract.
 
 Fresh evidence on 2026-08-23:
 
-- `node --test tests/rendered-html.test.mjs`: 11 passed, 0 failed.
+- `node --test tests/rendered-html.test.mjs`: 12 passed, 0 failed, including
+  the merged Google-auth Worker contract test.
 - `bash scripts/sites-env.sh -- ./node_modules/.bin/vinext build`: passed.
 - `npx tsc --noEmit`: passed.
 - `npm run lint`: exit 0; two existing warnings remain in

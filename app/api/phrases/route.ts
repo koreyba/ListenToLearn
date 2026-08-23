@@ -12,6 +12,7 @@ type PhraseRow = {
   pattern: string;
   ipa: string;
   translation: string;
+  context: string;
   source_type: "preset" | "custom";
   catalog_order: number | null;
   status: "pick" | "to_learn" | "learning_now" | "learnt";
@@ -28,6 +29,7 @@ async function ensureData() {
       pattern TEXT NOT NULL,
       ipa TEXT NOT NULL DEFAULT '',
       translation TEXT NOT NULL DEFAULT '',
+      context TEXT NOT NULL DEFAULT '',
       source_type TEXT NOT NULL CHECK (source_type IN ('preset', 'custom')),
       catalog_order INTEGER,
       status TEXT NOT NULL DEFAULT 'pick' CHECK (status IN ('pick', 'to_learn', 'learning_now', 'learnt')),
@@ -40,14 +42,17 @@ async function ensureData() {
   if (!columns.results.some((column) => column.name === "translation")) {
     await db.prepare("ALTER TABLE phrases ADD COLUMN translation TEXT NOT NULL DEFAULT ''").run();
   }
+  if (!columns.results.some((column) => column.name === "context")) {
+    await db.prepare("ALTER TABLE phrases ADD COLUMN context TEXT NOT NULL DEFAULT ''").run();
+  }
 
   const now = new Date().toISOString();
   await db.batch(
     PRESET_PHRASES.map((phrase, index) =>
       db.prepare(`
         INSERT OR IGNORE INTO phrases
-          (id, text, pattern, ipa, translation, source_type, catalog_order, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, '', 'preset', ?, 'pick', ?, ?)
+          (id, text, pattern, ipa, translation, context, source_type, catalog_order, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, '', '', 'preset', ?, 'pick', ?, ?)
       `).bind(`preset-${index}`, phrase.text, phrase.pattern, phrase.ipa, index, now, now)
     )
   );
@@ -105,7 +110,7 @@ export async function GET(request: Request) {
     await backfillTranslations(request);
     const db = getD1();
     const result = await db.prepare(`
-      SELECT id, text, pattern, ipa, translation, source_type, catalog_order, status, created_at, updated_at
+      SELECT id, text, pattern, ipa, translation, context, source_type, catalog_order, status, created_at, updated_at
       FROM phrases
       ORDER BY
         CASE WHEN status = 'pick' THEN 0 ELSE 1 END,
@@ -122,44 +127,49 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     await ensureData();
-    const payload = (await request.json()) as { text?: unknown };
+    const payload = (await request.json()) as { text?: unknown; context?: unknown; translation?: unknown };
     const text = cleanText(payload.text);
+    const context = cleanText(payload.context).slice(0, 1_000);
+    const suppliedTranslation = cleanText(payload.translation).slice(0, 1_000);
     if (!text) return Response.json({ error: "Введите фразу." }, { status: 400 });
     if (text.length > 240) return Response.json({ error: "Фраза слишком длинная." }, { status: 400 });
 
     const db = getD1();
     const existing = await db.prepare(
-      "SELECT id, status, translation FROM phrases WHERE text = ? COLLATE NOCASE LIMIT 1"
-    ).bind(text).first<{ id: string; status: PhraseRow["status"]; translation: string }>();
+      "SELECT id, status, translation, context FROM phrases WHERE text = ? COLLATE NOCASE LIMIT 1"
+    ).bind(text).first<{ id: string; status: PhraseRow["status"]; translation: string; context: string }>();
     if (existing) {
       const status = existing.status === "pick" ? "to_learn" : existing.status;
-      const translation = await optionalTranslationForPhrase(text, existing.translation, request);
-      if (status !== existing.status || translation.text !== existing.translation) {
+      const translation = await optionalTranslationForPhrase(text, existing.translation || suppliedTranslation, request);
+      const nextContext = context || existing.context;
+      if (status !== existing.status || translation.text !== existing.translation || nextContext !== existing.context) {
         await db.prepare(
-          "UPDATE phrases SET status = ?, translation = ?, updated_at = ? WHERE id = ?"
-        ).bind(status, translation.text, new Date().toISOString(), existing.id).run();
+          "UPDATE phrases SET status = ?, translation = ?, context = ?, updated_at = ? WHERE id = ?"
+        ).bind(status, translation.text, nextContext, new Date().toISOString(), existing.id).run();
       }
       return Response.json({
         id: existing.id,
         status,
         translation: translation.text,
+        context: nextContext,
         translationPending: translation.pending,
         created: false,
       });
     }
 
-    const translation = await optionalTranslationForPhrase(text, "", request);
+    const translation = await optionalTranslationForPhrase(text, suppliedTranslation, request);
     const id = `custom-${crypto.randomUUID()}`;
     const now = new Date().toISOString();
     await db.prepare(`
       INSERT INTO phrases
-        (id, text, pattern, ipa, translation, source_type, catalog_order, status, created_at, updated_at)
-      VALUES (?, ?, ?, '', ?, 'custom', NULL, 'to_learn', ?, ?)
-    `).bind(id, text, `[${text}]`, translation.text, now, now).run();
+        (id, text, pattern, ipa, translation, context, source_type, catalog_order, status, created_at, updated_at)
+      VALUES (?, ?, ?, '', ?, ?, 'custom', NULL, 'to_learn', ?, ?)
+    `).bind(id, text, `[${text}]`, translation.text, context, now, now).run();
     return Response.json({
       id,
       status: "to_learn",
       translation: translation.text,
+      context,
       translationPending: translation.pending,
       created: true,
     }, { status: 201 });

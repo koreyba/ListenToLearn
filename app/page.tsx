@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type PhraseStatus = "pick" | "to_learn" | "learning_now" | "learnt";
 type Phrase = {
@@ -9,8 +9,12 @@ type Phrase = {
   pattern: string;
   ipa: string;
   translation: string;
+  context: string;
   source_type: "preset" | "custom";
+  catalog_order: number | null;
   status: PhraseStatus;
+  created_at: string;
+  updated_at: string;
 };
 type PhrasesResponse = { phrases: Phrase[]; error?: string };
 type PhraseMutationResponse = {
@@ -22,11 +26,38 @@ type PhraseMutationResponse = {
 };
 
 const tabs: Array<{ id: PhraseStatus; label: string; hint: string }> = [
-  { id: "pick", label: "Pick to Learn", hint: "Наша подборка фраз для следующего шага." },
+  { id: "pick", label: "Pick", hint: "Наша подборка фраз для следующего шага." },
   { id: "to_learn", label: "To Learn", hint: "Отложено на будущее." },
   { id: "learning_now", label: "Learning Now", hint: "То, что вы слушаете сейчас." },
   { id: "learnt", label: "Learnt", hint: "Фразы, которые вы уже освоили." },
 ];
+
+type PhraseSort = "added_desc" | "added_asc" | "alpha_asc" | "alpha_desc";
+
+const PHRASE_SORT_STORAGE_KEY = "listen-to-learn-library-sort-v1";
+const phraseSortOptions: Array<{ value: PhraseSort; label: string }> = [
+  { value: "added_desc", label: "Дата добавления · новые сначала" },
+  { value: "added_asc", label: "Дата добавления · старые сначала" },
+  { value: "alpha_asc", label: "Алфавит · A–Z" },
+  { value: "alpha_desc", label: "Алфавит · Z–A" },
+];
+
+function phraseTieBreaker(a: Phrase, b: Phrase) {
+  const catalogA = a.catalog_order ?? Number.MAX_SAFE_INTEGER;
+  const catalogB = b.catalog_order ?? Number.MAX_SAFE_INTEGER;
+  return catalogA - catalogB || a.id.localeCompare(b.id);
+}
+
+function comparePhrases(a: Phrase, b: Phrase, sort: PhraseSort) {
+  if (sort === "alpha_asc" || sort === "alpha_desc") {
+    const alphabetic = a.text.localeCompare(b.text, "en", { sensitivity: "base" });
+    return (sort === "alpha_asc" ? alphabetic : -alphabetic) || phraseTieBreaker(a, b);
+  }
+
+  const aTime = Date.parse(a.created_at) || 0;
+  const bTime = Date.parse(b.created_at) || 0;
+  return (sort === "added_desc" ? bTime - aTime : aTime - bTime) || phraseTieBreaker(a, b);
+}
 
 function renderPattern(pattern: string) {
   const parts = pattern.split(/(\[[^\]]+\])/g).filter(Boolean);
@@ -45,6 +76,33 @@ export default function Home() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [customText, setCustomText] = useState("");
+  const [phraseSort, setPhraseSort] = useState<PhraseSort>("added_desc");
+  const phraseSortReady = useRef(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      try {
+        const stored = window.localStorage.getItem(PHRASE_SORT_STORAGE_KEY);
+        if (phraseSortOptions.some((option) => option.value === stored)) {
+          setPhraseSort(stored as PhraseSort);
+        }
+      } catch {
+        // Browser storage is optional; the default remains usable.
+      } finally {
+        phraseSortReady.current = true;
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!phraseSortReady.current) return;
+    try {
+      window.localStorage.setItem(PHRASE_SORT_STORAGE_KEY, phraseSort);
+    } catch {
+      // Browser storage is optional; the current selection still applies.
+    }
+  }, [phraseSort]);
 
   const loadPhrases = useCallback(async () => {
     const response = await fetch("/api/phrases", { cache: "no-store" });
@@ -75,8 +133,10 @@ export default function Home() {
   ) as Record<PhraseStatus, number>, [phrases]);
 
   const visible = useMemo(
-    () => phrases.filter((phrase) => phrase.status === activeTab),
-    [activeTab, phrases]
+    () => phrases
+      .filter((phrase) => phrase.status === activeTab)
+      .sort((a, b) => comparePhrases(a, b, phraseSort)),
+    [activeTab, phraseSort, phrases]
   );
 
   async function changeStatus(id: string, status: PhraseStatus) {
@@ -179,16 +239,29 @@ export default function Home() {
       <section className="library-section" role="tabpanel">
         <div className="section-heading">
           <div><h2>{current.label}</h2><p>{current.hint}</p></div>
-          <form className="add-form" onSubmit={addCustom}>
-            <input
-              aria-label="Своя фраза"
-              maxLength={240}
-              onChange={(event) => setCustomText(event.target.value)}
-              placeholder="Введите свою фразу"
-              value={customText}
-            />
-            <button disabled={busyId === "new" || !customText.trim()} type="submit">+ В To Learn</button>
-          </form>
+          <div className="section-tools">
+            <label className="sort-control">
+              <span>Сортировка</span>
+              <select
+                aria-label="Сортировка фраз"
+                className="phrase-sort"
+                onChange={(event) => setPhraseSort(event.target.value as PhraseSort)}
+                value={phraseSort}
+              >
+                {phraseSortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+            <form className="add-form" onSubmit={addCustom}>
+              <input
+                aria-label="Своё слово или фраза"
+                maxLength={240}
+                onChange={(event) => setCustomText(event.target.value)}
+                placeholder="Введите слово или фразу"
+                value={customText}
+              />
+              <button disabled={busyId === "new" || !customText.trim()} type="submit">+ В To Learn</button>
+            </form>
+          </div>
         </div>
 
         {error && <div className="notice error" role="alert">{error}</div>}
@@ -207,6 +280,7 @@ export default function Home() {
                   {phrase.status !== "pick" && phrase.translation && (
                     <span className="phrase-translation">{phrase.translation}</span>
                   )}
+                  {phrase.context && <span className="phrase-context">Контекст: {phrase.context}</span>}
                   <span className="phrase-pattern">{renderPattern(phrase.pattern)}</span>
                   <span className="phrase-ipa">{phrase.ipa || "Транскрипция появится позже"}</span>
                   <span className="listen-link">Слушать <span aria-hidden="true">↗</span></span>

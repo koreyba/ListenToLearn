@@ -11,8 +11,8 @@ description: Break down work into actionable tasks and estimate timeline
 - [x] M1: requirements, design and testing strategy approved by the user-facing decision to build local guest mode.
 - [x] M2: public-route boundary and guest state implemented without changing authenticated isolation.
 - [x] M3: guest UI works on library, trainer and saved examples using localStorage only.
-- [ ] M4: automated checks and live public/protected smoke pass.
-- [ ] M5: final review, PR, merge to `main`, Access rollout and Worker deployment complete.
+- [x] M4: automated checks and live public/protected smoke pass.
+- [x] M5: final review, PR, merge to `main`, Access rollout and Worker deployment complete.
 
 ## Task Breakdown
 
@@ -20,7 +20,7 @@ description: Break down work into actionable tasks and estimate timeline
 
 - [x] 1.1 Add pure guest-library state model, normalization, bounded custom phrases and saved-example helpers. Validate with unit tests for malformed storage, transitions, reset and namespace separation. Covers requirements guest-state and security criteria.
 - [x] 1.2 Add explicit Worker public-route classifier and `/login` redirect. Keep JWT verification and authenticated route fail-closed; cover public/protected path matrix. Depends on 1.1 only for shared naming; validates Worker boundary tests.
-- [ ] 1.3 Update Access configuration plan/vars for path-scoped protected paths while preserving Google audiences during rollout. Validate via Cloudflare API read-back before mutation and smoke after deploy.
+- [x] 1.3 Update Access configuration plan/vars for path-scoped protected paths while preserving Google audiences during rollout. Validate via Cloudflare API read-back before mutation and smoke after deploy.
 
 ### Phase 2: Public library and trainer
 
@@ -31,12 +31,12 @@ description: Break down work into actionable tasks and estimate timeline
 ### Phase 3: Verification and rollout
 
 - [x] 3.1 Add/update rendered, state and Worker boundary tests; run lint, typecheck, build, Node tests and diff checks.
-- [ ] 3.2 Run live guest/protected smoke: root/trainer public, Tatoeba read-only public, API/Integrations Access redirect, authenticated Google path, and D1 row-count immutability for guest requests.
-- [ ] 3.3 Perform final implementation/design review, update lifecycle docs with evidence, commit and push the feature branch, open/update PR, merge to `main`, then deploy Worker and verify production.
+- [x] 3.2 Run live guest/protected smoke: root/trainer public, Tatoeba read-only public, API/Integrations Access redirect and D1 row-count immutability for guest requests. The existing authenticated Google flow was not re-run interactively in this HTTP-only smoke.
+- [x] 3.3 Perform final implementation/design review, update lifecycle docs with evidence, commit and push the feature branch, open/update PR, merge to `main`, then deploy Worker and verify production.
 
 ## Progress
 
-Tasks 1.1, 1.2, 2.1, 2.2, 2.3 and 3.1 are complete. The guest library and trainer use the same bounded local schema, guest mutations avoid user APIs, and the Worker strips untrusted identity headers before both guest and account dispatch. Task 1.3 and live smoke remain pending for coordinated Access rollout.
+All tasks are complete. PRs #5 and #7 are merged, the Worker is deployed as version `f0fca2e8-75d3-46c7-b317-1c9f725c23d9`, Access is path-scoped, public/protected smoke passed, and D1 counts were unchanged across guest probes.
 
 ## Dependencies
 

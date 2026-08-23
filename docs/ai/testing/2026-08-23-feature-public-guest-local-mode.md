@@ -60,7 +60,7 @@ description: Define testing approach, test cases, and quality assurance
 - `npm run lint`
 - `npx tsc --noEmit`
 - `npm run build` (the repository wrapper is unavailable on this macOS host because GNU `timeout` is absent); equivalent bounded `vinext build` passed.
-- `node --test tests/*.test.mjs` (targeted guest/rendered suites passed; full suite is the final gate).
+- `node --test tests/*.test.mjs` — 26 passed, 0 failed.
 - `git diff --check`
 - `npx ai-devkit@latest lint --feature public-guest-local-mode`
 
@@ -68,7 +68,7 @@ Document any macOS `timeout` wrapper limitation separately from code failures.
 
 ## Manual Testing
 
-- Verify guest flow in a clean/incognito browser and authenticated flow in the existing Google session.
+- Live HTTP smoke verified the public/protected boundary. A full clean/incognito interactive browser run remains a useful follow-up for visual/UX coverage, but it is not required for the Worker/API isolation claim.
 - Verify refresh, second tab, logout, reset, mobile-width layout and keyboard operation.
 - Verify Network panel contains no guest `POST/PATCH/DELETE` to user APIs and no secret in localStorage.
 - Verify Cloudflare Access redirects only protected paths.

@@ -21,7 +21,7 @@ flowchart LR
   Worker -.->|no guest writes| D1
 ```
 
-The current host-wide Access application is narrowed to protected paths. Public paths are the home page, trainer, static assets and the read-only Tatoeba proxy. The Worker remains the application trust boundary: it verifies Access JWTs for protected requests and has an explicit public-route allowlist for guest requests.
+The current host-wide Access application is narrowed to protected paths. Public paths are the home page, both the source `/trainer.html` asset and its production `/trainer` route, static assets and the read-only Tatoeba proxy. The Worker remains the application trust boundary: it verifies Access JWTs for protected requests and has an explicit public-route allowlist for guest requests.
 
 ## Data Models
 
@@ -70,7 +70,7 @@ The existing D1 schema remains authoritative for authenticated users: `users`, `
 
 ## API Design
 
-- `GET /` and `GET /trainer.html`: public UI; guest mode does not request account APIs during initial bootstrap.
+- `GET /` and `GET /trainer.html`/`GET /trainer`: public UI; the source asset may redirect to the production route, and guest mode does not request account APIs during initial bootstrap.
 - `GET /api/tatoeba` and `GET /api/tatoeba/audio`: public, read-only external proxies; no D1 access.
 - `/login`: protected by Access. With a verified identity, Worker redirects to `/?signedIn=1`; without identity the Access application sends the visitor to Google.
 - `/api/me`: authenticated only; returns the current Access subject and display data.

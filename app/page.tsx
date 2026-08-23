@@ -1,6 +1,16 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PRESET_PHRASES } from "@/lib/preset-phrases";
+import {
+  GUEST_LIBRARY_STORAGE_KEY,
+  addGuestPhrase,
+  createGuestLibrary,
+  normalizeGuestLibrary,
+  removeGuestPhrase,
+  setGuestPhraseStatus,
+  type GuestLibraryState,
+} from "@/lib/guest-library";
 
 type PhraseStatus = "pick" | "to_learn" | "learning_now" | "learnt";
 type Phrase = {
@@ -24,7 +34,7 @@ type PhraseMutationResponse = {
   created?: boolean;
   translationPending?: boolean;
 };
-type Viewer = { email: string; name: string };
+type Viewer = { id: string; email: string; name: string };
 
 const tabs: Array<{ id: PhraseStatus; label: string; hint: string }> = [
   { id: "pick", label: "Pick", hint: "Наша подборка фраз для следующего шага." },
@@ -36,6 +46,9 @@ const tabs: Array<{ id: PhraseStatus; label: string; hint: string }> = [
 type PhraseSort = "added_desc" | "added_asc" | "alpha_asc" | "alpha_desc";
 
 const PHRASE_SORT_STORAGE_KEY = "listen-to-learn-library-sort-v1";
+const AUTH_HINT_STORAGE_KEY = "listen-to-learn-authenticated-v1";
+const GUEST_TRAINER_STORAGE_KEY = "connected-speech-trainer-v1:anonymous";
+const GUEST_PRESET_CREATED_AT = "1970-01-01T00:00:00.000Z";
 const phraseSortOptions: Array<{ value: PhraseSort; label: string }> = [
   { value: "added_desc", label: "Дата добавления · новые сначала" },
   { value: "added_asc", label: "Дата добавления · старые сначала" },
@@ -69,8 +82,41 @@ function renderPattern(pattern: string) {
   );
 }
 
+function guestPhrases(state: GuestLibraryState): Phrase[] {
+  return [
+    ...PRESET_PHRASES.map((phrase, index) => ({
+      id: `preset-${index}`,
+      text: phrase.text,
+      pattern: phrase.pattern,
+      ipa: phrase.ipa,
+      translation: "",
+      context: "",
+      source_type: "preset" as const,
+      catalog_order: index,
+      status: state.statuses[`preset-${index}`] || "pick" as const,
+      created_at: GUEST_PRESET_CREATED_AT,
+      updated_at: GUEST_PRESET_CREATED_AT,
+    })),
+    ...state.customPhrases.map((phrase) => ({
+      id: phrase.id,
+      text: phrase.text,
+      pattern: phrase.pattern,
+      ipa: phrase.ipa,
+      translation: phrase.translation,
+      context: phrase.context,
+      source_type: "custom" as const,
+      catalog_order: null,
+      status: phrase.status,
+      created_at: phrase.createdAt,
+      updated_at: phrase.updatedAt,
+    })),
+  ];
+}
+
 export default function Home() {
   const [phrases, setPhrases] = useState<Phrase[]>([]);
+  const [mode, setMode] = useState<"guest" | "account">("guest");
+  const [guestLibrary, setGuestLibrary] = useState<GuestLibraryState>(() => createGuestLibrary());
   const [activeTab, setActiveTab] = useState<PhraseStatus>("pick");
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -106,6 +152,34 @@ export default function Home() {
   }, [phraseSort]);
   const [viewer, setViewer] = useState<Viewer | null>(null);
 
+  const persistGuestState = useCallback((next: GuestLibraryState) => {
+    const normalized = normalizeGuestLibrary(next);
+    setMode("guest");
+    setViewer(null);
+    setGuestLibrary(normalized);
+    setPhrases(guestPhrases(normalized));
+    try {
+      window.localStorage.setItem(GUEST_LIBRARY_STORAGE_KEY, JSON.stringify(normalized));
+    } catch {
+      setNotice("Пробный прогресс работает только до закрытия этой вкладки: localStorage недоступен.");
+    }
+  }, []);
+
+  const loadGuestState = useCallback(() => {
+    let next = createGuestLibrary();
+    try {
+      const raw = window.localStorage.getItem(GUEST_LIBRARY_STORAGE_KEY);
+      if (raw) next = normalizeGuestLibrary(JSON.parse(raw));
+    } catch {
+      setNotice("Не удалось прочитать пробный прогресс; начинаем с чистого состояния.");
+    }
+    setMode("guest");
+    setViewer(null);
+    setGuestLibrary(next);
+    setPhrases(guestPhrases(next));
+    setLoading(false);
+  }, []);
+
   const loadPhrases = useCallback(async () => {
     const response = await fetch("/api/phrases", { cache: "no-store" });
     const data = await response.json() as PhrasesResponse;
@@ -113,31 +187,50 @@ export default function Home() {
     setPhrases(data.phrases);
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    void (async () => {
-      try {
-        const response = await fetch("/api/phrases", { cache: "no-store" });
-        const data = await response.json() as PhrasesResponse;
-        if (!response.ok) throw new Error(data.error || "Не удалось загрузить фразы.");
-        if (active) setPhrases(data.phrases);
-      } catch (reason) {
-        if (active) setError(reason instanceof Error ? reason.message : "Не удалось загрузить фразы.");
-      } finally {
-        if (active) setLoading(false);
-      }
-    })();
-    return () => { active = false; };
-  }, []);
+  const loadAccount = useCallback(async () => {
+    setMode("account");
+    setLoading(true);
+    try {
+      const response = await fetch("/api/me", { cache: "no-store", redirect: "manual" });
+      if (response.type === "opaqueredirect" || !response.ok) throw new Error("account session unavailable");
+      const data = await response.json() as { user?: Viewer };
+      if (!data.user || typeof data.user.id !== "string") throw new Error("account identity unavailable");
+      setViewer(data.user);
+      try { window.localStorage.setItem(AUTH_HINT_STORAGE_KEY, "1"); } catch { /* optional hint */ }
+
+      const phrasesResponse = await fetch("/api/phrases", { cache: "no-store" });
+      const phrasesData = await phrasesResponse.json() as PhrasesResponse;
+      if (!phrasesResponse.ok) throw new Error(phrasesData.error || "Не удалось загрузить фразы.");
+      setPhrases(phrasesData.phrases);
+      setLoading(false);
+    } catch {
+      try { window.localStorage.removeItem(AUTH_HINT_STORAGE_KEY); } catch { /* optional hint */ }
+      loadGuestState();
+    }
+  }, [loadGuestState]);
 
   useEffect(() => {
-    void (async () => {
-      const response = await fetch("/api/me", { cache: "no-store" });
-      if (!response.ok) return;
-      const data = await response.json() as { user?: Viewer };
-      if (data.user) setViewer(data.user);
-    })();
-  }, []);
+    const params = new URLSearchParams(window.location.search);
+    const signedIn = params.get("signedIn") === "1";
+    if (signedIn) window.history.replaceState(null, "", window.location.pathname);
+
+    let authHint = false;
+    try { authHint = window.localStorage.getItem(AUTH_HINT_STORAGE_KEY) === "1"; } catch { /* optional hint */ }
+    const timer = window.setTimeout(() => {
+      if (signedIn || authHint) void loadAccount();
+      else loadGuestState();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadAccount, loadGuestState]);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== GUEST_LIBRARY_STORAGE_KEY || mode !== "guest") return;
+      loadGuestState();
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [loadGuestState, mode]);
 
   const counts = useMemo(() => Object.fromEntries(
     tabs.map((tab) => [tab.id, phrases.filter((phrase) => phrase.status === tab.id).length])
@@ -153,6 +246,13 @@ export default function Home() {
   async function changeStatus(id: string, status: PhraseStatus) {
     setBusyId(id);
     setError("");
+    if (mode === "guest") {
+      persistGuestState(setGuestPhraseStatus(guestLibrary, id, status));
+      setActiveTab(status);
+      setNotice("Пробный прогресс сохранён только в этом браузере.");
+      setBusyId(null);
+      return;
+    }
     try {
       const response = await fetch("/api/phrases", {
         method: "PATCH",
@@ -173,6 +273,13 @@ export default function Home() {
     if (phrase.source_type === "custom" && !window.confirm(`Удалить «${phrase.text}»?`)) return;
     setBusyId(phrase.id);
     setError("");
+    if (mode === "guest") {
+      persistGuestState(removeGuestPhrase(guestLibrary, phrase.id));
+      setActiveTab("pick");
+      setNotice("Фраза убрана из пробной библиотеки.");
+      setBusyId(null);
+      return;
+    }
     try {
       const response = await fetch(`/api/phrases?id=${encodeURIComponent(phrase.id)}`, { method: "DELETE" });
       const data = await response.json() as PhraseMutationResponse;
@@ -192,6 +299,26 @@ export default function Home() {
     setBusyId("new");
     setError("");
     setNotice("");
+    if (mode === "guest") {
+      const existing = phrases.find((phrase) => phrase.text.toLocaleLowerCase("en") === text.toLocaleLowerCase("en"));
+      if (existing) {
+        const nextStatus = existing.status === "pick" ? "to_learn" : existing.status;
+        persistGuestState(setGuestPhraseStatus(guestLibrary, existing.id, nextStatus));
+        setCustomText("");
+        setActiveTab(nextStatus);
+        setNotice("Эта фраза уже была в пробной библиотеке.");
+      } else {
+        const result = addGuestPhrase(guestLibrary, { text });
+        if (result.phrase) {
+          persistGuestState(result.state);
+          setCustomText("");
+          setActiveTab("to_learn");
+          setNotice("Фраза добавлена в пробную библиотеку. Перевод доступен после входа через Google.");
+        }
+      }
+      setBusyId(null);
+      return;
+    }
     try {
       const response = await fetch("/api/phrases", {
         method: "POST",
@@ -217,6 +344,18 @@ export default function Home() {
     window.location.assign(`/trainer.html?${query.toString()}`);
   }
 
+  function resetGuest() {
+    if (!window.confirm("Очистить весь пробный прогресс в этом браузере?")) return;
+    persistGuestState(createGuestLibrary());
+    try { window.localStorage.removeItem(GUEST_TRAINER_STORAGE_KEY); } catch { /* optional storage */ }
+    setActiveTab("pick");
+    setNotice("Пробный прогресс очищен.");
+  }
+
+  function clearAccountHint() {
+    try { window.localStorage.removeItem(AUTH_HINT_STORAGE_KEY); } catch { /* optional storage */ }
+  }
+
   const current = tabs.find((tab) => tab.id === activeTab)!;
 
   return (
@@ -229,10 +368,19 @@ export default function Home() {
         <div className="header-tools">
           <a className="integrations-link" href="/integrations">Integrations</a>
           {viewer && <span className="header-account" title={viewer.email}>{viewer.name || viewer.email}</span>}
-          <a className="account-link" href="/cdn-cgi/access/logout">Выйти</a>
+          {mode === "guest" ? (
+            <>
+              <button className="account-link" onClick={resetGuest} type="button">Очистить пробу</button>
+              <a className="account-link" href="/login">Войти через Google</a>
+            </>
+          ) : (
+            <a className="account-link" href="/cdn-cgi/access/logout" onClick={clearAccountHint}>Выйти</a>
+          )}
           <div className="header-total"><strong>{phrases.length}</strong><span>фраз в библиотеке</span></div>
         </div>
       </header>
+
+      {mode === "guest" && <div className="notice" role="status">Пробный режим: прогресс хранится только в этом браузере. Войди через Google, чтобы сохранять его в аккаунте.</div>}
 
       <nav className="tabs" aria-label="Разделы изучения" role="tablist">
         {tabs.map((tab) => (

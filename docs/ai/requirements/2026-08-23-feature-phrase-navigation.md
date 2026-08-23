@@ -30,7 +30,8 @@ Verified baseline on 2026-08-23:
   `widget.previous()`, `widget.replay()`, and caption events; it does not
   document `previousCaption` or `nextCaption` methods.
 - Tatoeba has audio-track navigation, not timed caption navigation, and is out
-  of scope for this feature.
+  of scope for this feature. Its timed phrase-navigation group and phrase
+  repeat control are hidden when Tatoeba is selected.
 
 ## Goals & Objectives
 
@@ -63,8 +64,10 @@ Verified baseline on 2026-08-23:
   disabled until normal playback observes it.
 - As a learner, I can enable `Повтор фразы` and hear the current caption again
   when it is consumed; disabling it lets playback continue normally.
+- As a learner using Tatoeba, I see only whole-track navigation; timed phrase
+  controls are not shown because the source has no timed caption chunks.
 - As a learner, I see disabled controls and an honest explanation when the
-  provider does not supply a usable caption timestamp.
+  YouGlish provider does not supply a usable caption timestamp.
 - At the first/last reachable caption, the corresponding control is disabled or
   reports a bounded navigation failure without changing video tracks.
 - Switching source, query, saved example, or video resets caption history,

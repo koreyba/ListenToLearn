@@ -115,8 +115,10 @@ future consumed event is handled.
 ### UI state
 
 `repeatCaptionBtn` exposes `aria-pressed` and a label containing `вкл`/`выкл`.
-Previous/next/repeat controls are disabled while timing is unavailable or a
-navigation command is busy. Existing replay and video controls remain separate.
+For YouGlish, previous/next/repeat controls are disabled while timing is
+unavailable or a navigation command is busy. For Tatoeba, the timed caption
+navigation group and phrase-repeat control are hidden; existing replay and
+whole-track controls remain separate and available.
 
 ## Design Decisions
 
@@ -141,8 +143,9 @@ independent player.
 
 - Reliability: one in-flight movement, cached target identity, reset handling,
   and fail-closed movement errors.
-- Accessibility: native buttons, disabled states, `aria-pressed`, status text,
-  and no keyboard-only path hidden inside the iframe.
+- Accessibility: native buttons, source-appropriate hidden/disabled states,
+  `aria-pressed`, status text, and no keyboard-only path hidden inside the
+  iframe.
 - Performance: no polling while idle; cached navigation performs one relative
   movement and one local state update.
 - Security: no new secrets, network routes, cross-origin DOM access, or storage

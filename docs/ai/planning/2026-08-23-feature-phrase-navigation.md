@@ -47,8 +47,9 @@ description: Break down work into actionable tasks and estimate timeline
 ### Phase 3: Integration & Polish
 
 - [x] T3.1 Reset timeline, pending operations, and repeat on query/source/video/
-  saved-example changes; keep Tatoeba audio/video behavior unchanged. Validate
-  integration contracts and existing tests.
+  saved-example changes; keep Tatoeba whole-track behavior unchanged and hide
+  its timed caption controls. Validate integration contracts and existing
+  tests.
 - [x] T3.2 Update implementation/testing/deployment/monitoring docs with actual
   behavior, provider drift fallback, and live smoke limitations. Validate
   feature-lint and diff check.

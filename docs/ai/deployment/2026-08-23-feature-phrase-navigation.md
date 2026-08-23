@@ -21,11 +21,10 @@ repeat on/off, provider fallback, and the existing video controls.
 
 ## Deployment Status
 
-The implementation is local in `feature-phrase-navigation`. No push, PR, deploy,
-migration, or production state change was performed. The neighboring
-Google-auth task is confirmed merged into `origin/main` at `3b607bf`; the
-feature branch still requires synchronization and post-merge gates before the
-conditional push.
+The neighboring Google-auth task was confirmed merged into `origin/main` at
+`3b607bf`. After synchronization and post-merge gates, the feature branch was
+pushed as `origin/feature-phrase-navigation` at `9fb6f7c`. No PR, deploy,
+migration, or production state change was performed.
 
 ## Rollback
 

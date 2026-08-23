@@ -49,7 +49,7 @@ description: Clarify the problem space, gather requirements, and define success 
 
 ## Success Criteria
 
-- В чистом браузере `GET /` и `GET /trainer.html` отдают приложение без Cloudflare Access redirect.
+- В чистом браузере `GET /`, `GET /trainer.html` и production route `GET /trainer` отдают приложение без Cloudflare Access redirect.
 - Публичные Tatoeba endpoints работают без identity и не выполняют D1-записей.
 - `/integrations`, `/login`, `/api/me`, `/api/phrases`, `/api/examples`, `/api/translate` и `/api/integrations` остаются защищёнными.
 - В guest mode изменение статусов, добавление фраз и сохранение/удаление примеров изменяют только guest `localStorage`.

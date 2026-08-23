@@ -115,8 +115,11 @@ export async function POST(request: Request) {
       "SELECT status FROM phrases WHERE id = ?",
     ).bind(phraseId).first<{ status: string }>();
     if (!phrase) return Response.json({ error: "Фраза не найдена." }, { status: 404 });
+    const phraseStatus = phrase.status === "pick" ? "to_learn" : phrase.status;
     if (phrase.status === "pick") {
-      return Response.json({ error: "Сначала добавьте фразу в To Learn." }, { status: 409 });
+      await db.prepare(
+        "UPDATE phrases SET status = 'to_learn', updated_at = ? WHERE id = ?",
+      ).bind(new Date().toISOString(), phraseId).run();
     }
 
     const existing = await db.prepare(`
@@ -128,7 +131,7 @@ export async function POST(request: Request) {
       await db.prepare(`
         UPDATE phrase_examples SET query = ?, caption = ?, accent = ?, metadata = ? WHERE id = ?
       `).bind(query, caption, accent, JSON.stringify(metadata), existing.id).run();
-      return Response.json({ id: existing.id, created: false });
+      return Response.json({ id: existing.id, created: false, phraseStatus });
     }
 
     const id = `example-${crypto.randomUUID()}`;
@@ -147,7 +150,7 @@ export async function POST(request: Request) {
       JSON.stringify(metadata),
       new Date().toISOString(),
     ).run();
-    return Response.json({ id, created: true }, { status: 201 });
+    return Response.json({ id, created: true, phraseStatus }, { status: 201 });
   } catch (error) {
     console.error("Examples POST failed:", error);
     return Response.json({ error: "Не удалось сохранить пример." }, { status: 500 });

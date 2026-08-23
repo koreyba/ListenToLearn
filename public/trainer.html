@@ -1320,7 +1320,7 @@
       });
 
       const saved = currentSavedExample();
-      const learningPhrase = Boolean(VIEWER_PHRASE_ID && VIEWER_PHRASE_STATUS && VIEWER_PHRASE_STATUS !== "pick");
+      const learningPhrase = Boolean(VIEWER_PHRASE_ID && VIEWER_PHRASE_STATUS);
       const itemLabel = state.source === "tatoeba" ? "дорожку" : "видео";
       el.saveExampleBtn.classList.toggle("saved", Boolean(saved));
       el.saveExampleBtn.textContent = saved ? "★ Сохранено" : `☆ Сохранить ${itemLabel}`;
@@ -1333,7 +1333,7 @@
 
     async function loadSavedExamples() {
       const requestId = ++examplesRequest;
-      if (!VIEWER_PHRASE_ID || VIEWER_PHRASE_STATUS === "pick") {
+      if (!VIEWER_PHRASE_ID) {
         savedExamples = [];
         exampleMode = "all";
         renderExampleTools();
@@ -1854,16 +1854,17 @@
       const externalId = state.source === "youglish"
         ? currentYouglishVideoId
         : String(tatoebaTrack?.audioId || "");
-      if (!VIEWER_PHRASE_ID || VIEWER_PHRASE_STATUS === "pick" || !externalId) return;
+      if (!VIEWER_PHRASE_ID || !externalId) return;
       const existing = currentSavedExample();
+      const shouldPromote = !existing && VIEWER_PHRASE_STATUS === "pick";
       const wasSavedMode = exampleMode === "saved";
       const itemLabel = state.source === "tatoeba" ? "дорожку" : "видео";
       const savedMessage = state.source === "tatoeba"
-        ? (existing ? "Дорожка удалена из сохранённых." : "Дорожка сохранена для этой фразы.")
-        : (existing ? "Видео удалено из сохранённых." : "Видео сохранено для этой фразы.");
+        ? (existing ? "Дорожка удалена из сохранённых." : shouldPromote ? "Дорожка сохранена; фраза добавлена в To Learn." : "Дорожка сохранена для этой фразы.")
+        : (existing ? "Видео удалено из сохранённых." : shouldPromote ? "Видео сохранено; фраза добавлена в To Learn." : "Видео сохранено для этой фразы.");
       el.saveExampleBtn.disabled = true;
       el.saveExampleBtn.setAttribute("aria-busy", "true");
-      showExampleMessage(existing ? `Убираю ${itemLabel} из сохранённых…` : `Сохраняю ${itemLabel}…`);
+      showExampleMessage(existing ? `Убираю ${itemLabel} из сохранённых…` : shouldPromote ? `Добавляю фразу в To Learn и сохраняю ${itemLabel}…` : `Сохраняю ${itemLabel}…`);
 
       try {
         const response = existing
@@ -1888,6 +1889,7 @@
             });
         const data = await response.json().catch(() => null);
         if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
+        if (shouldPromote) VIEWER_PHRASE_STATUS = "to_learn";
         await loadSavedExamples();
         showExampleMessage(savedMessage);
         if (existing && wasSavedMode) {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import vm from "node:vm";
 
 test("build includes development preview metadata", async () => {
   const bundle = await readFile(
@@ -158,17 +159,94 @@ test("MVP UX keeps example settings global and separates caption/video navigatio
 
   assert.match(trainer, /id="prevCaptionBtn"/);
   assert.match(trainer, /id="nextCaptionBtn"/);
+  assert.match(trainer, /<script src="\/caption-navigation\.js"><\/script>/);
   assert.match(trainer, /id="prevVideoBtn"/);
   assert.match(trainer, /id="nextVideoBtn"/);
   assert.match(trainer, /data-example-order="random"/);
   assert.match(trainer, /data-example-order="ordered"/);
   assert.match(trainer, /exampleOrder/);
   assert.match(trainer, /captionHistory/);
-  assert.match(trainer, /previousCaption/);
+  assert.match(trainer, /current_time/);
+  assert.match(trainer, /onCaptionConsumed/);
+  assert.match(trainer, /repeatCaptionBtn/);
+  assert.doesNotMatch(trainer, /captionNavigationMethod/);
   assert.doesNotMatch(trainer, /move\(-5\)/);
   assert.match(trainer, /class="learning-workspace"/);
   assert.match(trainer, /class="media-panel"/);
   assert.match(trainer, /id="translationAddBtn"/);
+});
+
+test("phrase controls use timing-aware caption events and expose repeat state", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(trainer, /id="repeatCaptionBtn"/);
+  assert.match(trainer, /aria-pressed/);
+  assert.match(trainer, /onCaptionConsumed/);
+  assert.match(trainer, /onPlayerStateChange/);
+  assert.match(trainer, /event\.current_time/);
+  assert.match(trainer, /lastKnownTime/);
+  assert.match(trainer, /captionNavigationBusy/);
+  assert.match(trainer, /CAPTION_SEEK_STEP_SECONDS/);
+  assert.doesNotMatch(trainer, /captionNavigationMethod/);
+  assert.doesNotMatch(trainer, /move\(-5\)/);
+});
+
+test("caption timeline keeps opaque IDs ordered by timing and computes relative seeks", async () => {
+  const source = await readFile(
+    new URL("../public/caption-navigation.js", import.meta.url),
+    "utf8",
+  );
+  const sandbox = { window: {} };
+  vm.runInNewContext(source, sandbox);
+  const navigation = sandbox.window.ListenToLearnCaptionNavigation;
+  assert.ok(navigation);
+
+  const first = navigation.upsert([], {
+    videoId: "video-1",
+    id: "opaque-b",
+    raw: "second",
+    text: "second",
+    startTime: 12,
+  }, 0, 10);
+  const second = navigation.upsert(first.history, {
+    videoId: "video-1",
+    id: "opaque-a",
+    raw: "first",
+    text: "first",
+    startTime: 10,
+  }, first.nextSequence, 20);
+  const duplicate = navigation.upsert(second.history, {
+    videoId: "video-1",
+    id: "opaque-b",
+    raw: "second updated",
+    text: "second updated",
+    startTime: 12,
+  }, second.nextSequence, 30);
+
+  assert.deepEqual(duplicate.history.map(item => item.id), ["opaque-a", "opaque-b"]);
+  assert.equal(duplicate.history.length, 2);
+  assert.equal(duplicate.history[duplicate.index].text, "second updated");
+  assert.equal(navigation.adjacent(duplicate.history, duplicate.index, -1, "video-1").id, "opaque-a");
+  assert.equal(navigation.adjacent(duplicate.history, duplicate.index, 1, "video-1"), null);
+  assert.equal(navigation.relativeSeekDelta(12, 13.5), 1.5);
+  const moved = navigation.upsert(duplicate.history, {
+    videoId: "video-1",
+    id: "opaque-a",
+    raw: "first moved",
+    text: "first moved",
+    startTime: 14,
+  }, duplicate.nextSequence, 40);
+  assert.deepEqual(moved.history.map(item => item.id), ["opaque-b", "opaque-a"]);
+  assert.equal(moved.index, 1);
+  assert.equal(navigation.adjacent(moved.history, moved.index, -1, "video-1").id, "opaque-b");
+  assert.equal(navigation.adjacent(moved.history, moved.index, -1, "video-2"), null);
+  assert.equal(navigation.finiteTime("not-a-time"), null);
+  assert.equal(navigation.repeatSeekDelta(10, 12, 13), -3);
+  assert.equal(navigation.repeatSeekDelta(10, 12, null), -2);
+  assert.equal(navigation.repeatSeekDelta(10, null, 10.2), -0.5);
 });
 
 test("integrations keep provider keys server-side and expose only status", async () => {

@@ -14,6 +14,8 @@ export class DeepLError extends Error {
   }
 }
 
+const DEEPL_TIMEOUT_MS = 8_000;
+
 export function cleanTranslationText(value: unknown) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
 }
@@ -34,19 +36,32 @@ export async function translateEnglishToRussian(
     ? "https://api-free.deepl.com/v2/translate"
     : "https://api.deepl.com/v2/translate";
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `DeepL-Auth-Key ${DEEPL_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      text: cleaned,
-      source_lang: "EN",
-      target_lang: "RU",
-      ...(cleanTranslationText(context) ? { context: cleanTranslationText(context) } : {}),
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEEPL_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `DeepL-Auth-Key ${DEEPL_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text: cleaned,
+        source_lang: "EN",
+        target_lang: "RU",
+        ...(cleanTranslationText(context) ? { context: cleanTranslationText(context) } : {}),
+      }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    const message = error instanceof DOMException && error.name === "AbortError"
+      ? "DeepL не ответил вовремя."
+      : "DeepL временно недоступен.";
+    throw new DeepLError(message, "upstream");
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const data = (await response.json().catch(() => null)) as TranslationResponse | null;
   if (!response.ok) {

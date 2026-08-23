@@ -94,6 +94,8 @@ test("DeepL credentials stay in the shared server helper", async () => {
   assert.match(helper, /env as unknown as \{ DEEPL_API_KEY\?: string \}/);
   assert.match(helper, /Authorization: `DeepL-Auth-Key \$\{DEEPL_API_KEY\}`/);
   assert.match(helper, /target_lang: "RU"/);
+  assert.match(helper, /AbortController/);
+  assert.match(helper, /DEEPL_TIMEOUT_MS/);
 });
 
 test("learning phrases persist and render their translation", async () => {

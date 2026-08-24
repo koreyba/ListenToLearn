@@ -30,6 +30,9 @@ deterministic VM and covers finite-time rejection, opaque-ID idempotent upsert,
 timestamp ordering, adjacent lookup, relative seek deltas, and repeat delta
 fallbacks.
 
+`tests/deployment-config.test.mjs` verifies that preview has an explicit Worker
+name and preview D1 binding, and that production deployment is opt-in.
+
 Controller scenarios to cover with a fake widget/event harness:
 
 - [ ] A valid caption event is stored once; duplicate IDs refresh observation
@@ -93,6 +96,7 @@ Run the repository-native checks:
 - `npm run lint`
 - `git diff --check`
 - `npx ai-devkit@latest lint --feature phrase-navigation`
+- `node --test tests/deployment-config.test.mjs`
 
 Record live smoke limitations explicitly because the timing field is not part
 of the documented public contract.

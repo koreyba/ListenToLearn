@@ -10,21 +10,40 @@ description: Define deployment process, infrastructure, and release procedures
 
 The existing Cloudflare Worker, static assets, and D1 deployment remain
 unchanged. The feature adds one static browser helper and changes the existing
-trainer page; it adds no binding, route, migration, or secret.
+trainer page; it adds no binding, route, migration, or secret. Deployment
+target selection is now explicit because the Vinext-generated
+`dist/server/wrangler.json` does not carry the source `env.preview` details.
 
 ## Release Gates
 
 Before publication, run `npm test`, `npx tsc --noEmit`, `npm run lint`,
-`git diff --check`, and `npx ai-devkit@latest lint --feature phrase-navigation`.
-Manual smoke must cover YouGlish timing events, cached and unobserved neighbors,
-repeat on/off, provider fallback, and the existing video controls.
+`git diff --check`, `node --test tests/deployment-config.test.mjs`, and
+`npx ai-devkit@latest lint --feature phrase-navigation`. Manual smoke must
+cover YouGlish timing events, cached and unobserved neighbors, repeat on/off,
+provider fallback, and the existing video controls.
+
+## Deployment Target Safety
+
+Do not deploy the Vinext-generated config directly with `--env preview`: it can
+fall back to the production Worker when the generated file has no environment
+definition. Build first, then use the committed target wrapper:
+
+```sh
+npm run deploy:preview
+ALLOW_PRODUCTION_DEPLOY=1 npm run deploy:production
+```
+
+The wrapper pins `wrangler.preview.jsonc` or `wrangler.production.jsonc`, checks
+the expected Worker name and build artifacts, rejects target overrides, and
+blocks production unless `ALLOW_PRODUCTION_DEPLOY=1` is present. Verify the
+reported Worker name and version after every deployment.
 
 ## Deployment Status
 
-The neighboring Google-auth task was confirmed merged into `origin/main` at
-`3b607bf`. After synchronization and post-merge gates, the feature branch was
-first pushed at `9fb6f7c` and its final remote HEAD is `333b696`. No PR, deploy,
-migration, or production state change was performed.
+The phrase-navigation PR is the release vehicle for the first-caption fix and
+the deployment-target guard. Merge only after the branch gates pass; deploy
+production from the merged `main` checkout with the explicit production
+command above.
 
 ## Rollback
 

@@ -24,6 +24,10 @@ description: Technical implementation notes, patterns, and code guidelines
   and repeat/relative seek delta calculations.
 - `public/trainer.html`: existing trainer controller, YouGlish event wiring,
   controls, asynchronous navigation state, and provider fallback UI.
+- `wrangler.preview.jsonc` and `wrangler.production.jsonc`: explicit built
+  artifact deployment targets with separate Worker/D1 bindings.
+- `scripts/deploy-worker.mjs`: target-checked deploy entry point; production is
+  opt-in through `ALLOW_PRODUCTION_DEPLOY=1`.
 - `tests/rendered-html.test.mjs`: rendered-source contracts, inline-script
   syntax validation, and deterministic helper tests.
 
@@ -71,6 +75,15 @@ description: Technical implementation notes, patterns, and code guidelines
   overlapping navigation disables repeat and leaves a visible status message.
 - Repeat never schedules an unbounded timer and never changes the YouGlish video
   track.
+
+### Deployment target isolation
+
+- `wrangler.jsonc` names the `preview` environment explicitly, but deployment
+  uses dedicated configs because the Vinext-generated config omits the source
+  environment details.
+- `deploy-worker.mjs` refuses unknown targets and `--config`/`--env`/`--name`
+  overrides, verifies the selected Worker name and required build artifacts,
+  and blocks production without an explicit opt-in variable.
 
 ## Integration Points
 

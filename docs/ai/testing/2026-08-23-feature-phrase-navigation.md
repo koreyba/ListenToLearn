@@ -111,6 +111,14 @@ Fresh evidence on 2026-08-23:
   `worker-configuration.d.ts`, with 0 errors.
 - `git diff --check`: passed.
 - `npx ai-devkit@latest lint --feature phrase-navigation`: passed.
+- `node --test tests/deployment-config.test.mjs`: 2 passed, 0 failed.
+- `npm run deploy:preview -- --dry-run`: passed with only the preview D1
+  binding; `ALLOW_PRODUCTION_DEPLOY=1 npm run deploy:production -- --dry-run`:
+  passed with only the production D1 binding.
+- Workers Build `12b9af05-cb6e-4a26-8897-726ee9d597f9`: passed after switching
+  the preview trigger from `versions upload` to the guarded full deploy;
+  active preview version `bee7f499-afc5-48fc-b30a-171c0dbe8ea3` was read back,
+  and the deployed trainer contains `navigationMode` and `widget.replay`.
 - Regression gate: removing the cached-neighbor helper produced 1 failing test;
   restoring it returned the suite to 13 passed.
 - `npm test`: blocked before build by the repository wrapper's GNU `timeout`

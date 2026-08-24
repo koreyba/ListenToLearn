@@ -38,6 +38,23 @@ the expected Worker name and build artifacts, rejects target overrides, and
 blocks production unless `ALLOW_PRODUCTION_DEPLOY=1` is present. Verify the
 reported Worker name and version after every deployment.
 
+Workers Builds uses the same guarded path. The preview trigger's deploy command
+is:
+
+```sh
+npx wrangler d1 migrations apply listen-to-learn-preview-db --remote --config wrangler.preview.jsonc && npm run deploy:preview
+```
+
+The production trigger's deploy command is:
+
+```sh
+npx wrangler d1 migrations apply listen-to-learn-db --remote --config wrangler.production.jsonc && ALLOW_PRODUCTION_DEPLOY=1 npm run deploy:production
+```
+
+`wrangler versions upload` alone is not a deploy: it creates a version without
+moving traffic. The Workers Builds triggers must keep the full deploy commands
+above.
+
 ## Deployment Status
 
 The phrase-navigation PR is the release vehicle for the first-caption fix and

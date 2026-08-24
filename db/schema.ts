@@ -1,4 +1,5 @@
-import { integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -21,7 +22,11 @@ export const phrases = sqliteTable("phrases", {
   status: text("status").notNull().default("pick"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
-});
+}, (table) => [
+  index("idx_phrases_source_catalog").on(table.sourceType, table.catalogOrder),
+  index("idx_phrases_owner_updated").on(table.ownerId, table.updatedAt),
+  index("idx_phrases_text_nocase").on(sql`${table.text} COLLATE NOCASE`),
+]);
 
 export const phraseProgress = sqliteTable("phrase_progress", {
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -31,6 +36,7 @@ export const phraseProgress = sqliteTable("phrase_progress", {
   updatedAt: text("updated_at").notNull(),
 }, (table) => [
   primaryKey({ columns: [table.userId, table.phraseId] }),
+  index("idx_phrase_progress_phrase_user").on(table.phraseId, table.userId),
 ]);
 
 export const phraseExamples = sqliteTable("phrase_examples", {
@@ -47,6 +53,8 @@ export const phraseExamples = sqliteTable("phrase_examples", {
 }, (table) => [
   uniqueIndex("idx_phrase_examples_phrase_provider_external")
     .on(table.userId, table.phraseId, table.provider, table.externalId),
+  index("idx_phrase_examples_user_phrase_created")
+    .on(table.userId, table.phraseId, table.createdAt),
 ]);
 
 export const integrationSecrets = sqliteTable("integration_secrets", {

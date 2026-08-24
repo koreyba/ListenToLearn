@@ -8,10 +8,18 @@ export async function GET(request: Request) {
     }
 
     const range = request.headers.get("range");
-    const response = await fetch(`https://api.tatoeba.org/v1/audios/${id}/file`, {
-      headers: range ? { Range: range } : undefined,
-      redirect: "follow",
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    let response: Response;
+    try {
+      response = await fetch(`https://api.tatoeba.org/v1/audios/${id}/file`, {
+        headers: range ? { Range: range } : undefined,
+        redirect: "follow",
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
     if (!response.ok || !response.body) {
       console.error("Tatoeba audio failed:", response.status, id);
       return Response.json({ error: "Tatoeba audio is unavailable." }, { status: 502 });

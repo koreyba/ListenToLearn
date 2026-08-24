@@ -1,0 +1,1 @@
+CREATE INDEX `idx_phrases_text_nocase` ON `phrases` ("text" COLLATE NOCASE);

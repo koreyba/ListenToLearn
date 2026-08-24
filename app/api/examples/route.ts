@@ -15,6 +15,27 @@ type ExampleRow = {
   created_at: string;
 };
 
+type ExampleProvider = ExampleRow["provider"];
+
+type VisibleExampleRow = {
+  id: string | null;
+  phrase_id: string | null;
+  provider: ExampleProvider | null;
+  external_id: string | null;
+  query: string | null;
+  caption: string | null;
+  accent: string | null;
+  metadata: string | null;
+  created_at: string | null;
+};
+
+type PhraseExampleIdentityRow = {
+  phrase_id: string;
+  status: string;
+  existing_id: string | null;
+  existing_created_at: string | null;
+};
+
 type ExampleMetadata = {
   sentenceId?: string;
   author?: string;
@@ -24,25 +45,6 @@ type ExampleMetadata = {
 
 function cleanText(value: unknown, limit = 500) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, limit) : "";
-}
-
-async function ensureExamples() {
-  await getD1().prepare(`
-    CREATE TABLE IF NOT EXISTS phrase_examples (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL,
-      phrase_id TEXT NOT NULL,
-      provider TEXT NOT NULL,
-      external_id TEXT NOT NULL,
-      query TEXT NOT NULL,
-      caption TEXT NOT NULL DEFAULT '',
-      accent TEXT NOT NULL DEFAULT '',
-      metadata TEXT NOT NULL DEFAULT '{}',
-      created_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (phrase_id) REFERENCES phrases(id) ON DELETE CASCADE
-    )
-  `).run();
 }
 
 function cleanMetadata(value: unknown): ExampleMetadata {
@@ -64,14 +66,38 @@ function parseMetadata(value: string): ExampleMetadata {
   }
 }
 
-async function visiblePhrase(userId: string, phraseId: string) {
-  return getD1().prepare(`
-    SELECT p.id, COALESCE(progress.status, 'pick') AS status
-    FROM phrases AS p
-    LEFT JOIN phrase_progress AS progress
-      ON progress.phrase_id = p.id AND progress.user_id = ?
-    WHERE p.id = ? AND (p.source_type = 'preset' OR p.owner_id = ?)
-  `).bind(userId, phraseId, userId).first<{ id: string; status: string }>();
+function validProvider(value: string): value is ExampleProvider {
+  return value === "youglish" || value === "tatoeba";
+}
+
+function publicExample(row: {
+  id: string;
+  phrase_id: string;
+  provider: ExampleProvider;
+  external_id: string;
+  query: string;
+  caption: string;
+  accent: string;
+  metadata: string;
+  created_at: string;
+}) {
+  return { ...row, metadata: parseMetadata(row.metadata) };
+}
+
+function visibleExamples(rows: VisibleExampleRow[]) {
+  return rows.flatMap((row) => row.id && row.phrase_id && row.provider && row.external_id && row.query && row.metadata !== null && row.created_at
+    ? [publicExample({
+        id: row.id,
+        phrase_id: row.phrase_id,
+        provider: row.provider,
+        external_id: row.external_id,
+        query: row.query,
+        caption: row.caption || "",
+        accent: row.accent || "",
+        metadata: row.metadata,
+        created_at: row.created_at,
+      })]
+    : []);
 }
 
 export async function GET(request: Request) {
@@ -79,21 +105,32 @@ export async function GET(request: Request) {
   if (!user) return unauthorizedResponse();
 
   try {
-    await ensureExamples();
     const phraseId = cleanText(new URL(request.url).searchParams.get("phraseId"), 120);
     if (!phraseId) return Response.json({ error: "Phrase is required." }, { status: 400 });
-    if (!await visiblePhrase(user.subject, phraseId)) {
+
+    const result = await getD1().prepare(`
+      SELECT
+        examples.id,
+        examples.phrase_id,
+        examples.provider,
+        examples.external_id,
+        examples.query,
+        examples.caption,
+        examples.accent,
+        examples.metadata,
+        examples.created_at
+      FROM phrases AS p
+      LEFT JOIN phrase_examples AS examples
+        ON examples.user_id = ? AND examples.phrase_id = p.id
+      WHERE p.id = ? AND (p.source_type = 'preset' OR p.owner_id = ?)
+      ORDER BY examples.created_at DESC
+    `).bind(user.subject, phraseId, user.subject).all<VisibleExampleRow>();
+    if (!result.results.length) {
       return Response.json({ error: "Phrase not found." }, { status: 404 });
     }
 
-    const result = await getD1().prepare(`
-      SELECT id, phrase_id, provider, external_id, query, caption, accent, metadata, created_at
-      FROM phrase_examples
-      WHERE user_id = ? AND phrase_id = ?
-      ORDER BY created_at DESC
-    `).bind(user.subject, phraseId).all<ExampleRow>();
     return Response.json({
-      examples: result.results.map((row) => ({ ...row, metadata: parseMetadata(row.metadata) })),
+      examples: visibleExamples(result.results),
     });
   } catch (error) {
     console.error("Examples GET failed:", error);
@@ -106,7 +143,6 @@ export async function POST(request: Request) {
   if (!user) return unauthorizedResponse();
 
   try {
-    await ensureExamples();
     const payload = (await request.json()) as Record<string, unknown>;
     const phraseId = cleanText(payload.phraseId, 120);
     const provider = cleanText(payload.provider, 20);
@@ -118,12 +154,28 @@ export async function POST(request: Request) {
     const validExternalId = provider === "youglish"
       ? /^[A-Za-z0-9_-]{6,20}$/.test(externalId)
       : provider === "tatoeba" && /^\d+$/.test(externalId);
-    if (!phraseId || !query || !validExternalId) {
+    if (!phraseId || !query || !validProvider(provider) || !validExternalId) {
       return Response.json({ error: "Could not determine the current example." }, { status: 400 });
     }
 
     const db = getD1();
-    const phrase = await visiblePhrase(user.subject, phraseId);
+    const phrase = await db.prepare(`
+      SELECT
+        p.id AS phrase_id,
+        COALESCE(progress.status, 'pick') AS status,
+        existing.id AS existing_id,
+        existing.created_at AS existing_created_at
+      FROM phrases AS p
+      LEFT JOIN phrase_progress AS progress
+        ON progress.phrase_id = p.id AND progress.user_id = ?
+      LEFT JOIN phrase_examples AS existing
+        ON existing.user_id = ?
+          AND existing.phrase_id = p.id
+          AND existing.provider = ?
+          AND existing.external_id = ?
+      WHERE p.id = ? AND (p.source_type = 'preset' OR p.owner_id = ?)
+    `).bind(user.subject, user.subject, provider, externalId, phraseId, user.subject)
+      .first<PhraseExampleIdentityRow>();
     if (!phrase) return Response.json({ error: "Phrase not found." }, { status: 404 });
     const phraseStatus = phrase.status === "pick" ? "to_learn" : phrase.status;
     const now = new Date().toISOString();
@@ -136,17 +188,27 @@ export async function POST(request: Request) {
       `).bind(user.subject, phraseId, now, now));
     }
 
-    const existing = await db.prepare(`
-      SELECT id FROM phrase_examples
-      WHERE user_id = ? AND phrase_id = ? AND provider = ? AND external_id = ?
-    `).bind(user.subject, phraseId, provider, externalId).first<{ id: string }>();
-
-    if (existing) {
+    if (phrase.existing_id) {
       statements.push(db.prepare(`
         UPDATE phrase_examples SET query = ?, caption = ?, accent = ?, metadata = ? WHERE id = ? AND user_id = ?
-      `).bind(query, caption, accent, JSON.stringify(metadata), existing.id, user.subject));
+      `).bind(query, caption, accent, JSON.stringify(metadata), phrase.existing_id, user.subject));
       if (statements.length) await db.batch(statements);
-      return Response.json({ id: existing.id, created: false, phraseStatus });
+      return Response.json({
+        id: phrase.existing_id,
+        created: false,
+        phraseStatus,
+        example: publicExample({
+          id: phrase.existing_id,
+          phrase_id: phraseId,
+          provider,
+          external_id: externalId,
+          query,
+          caption,
+          accent,
+          metadata: JSON.stringify(metadata),
+          created_at: phrase.existing_created_at || now,
+        }),
+      });
     }
 
     const id = "example-" + crypto.randomUUID();
@@ -167,7 +229,22 @@ export async function POST(request: Request) {
       now,
     ));
     await db.batch(statements);
-    return Response.json({ id, created: true, phraseStatus }, { status: 201 });
+    return Response.json({
+      id,
+      created: true,
+      phraseStatus,
+      example: publicExample({
+        id,
+        phrase_id: phraseId,
+        provider,
+        external_id: externalId,
+        query,
+        caption,
+        accent,
+        metadata: JSON.stringify(metadata),
+        created_at: now,
+      }),
+    }, { status: 201 });
   } catch (error) {
     console.error("Examples POST failed:", error);
     return Response.json({ error: "Could not save the example." }, { status: 500 });
@@ -179,7 +256,6 @@ export async function DELETE(request: Request) {
   if (!user) return unauthorizedResponse();
 
   try {
-    await ensureExamples();
     const id = cleanText(new URL(request.url).searchParams.get("id"), 120);
     if (!id) return Response.json({ error: "Example is required." }, { status: 400 });
     const result = await getD1()

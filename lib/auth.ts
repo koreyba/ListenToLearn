@@ -8,6 +8,10 @@ import {
 export const LEGACY_OWNER_EMAIL = "koreybadenis@gmail.com";
 export const LEGACY_OWNER_ID = "legacy:" + LEGACY_OWNER_EMAIL;
 
+const USER_CACHE_TTL_MS = 5 * 60 * 1_000;
+const MAX_CACHED_USERS = 128;
+const ensuredUsers = new Map<string, { expiresAt: number; promise: Promise<void> }>();
+
 export function getAuthenticatedUser(request: Request) {
   return decodeUserContext(request.headers.get(AUTHENTICATED_USER_HEADER));
 }
@@ -28,8 +32,33 @@ export function unauthorizedResponse() {
 export async function getCurrentUser(request: Request) {
   const user = getAuthenticatedUser(request);
   if (!user) return null;
-  await ensureUser(user);
+  await ensureUserOnce(user);
   return user;
+}
+
+async function ensureUserOnce(user: AuthenticatedUser) {
+  const now = Date.now();
+  const cached = ensuredUsers.get(user.subject);
+  if (cached && cached.expiresAt > now) {
+    await cached.promise;
+    return;
+  }
+
+  const promise = ensureUser(user);
+  ensuredUsers.set(user.subject, { expiresAt: now + USER_CACHE_TTL_MS, promise });
+  if (ensuredUsers.size > MAX_CACHED_USERS) {
+    const oldest = ensuredUsers.keys().next().value;
+    if (oldest) ensuredUsers.delete(oldest);
+  }
+
+  try {
+    await promise;
+  } catch (error) {
+    if (ensuredUsers.get(user.subject)?.promise === promise) ensuredUsers.delete(user.subject);
+    throw error;
+  }
+
+  ensuredUsers.set(user.subject, { expiresAt: Date.now() + USER_CACHE_TTL_MS, promise: Promise.resolve() });
 }
 
 export async function ensureUser(user: AuthenticatedUser) {
@@ -42,9 +71,15 @@ export async function ensureUser(user: AuthenticatedUser) {
       email = excluded.email,
       display_name = excluded.display_name,
       updated_at = excluded.updated_at
+    WHERE users.email <> excluded.email OR users.display_name <> excluded.display_name
   `).bind(user.subject, user.email, user.name, now, now).run();
 
   if (user.email !== LEGACY_OWNER_EMAIL || user.subject === LEGACY_OWNER_ID) return;
+
+  const legacyOwner = await db.prepare("SELECT id FROM users WHERE id = ?")
+    .bind(LEGACY_OWNER_ID)
+    .first<{ id: string }>();
+  if (!legacyOwner) return;
 
   await db.batch([
     db.prepare(`

@@ -22,6 +22,8 @@ test("trainer exposes word and selected-phrase actions", async () => {
   assert.match(trainer, /id="listenSelectionBtn"/);
   assert.match(trainer, /id="addSelectionBtn"/);
   assert.match(trainer, /fetch\("\/api\/translate"/);
+  assert.match(trainer, /const translationCache = new Map\(\)/);
+  assert.match(trainer, /translationAbortController/);
   assert.doesNotMatch(trainer, /state\.translationCache/);
   assert.doesNotMatch(trainer, /Google Cloud Translation API key/);
 });
@@ -45,7 +47,11 @@ test("trainer can switch between Tatoeba and YouGlish", async () => {
   assert.match(trainer, /data-source="youglish"/);
   assert.match(trainer, /id="tatoebaAudio"/);
   assert.match(trainer, /fetch\(`\/api\/tatoeba\?q=/);
+  assert.match(trainer, /script\.src = "\/caption-navigation\.js"/);
+  assert.doesNotMatch(trainer, /<script src="\/caption-navigation\.js"><\/script>/);
+  assert.match(trainer, /signal: controller\.signal/);
   assert.match(tatoebaRoute, /https:\/\/api\.tatoeba\.org\/v1\/sentences/);
+  assert.match(tatoebaRoute, /cacheTtl: 300/);
   assert.match(audioRoute, /https:\/\/api\.tatoeba\.org\/v1\/audios\/\$\{id\}\/file/);
 });
 
@@ -75,7 +81,9 @@ test("YouGlish videos and Tatoeba tracks can be randomized and saved per phrase"
   assert.match(trainer, /audioId: Number\(example\.external_id\)/);
   assert.match(trainer, /tatoebaTracks = orderProviderItems/);
   assert.match(trainer, /exampleOrder === "random"/);
-  assert.match(examplesRoute, /CREATE TABLE IF NOT EXISTS phrase_examples/);
+  assert.doesNotMatch(examplesRoute, /CREATE TABLE IF NOT EXISTS phrase_examples/);
+  assert.match(examplesRoute, /LEFT JOIN phrase_examples/);
+  assert.match(examplesRoute, /example: publicExample/);
   assert.match(examplesRoute, /provider === "tatoeba"/);
   assert.match(examplesRoute, /metadata: parseMetadata/);
   assert.match(schema, /export const phraseExamples/);
@@ -111,7 +119,7 @@ test("learning phrases persist and render their translation", async () => {
     new URL("../app/page.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(route, /translation TEXT NOT NULL DEFAULT ''/);
+  assert.match(route, /translation = CASE WHEN translation = '' THEN/);
   assert.match(route, /translateEnglishToRussian/);
   assert.match(route, /optionalTranslationForPhrase/);
   assert.match(route, /translationPending/);
@@ -139,7 +147,7 @@ test("MVP UX persists phrase context and exposes global library sorting", async 
     "utf8",
   );
 
-  assert.match(route, /context TEXT NOT NULL DEFAULT ''/);
+  assert.doesNotMatch(route, /CREATE TABLE IF NOT EXISTS|ALTER TABLE.*context/);
   assert.match(route, /payload\.context/);
   assert.match(route, /payload\.translation/);
   assert.match(route, /p\.id, p\.text, p\.pattern, p\.ipa, p\.translation, p\.context/);
@@ -159,7 +167,7 @@ test("MVP UX keeps example settings global and separates caption/video navigatio
 
   assert.match(trainer, /id="prevCaptionBtn"/);
   assert.match(trainer, /id="nextCaptionBtn"/);
-  assert.match(trainer, /<script src="\/caption-navigation\.js"><\/script>/);
+  assert.match(trainer, /script\.src = "\/caption-navigation\.js"/);
   assert.match(trainer, /id="prevVideoBtn"/);
   assert.match(trainer, /id="nextVideoBtn"/);
   assert.match(trainer, /data-example-order="random"/);

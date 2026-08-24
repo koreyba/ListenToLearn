@@ -50,6 +50,20 @@
       "when": 1787517606162,
       "tag": "0006_google_auth_per_user",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787578508155,
+      "tag": "0007_cheerful_ben_parker",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1787579354403,
+      "tag": "0008_moaning_storm",
+      "breakpoints": true
     }
   ]
 }

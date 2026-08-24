@@ -26,10 +26,14 @@ type Phrase = {
   created_at: string;
   updated_at: string;
 };
-type PhrasesResponse = { phrases: Phrase[]; error?: string };
+type PhrasesResponse = { phrases: Phrase[]; user?: Viewer; error?: string };
 type PhraseMutationResponse = {
   id?: string;
   status?: PhraseStatus;
+  translation?: string;
+  context?: string;
+  created_at?: string;
+  updated_at?: string;
   error?: string;
   created?: boolean;
   translationPending?: boolean;
@@ -180,28 +184,18 @@ export default function Home() {
     setLoading(false);
   }, []);
 
-  const loadPhrases = useCallback(async () => {
-    const response = await fetch("/api/phrases", { cache: "no-store" });
-    const data = await response.json() as PhrasesResponse;
-    if (!response.ok) throw new Error(data.error || "Could not load phrases.");
-    setPhrases(data.phrases);
-  }, []);
-
   const loadAccount = useCallback(async () => {
     setMode("account");
     setLoading(true);
     try {
-      const response = await fetch("/api/me", { cache: "no-store", redirect: "manual" });
-      if (response.type === "opaqueredirect" || !response.ok) throw new Error("account session unavailable");
-      const data = await response.json() as { user?: Viewer };
-      if (!data.user || typeof data.user.id !== "string") throw new Error("account identity unavailable");
+      const response = await fetch("/api/phrases", { cache: "no-store" });
+      const data = await response.json() as PhrasesResponse;
+      if (!response.ok || !data.user || typeof data.user.id !== "string") {
+        throw new Error(data.error || "account session unavailable");
+      }
       setViewer(data.user);
       try { window.localStorage.setItem(AUTH_HINT_STORAGE_KEY, "1"); } catch { /* optional hint */ }
-
-      const phrasesResponse = await fetch("/api/phrases", { cache: "no-store" });
-      const phrasesData = await phrasesResponse.json() as PhrasesResponse;
-      if (!phrasesResponse.ok) throw new Error(phrasesData.error || "Could not load phrases.");
-      setPhrases(phrasesData.phrases);
+      setPhrases(data.phrases);
       setLoading(false);
     } catch {
       try { window.localStorage.removeItem(AUTH_HINT_STORAGE_KEY); } catch { /* optional hint */ }
@@ -261,7 +255,14 @@ export default function Home() {
       });
       const data = await response.json() as PhraseMutationResponse;
       if (!response.ok) throw new Error(data.error || "Could not update the phrase status.");
-      await loadPhrases();
+      setPhrases((currentPhrases) => currentPhrases.map((phrase) => phrase.id === id
+        ? {
+            ...phrase,
+            status: data.status || status,
+            translation: data.translation ?? phrase.translation,
+            updated_at: data.updated_at || new Date().toISOString(),
+          }
+        : phrase));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not update the phrase status.");
     } finally {
@@ -284,7 +285,11 @@ export default function Home() {
       const response = await fetch(`/api/phrases?id=${encodeURIComponent(phrase.id)}`, { method: "DELETE" });
       const data = await response.json() as PhraseMutationResponse;
       if (!response.ok) throw new Error(data.error || "Could not remove the phrase.");
-      await loadPhrases();
+      setPhrases((currentPhrases) => phrase.source_type === "preset"
+        ? currentPhrases.map((currentPhrase) => currentPhrase.id === phrase.id
+          ? { ...currentPhrase, status: "pick", updated_at: new Date().toISOString() }
+          : currentPhrase)
+        : currentPhrases.filter((currentPhrase) => currentPhrase.id !== phrase.id));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not remove the phrase.");
     } finally {
@@ -328,8 +333,27 @@ export default function Home() {
       const data = await response.json() as PhraseMutationResponse;
       if (!response.ok) throw new Error(data.error || "Could not add the phrase.");
       setCustomText("");
-      await loadPhrases();
-      setActiveTab((data.status as PhraseStatus) || "to_learn");
+      const nextStatus = data.status || "to_learn";
+      const nextPhrase: Phrase = {
+        id: data.id || `custom-${Date.now()}`,
+        text,
+        pattern: `[${text}]`,
+        ipa: "",
+        translation: data.translation || "",
+        context: data.context || "",
+        source_type: "custom",
+        catalog_order: null,
+        status: nextStatus,
+        created_at: data.created_at || new Date().toISOString(),
+        updated_at: data.updated_at || new Date().toISOString(),
+      };
+      setPhrases((currentPhrases) => {
+        const existing = currentPhrases.some((phrase) => phrase.id === nextPhrase.id);
+        return existing
+          ? currentPhrases.map((phrase) => phrase.id === nextPhrase.id ? { ...phrase, ...nextPhrase } : phrase)
+          : [...currentPhrases, nextPhrase];
+      });
+      setActiveTab(nextStatus);
       const translationNotice = data.translationPending ? " Translation is currently unavailable, but the phrase was saved." : "";
       setNotice(data.created === false ? `This phrase is already in your library.${translationNotice}` : `Phrase added to To Learn${data.translationPending ? ". Translation is currently unavailable." : " with a translation."}`);
     } catch (reason) {
@@ -341,7 +365,7 @@ export default function Home() {
 
   function openPhrase(phrase: Phrase) {
     const query = new URLSearchParams({ phrase: phrase.text, phraseId: phrase.id });
-    window.location.assign(`/trainer.html?${query.toString()}`);
+    window.location.assign(`/trainer?${query.toString()}`);
   }
 
   function resetGuest() {

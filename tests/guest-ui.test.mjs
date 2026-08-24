@@ -8,8 +8,8 @@ test("library page has a local guest mode and an explicit Google entry point", a
   assert.match(page, /GUEST_LIBRARY_STORAGE_KEY/);
   assert.match(page, /addGuestPhrase/);
   assert.match(page, /setGuestPhraseStatus/);
-  assert.match(page, /Войти через Google/);
-  assert.match(page, /Очистить пробу/);
+  assert.match(page, /Sign in with Google/);
+  assert.match(page, /Clear guest data/);
 });
 
 test("trainer has an intentional guest branch and never sends guest mutations to user APIs", async () => {
@@ -19,11 +19,11 @@ test("trainer has an intentional guest branch and never sends guest mutations to
   assert.match(trainer, /isAuthenticated/);
   assert.match(trainer, /toggleGuestSavedExample/);
   assert.match(trainer, /guestLibrary/);
-  assert.match(trainer, /Войти через Google/);
+  assert.match(trainer, /Sign in with Google/);
   assert.match(trainer, /localStorage/);
 
   const authHint = trainer.indexOf('localStorage.getItem("listen-to-learn-authenticated-v1")');
-  const accountProbe = trainer.indexOf('fetch("/api/me"');
+  const accountProbe = trainer.lastIndexOf("fetch(`/api/phrases${query}`");
   assert.ok(authHint >= 0 && accountProbe > authHint, "account probing must be gated by the local auth hint");
   assert.match(trainer, /if \(!isAuthenticated\) \{[\s\S]*?toggleGuestSavedExample/);
 });

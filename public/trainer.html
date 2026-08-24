@@ -1172,7 +1172,7 @@
           </div>
         </div>
 
-        <div id="status" class="status">Loading YouGlish API…</div>
+        <div id="status" class="status">Preparing audio examples…</div>
         <div id="noResults" class="no-results">
           <div id="noResultsText"></div>
           <button id="shorterBtn" type="button"></button>
@@ -1288,7 +1288,6 @@
     </footer>
   </main>
 
-  <script src="/caption-navigation.js"></script>
   <script>
     "use strict";
 
@@ -1371,6 +1370,7 @@
     let tatoebaTracks = [];
     let tatoebaIndex = 0;
     let tatoebaRequest = 0;
+    let tatoebaAbortController = null;
     let currentYouglishVideoId = "";
     let savedExamples = [];
     let savedExampleIndex = 0;
@@ -1381,7 +1381,8 @@
     let exampleOrder = "random";
     let savedExampleSequenceKey = "";
     let savedExampleSequence = [];
-    const captionNavigation = window.ListenToLearnCaptionNavigation || null;
+    let captionNavigation = window.ListenToLearnCaptionNavigation || null;
+    let captionNavigationLoading = false;
     let captionHistory = [];
     let captionHistoryIndex = -1;
     let captionNavigationBlocked = { previous: false, next: false };
@@ -1392,8 +1393,14 @@
     let playerState = null;
     let captionEntrySequence = 0;
     let lastTranslation = { source: "", context: "", translation: "" };
+    let translationRequest = 0;
+    let translationAbortController = null;
+    let activeTranslationKey = "";
+    const translationCache = new Map();
     let examplesRequest = 0;
     let youglishHasFetched = false;
+    let youglishScriptLoading = false;
+    let accountPhraseData = null;
 
     const el = {
       status: document.getElementById("status"),
@@ -2112,17 +2119,29 @@
       await loadSavedExamples();
     }
 
-    async function resolveViewerPhrase() {
+    async function resolveViewerPhrase(initialData = null) {
       const phraseAtRequest = VIEWER_PHRASE;
       try {
-        const response = await fetch("/api/phrases", { cache: "no-store" });
-        const data = await response.json().catch(() => null);
+        let data = initialData;
+        if (!data) {
+          const query = VIEWER_PHRASE_ID ? `?id=${encodeURIComponent(VIEWER_PHRASE_ID)}` : "";
+          const response = await fetch(`/api/phrases${query}`, { cache: "no-store" });
+          data = await response.json().catch(() => null);
+          if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
+        }
         if (phraseAtRequest !== VIEWER_PHRASE) return;
-        if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
         const phrases = Array.isArray(data && data.phrases) ? data.phrases : [];
         const normalized = phraseAtRequest.toLocaleLowerCase("en");
-        const phrase = phrases.find(item => item.id === VIEWER_PHRASE_ID)
+        let phrase = phrases.find(item => item.id === VIEWER_PHRASE_ID)
           || phrases.find(item => String(item.text || "").toLocaleLowerCase("en") === normalized);
+        if (!phrase && initialData && VIEWER_PHRASE_ID) {
+          const response = await fetch("/api/phrases", { cache: "no-store" });
+          data = await response.json().catch(() => null);
+          if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
+          const fallbackPhrases = Array.isArray(data && data.phrases) ? data.phrases : [];
+          phrase = fallbackPhrases.find(item => item.id === VIEWER_PHRASE_ID)
+            || fallbackPhrases.find(item => String(item.text || "").toLocaleLowerCase("en") === normalized);
+        }
         VIEWER_PHRASE_ID = phrase ? phrase.id : "";
         VIEWER_PHRASE_STATUS = phrase ? phrase.status : "";
         const url = new URL(window.location.href);
@@ -2130,7 +2149,14 @@
         else url.searchParams.delete("phraseId");
         history.replaceState(null, "", url);
         showExampleMessage("");
-        await loadSavedExamples();
+        if (Array.isArray(data && data.examples)) {
+          savedExamples = data.examples;
+          savedExampleSequenceKey = "";
+          savedExampleIndex = Math.min(savedExampleIndex, Math.max(0, examplesForCurrentSource().length - 1));
+          renderExampleTools();
+        } else {
+          await loadSavedExamples();
+        }
       } catch (error) {
         if (phraseAtRequest !== VIEWER_PHRASE) return;
         renderExampleTools();
@@ -2164,6 +2190,8 @@
 
     function setSource(source) {
       if (!["tatoeba", "youglish"].includes(source) || source === state.source) return;
+      tatoebaAbortController?.abort();
+      tatoebaAbortController = null;
       el.tatoebaAudio.pause();
       if (widgetReady && widget && typeof widget.pause === "function") {
         try { widget.pause(); } catch (_) {}
@@ -2174,6 +2202,10 @@
       }
       saveState();
       renderSource();
+      if (source === "youglish") {
+        ensureCaptionNavigation();
+        ensureYouglishApi();
+      }
       fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
     }
 
@@ -2472,6 +2504,9 @@
     }
 
     async function fetchTatoeba(query) {
+      tatoebaAbortController?.abort();
+      const controller = new AbortController();
+      tatoebaAbortController = controller;
       const requestId = ++tatoebaRequest;
       el.tatoebaAudio.pause();
       el.tatoebaAudio.removeAttribute("src");
@@ -2486,7 +2521,7 @@
       el.status.textContent = `Finding audio examples: “${query}” · Tatoeba…`;
 
       try {
-        const response = await fetch(`/api/tatoeba?q=${encodeURIComponent(query)}`);
+        const response = await fetch(`/api/tatoeba?q=${encodeURIComponent(query)}`, { signal: controller.signal });
         const data = await response.json().catch(() => null);
         if (requestId !== tatoebaRequest || state.source !== "tatoeba") return;
         if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
@@ -2499,14 +2534,55 @@
         }
         loadTatoebaTrack(0, true);
       } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
         if (requestId !== tatoebaRequest) return;
         el.tatoebaSentence.textContent = "Could not load recordings.";
         showWidgetError(error.message || "Tatoeba is temporarily unavailable.");
         console.error(error);
+      } finally {
+        if (tatoebaAbortController === controller) tatoebaAbortController = null;
       }
     }
 
+    function ensureCaptionNavigation() {
+      if (captionNavigation || captionNavigationLoading) return;
+      captionNavigationLoading = true;
+      const script = document.createElement("script");
+      script.src = "/caption-navigation.js";
+      script.async = true;
+      script.onload = () => {
+        captionNavigation = window.ListenToLearnCaptionNavigation || null;
+        captionNavigationLoading = false;
+        renderCaptionNavigation();
+      };
+      script.onerror = () => {
+        captionNavigationLoading = false;
+        if (state.source === "youglish") renderCaptionNavigation();
+      };
+      document.head.appendChild(script);
+    }
+
+    function ensureYouglishApi() {
+      if (widgetReady || youglishScriptLoading || document.querySelector("script[data-listen-to-learn-youglish]")) return;
+      youglishScriptLoading = true;
+      const script = document.createElement("script");
+      script.src = "https://youglish.com/public/emb/widget.js";
+      script.async = true;
+      script.defer = true;
+      script.dataset.listenToLearnYouglish = "true";
+      script.onload = () => { youglishScriptLoading = false; };
+      script.onerror = () => {
+        youglishScriptLoading = false;
+        if (state.source === "youglish") {
+          showWidgetError("Could not load the YouGlish Widget API. Check your connection or content blocker.");
+        }
+      };
+      document.head.appendChild(script);
+    }
+
     function fetchYouglish(query, displayQuery, savedLabel = "") {
+      ensureCaptionNavigation();
+      ensureYouglishApi();
       if (!widgetReady || !widget) {
         el.status.textContent = "YouGlish is still loading. The phrase will start when it is ready.";
         return;
@@ -2687,6 +2763,10 @@
     }
 
     function hideTranslation() {
+      translationRequest += 1;
+      translationAbortController?.abort();
+      translationAbortController = null;
+      activeTranslationKey = "";
       el.translationBox.classList.remove("visible");
       el.clearTranslationBtn.hidden = true;
       el.translationAddBtn.disabled = true;
@@ -2710,26 +2790,44 @@
     async function translateText(text, sourceLabel, context = currentCaptionText) {
       const source = String(text || "").trim();
       if (!source) return;
+      const normalizedContext = cleanCaptionText(context);
+      const translationKey = `${source.toLocaleLowerCase("en")}\u0000${normalizedContext}`;
+      if (translationAbortController && activeTranslationKey === translationKey) return;
+      translationAbortController?.abort();
+      const requestId = ++translationRequest;
       if (!trainerReady) {
         showTranslation(sourceLabel, "Checking Google sign-in…", "loading");
         return;
       }
 
-      lastTranslation = { source, context: cleanCaptionText(context), translation: "" };
+      lastTranslation = { source, context: normalizedContext, translation: "" };
       if (!isAuthenticated) {
         showTranslation(sourceLabel, "Sign in with Google to translate with your personal DeepL key.", "error");
         return;
       }
+
+      const cached = translationCache.get(translationKey);
+      if (cached) {
+        lastTranslation.translation = cached;
+        showTranslation(sourceLabel, cached);
+        return;
+      }
+
+      const controller = new AbortController();
+      translationAbortController = controller;
+      activeTranslationKey = translationKey;
       showTranslation(sourceLabel, "Translating…", "loading");
 
       try {
         const response = await fetch("/api/translate", {
           method: "POST",
           headers: { "Content-Type": "application/json; charset=utf-8" },
-          body: JSON.stringify({ text: source, context })
+          body: JSON.stringify({ text: source, context: normalizedContext }),
+          signal: controller.signal,
         });
 
         const data = await response.json().catch(() => null);
+        if (requestId !== translationRequest) return;
         if (!response.ok) {
           const message = data && data.error ? data.error : `HTTP ${response.status}`;
           throw new Error(message);
@@ -2739,11 +2837,20 @@
 
         if (!translated) throw new Error("DeepL returned an empty translation.");
 
+        translationCache.set(translationKey, translated);
+        if (translationCache.size > 64) translationCache.delete(translationCache.keys().next().value);
         lastTranslation.translation = translated;
         showTranslation(sourceLabel, translated);
       } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        if (requestId !== translationRequest) return;
         console.error(err);
         showTranslation(sourceLabel, `Translation failed: ${err.message || err}`, "error");
+      } finally {
+        if (translationAbortController === controller) {
+          translationAbortController = null;
+          activeTranslationKey = "";
+        }
       }
     }
 
@@ -2927,6 +3034,8 @@
           });
           if (shouldPromote) setGuestPhraseStatus(VIEWER_PHRASE_ID, "to_learn");
           saveGuestLibrary();
+          savedExamples = guestSavedExamplesForCurrentPhrase();
+          savedExampleSequenceKey = "";
         } else {
           const response = existing
             ? await fetch(`/api/examples?id=${encodeURIComponent(existing.id)}`, { method: "DELETE" })
@@ -2950,9 +3059,14 @@
               });
           const data = await response.json().catch(() => null);
           if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
+          savedExamples = existing
+            ? savedExamples.filter(example => example.id !== existing.id)
+            : data && data.example
+            ? [data.example, ...savedExamples.filter(example => example.id !== data.example.id)]
+            : savedExamples;
+          savedExampleSequenceKey = "";
         }
         if (shouldPromote) VIEWER_PHRASE_STATUS = "to_learn";
-        await loadSavedExamples();
         showExampleMessage(savedMessage);
         if (existing && wasSavedMode) {
           const providerExamples = examplesForCurrentSource();
@@ -3431,7 +3545,8 @@
 
     const viewerParams = new URLSearchParams(window.location.search);
     let VIEWER_PHRASE = viewerParams.get("phrase")?.trim() || BASE_PHRASES[0].q;
-    let VIEWER_PHRASE_ID = viewerParams.get("phraseId")?.trim() || "";
+    let VIEWER_PHRASE_ID = viewerParams.get("phraseId")?.trim()
+      || (!viewerParams.has("phrase") ? "preset-0" : "");
     let VIEWER_PHRASE_STATUS = "";
     el.viewerPhrase = document.getElementById("viewerPhrase");
     el.backBtn = document.getElementById("backBtn");
@@ -3482,13 +3597,15 @@
 
       if (authHint) {
         try {
-          const response = await fetch("/api/me", { cache: "no-store", redirect: "manual" });
+          const query = VIEWER_PHRASE_ID ? `?id=${encodeURIComponent(VIEWER_PHRASE_ID)}` : "";
+          const response = await fetch(`/api/phrases${query}`, { cache: "no-store", redirect: "manual" });
           const data = await response.json().catch(() => null);
           if (response.type === "opaqueredirect" || !response.ok || !data || !data.user || typeof data.user.id !== "string") {
             throw new Error("account session unavailable");
           }
 
           isAuthenticated = true;
+          accountPhraseData = data;
           STORAGE_KEY = "connected-speech-trainer-v1:" + encodeURIComponent(data.user.id);
           if (!localStorage.getItem(STORAGE_KEY) && data.user.legacyStateAvailable) {
             const legacyState = localStorage.getItem("connected-speech-trainer-v1");
@@ -3525,18 +3642,11 @@
       render();
       renderSource();
       if (state.source === "tatoeba") fetchPhrase(VIEWER_PHRASE, true);
-      void (isAuthenticated ? resolveViewerPhrase() : resolveGuestViewerPhrase());
-
-      // Load the official YouGlish Widget API after selecting user-scoped state.
-      const ygScript = document.createElement("script");
-      ygScript.src = "https://youglish.com/public/emb/widget.js";
-      ygScript.async = true;
-      ygScript.onerror = () => {
-        if (state.source === "youglish") {
-          showWidgetError("Could not load the YouGlish Widget API. Check your connection or content blocker.");
-        }
-      };
-      document.head.appendChild(ygScript);
+      if (state.source === "youglish") {
+        ensureCaptionNavigation();
+        ensureYouglishApi();
+      }
+      void (isAuthenticated ? resolveViewerPhrase(accountPhraseData) : resolveGuestViewerPhrase());
     }
 
     void initializeTrainer();

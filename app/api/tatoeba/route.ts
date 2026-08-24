@@ -41,9 +41,18 @@ export async function GET(request: Request) {
       limit: "20",
     });
 
-    const response = await fetch(`https://api.tatoeba.org/v1/sentences?${params}`, {
-      headers: { Accept: "application/json" },
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8_000);
+    let response: Response;
+    try {
+      response = await fetch(`https://api.tatoeba.org/v1/sentences?${params}`, {
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+        cf: { cacheEverything: true, cacheTtl: 300 },
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
     if (!response.ok) {
       console.error("Tatoeba search failed:", response.status);
       return Response.json({ error: "Tatoeba is temporarily unavailable." }, { status: 502 });

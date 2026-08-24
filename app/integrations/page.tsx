@@ -52,7 +52,9 @@ export default function IntegrationsPage() {
       const data = await response.json() as IntegrationsResponse & { error?: string };
       if (!response.ok) throw new Error(data.error || "Could not save the API key.");
       setKey("");
-      await loadStatus();
+      setIntegration((current) => current
+        ? { ...current, configured: true, source: "integrations" }
+        : { provider: "deepl", label: "DeepL", configured: true, source: "integrations" });
       setNotice("Key saved. Its value is no longer shown in the app.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not save the API key.");
@@ -69,7 +71,9 @@ export default function IntegrationsPage() {
       const response = await fetch("/api/integrations?provider=deepl", { method: "DELETE" });
       const data = await response.json() as IntegrationsResponse & { error?: string };
       if (!response.ok) throw new Error(data.error || "Could not delete the API key.");
-      await loadStatus();
+      setIntegration((current) => current
+        ? { ...current, configured: false, source: null }
+        : current);
       setNotice("The key saved on this page was deleted.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not delete the API key.");

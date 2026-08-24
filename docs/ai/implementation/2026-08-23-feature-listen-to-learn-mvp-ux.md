@@ -9,8 +9,8 @@ description: Technical implementation notes, patterns, and code guidelines
 ## Development Setup
 
 - Worktree: `feature-listen-to-learn-mvp-ux`; dependencies installed with `npm ci`.
-- Normal checks: `npx tsc --noEmit`, `npm run lint`, `node --test tests/rendered-html.test.mjs`, `./node_modules/.bin/vinext build`, and `git diff --check`.
-- `npm test` is retained as the repository gate, but its wrapper uses GNU `timeout`; on this macOS host it fails before the build because only the BSD utility is installed. The equivalent direct Vinext build plus rendered tests pass.
+- Normal checks: `npx tsc --noEmit`, `npm run lint`, `node --test tests/rendered-html.test.mjs`, `./node_modules/.bin/vinext build`, and `git diff --check`. In the current root checkout, `npm run lint` also descends into nested `.worktrees/**/dist`; use the same ESLint command with `--ignore-pattern .worktrees` to validate current source until the repository-wide script is narrowed.
+- `npm test` is the repository gate. `scripts/build-verified.sh` delegates its build and kill-after bounds to `scripts/run-bounded.mjs`, avoiding the former GNU `timeout` dependency on macOS while preserving bounded builds on Linux.
 - Local Worker smoke uses built output with `wrangler dev --local --compatibility-date=2026-05-22`; the installed Miniflare cannot boot the project's `2026-08-23` compatibility date directly.
 
 ## Code Structure
@@ -38,9 +38,10 @@ description: Technical implementation notes, patterns, and code guidelines
 ### Trainer workspace and examples
 
 - Desktop uses a two-column sticky stage: `.learning-workspace` contains source, navigation, playback, captions, translation, and actions; `.media-panel` keeps provider media separate with a minimum 200px widget frame.
-- The workspace uses one compact four-column icon toolbar on desktop. At <=760px it becomes a two-column control grid, the stage returns to normal flow, and the learning workspace precedes media.
-- Caption-navigation guidance is outside the button groups, example mode/order/save share one toolbar row, and redundant media-heading copy is visually removed.
-- Primary controls and mobile source/example/media-expand actions retain 44px touch targets. Hidden visual labels remain available through explicit English `aria-label` and `title` values.
+- The workspace uses one flat, non-wrapping icon toolbar at every viewport; semantic control wrappers use `display: contents` so the former group cards and headings do not consume space. At <=760px the stage returns to normal flow and the learning workspace precedes media.
+- One stateful `playPauseBtn` derives its icon, tooltip, and accessible name from Tatoeba audio state or the YouGlish player-state callback; activating a paused YouGlish player now calls `play()` instead of always calling `pause()`.
+- Caption-navigation guidance is outside the toolbar, example mode/order/save share one row, and redundant media-heading copy is visually removed.
+- Primary controls and mobile source/example/media-expand actions retain 44px height. Hidden visual labels remain available through explicit English `aria-label` and `title` values, including both speed controls.
 - `exampleMode` and `exampleOrder` are normalized in the existing browser state and saved globally. New state is `all` + `random`.
 - Ordered provider items preserve provider/creation order; random items are shuffled once per phrase/provider/order key. Saved examples remain keyed by phrase/provider/external ID and are replayed as concrete video/audio items.
 - Caption changes are recorded per current YouGlish video. Caption navigation, its status hint, and repeat-caption control are rendered only for YouGlish; Tatoeba keeps the toolbar compact without caption-only controls. Buttons are enabled only if a concrete caption method is present, and no five-second seek is used as a caption transition.

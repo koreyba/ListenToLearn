@@ -30,7 +30,7 @@ The existing host-wide Access application `0d7ca644-4813-47a7-b973-bfa748141aff`
 4. Read back the Worker version and Access app through Cloudflare API/MCP.
 5. Smoke public UI/Tatoeba, protected API/Integrations redirects and D1 row counts.
 
-The repository `npm run build` wrapper could not run on this macOS host because GNU `timeout` is absent; the equivalent direct `vinext build` passed.
+Historical note: the repository build wrapper could not run on macOS during this feature delivery. It was made portable with `scripts/run-bounded.mjs` on 2026-08-24; the equivalent direct `vinext build` had passed at delivery time.
 
 ## Database and secrets
 

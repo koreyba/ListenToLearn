@@ -63,10 +63,10 @@ The target users are the owner and a small group of friends using the personal n
 - [x] The desktop layout keeps the learning workspace and a >=200px-by-200px media frame visible without overlap; the mobile layout keeps controls/captions/actions usable before the compact media area.
 - [x] A word click shows one contextual translation box and an adjacent `+ To Learn` action; selected text retains translate/listen/save actions.
 - [x] Phrase-saving accepts context and an available translation; a missing DeepL service does not prevent saving or status progression.
-- [x] Existing YouGlish, Tatoeba, subtitle, replay, pause, speed, and source-switch flows remain available in the implementation; Tatoeba was exercised live, while YouGlish success-path playback remains provider-dependent.
+- [x] Existing YouGlish, Tatoeba, subtitle, replay, play/pause, speed, and source-switch flows remain available in the implementation; play/pause is one stateful control for both providers, while YouGlish success-path playback remains provider-dependent.
 - [x] Type-check, lint, rendered HTML/static tests, build, Worker dry-run, and manual responsive smoke check pass. No real provider secret is added.
 
-Implementation evidence and the two environment/provider limits are recorded in the testing document: the repository `npm test` wrapper needs GNU `timeout` on this macOS host, and successful DeepL/YouGlish playback needs external configuration.
+Implementation evidence and the remaining provider limits are recorded in the testing document. The build wrapper now uses the repository's portable Node timeout runner; successful DeepL/YouGlish provider paths still need their external configuration.
 
 ## Constraints & Assumptions
 

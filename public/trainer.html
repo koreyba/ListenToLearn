@@ -352,35 +352,18 @@
     .tatoeba-meta a { color: #b9dbea; }
 
     .player-controls {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 7px;
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 4px;
       margin-top: 0;
-    }
-
-    .player-controls.caption-controls-hidden {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      padding: 5px;
+      border: 1px solid rgba(69, 81, 96, .58);
+      border-radius: 14px;
+      background: rgba(12, 16, 21, .48);
     }
 
     .control-group {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      align-content: start;
-      gap: 6px;
-      min-width: 0;
-      padding: 8px;
-      border: 1px solid rgba(69, 81, 96, .48);
-      border-radius: 12px;
-      background: rgba(12, 16, 21, .38);
-    }
-
-    .control-group-label {
-      grid-column: 1 / -1;
-      color: #c3ced8;
-      font-size: 9px;
-      font-weight: 750;
-      letter-spacing: .06em;
-      text-transform: uppercase;
+      display: contents;
     }
 
     .caption-navigation-status {
@@ -405,12 +388,13 @@
 
     .player-controls button {
       display: inline-flex;
+      flex: 1 1 0;
       align-items: center;
       justify-content: center;
       gap: 7px;
       min-width: 0;
       min-height: 44px;
-      padding: 8px;
+      padding: 8px 5px;
       border-color: #313d4a;
       background: #1a212a;
       color: #dce6ee;
@@ -453,10 +437,6 @@
       background: #222c36;
       color: var(--text);
       transform: translateY(-1px);
-    }
-
-    .media-navigation button:last-child {
-      grid-column: 1 / -1;
     }
 
     .example-tools {
@@ -1008,8 +988,6 @@
         min-height: 44px;
         padding: 8px;
       }
-      .player-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .player-controls.caption-controls-hidden { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .example-tools { grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; }
       .example-settings { display: grid; grid-template-columns: 1fr 1fr; }
       .example-settings .segmented { display: grid; grid-template-columns: 1fr 1fr; }
@@ -1028,12 +1006,10 @@
         min-height: 320px;
       }
       .sticky-stage.media-expanded .tatoeba-player { min-height: 320px; }
-      .player-controls {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
+      .player-controls { gap: 3px; padding: 4px; }
       .player-controls .button-label { display: none; }
-      .player-controls button { padding-left: 10px; padding-right: 10px; }
-      .player-controls .button-icon { width: 19px; height: 19px; }
+      .player-controls button { padding-left: 3px; padding-right: 3px; }
+      .player-controls .button-icon { width: 18px; height: 18px; }
       .media-expand-btn .button-label,
       .save-example-btn .button-label { display: none; }
       .example-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1070,9 +1046,8 @@
           </fieldset>
         </div>
 
-        <div id="playerControls" class="player-controls" aria-label="Player navigation and controls">
+        <div id="playerControls" class="player-controls player-toolbar" aria-label="Player navigation and controls">
           <div id="captionNavigation" class="control-group caption-navigation" aria-label="Caption navigation" hidden>
-            <span class="control-group-label">Captions</span>
             <button id="prevCaptionBtn" type="button" aria-label="Previous caption" title="Previous caption" disabled>
               <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m15 18-6-6 6-6" /></svg></span>
               <span class="button-label">Previous</span>
@@ -1083,7 +1058,6 @@
             </button>
           </div>
           <div class="control-group video-navigation" aria-label="Video navigation">
-            <span class="control-group-label">Video &amp; audio</span>
             <button id="prevVideoBtn" type="button" aria-label="Previous video" title="Previous video">
               <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M6 5v14M18 5l-7 7 7 7" /></svg></span>
               <span class="button-label">Previous</span>
@@ -1094,8 +1068,7 @@
             </button>
           </div>
           <div class="control-group media-navigation" aria-label="Playback controls">
-            <span class="control-group-label">Playback</span>
-            <button id="pauseBtn" type="button" aria-label="Pause playback" title="Pause playback">
+            <button id="playPauseBtn" type="button" aria-label="Pause playback" title="Pause playback">
               <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M8 5v14M16 5v14" /></svg></span>
               <span class="button-label">Pause</span>
             </button>
@@ -1109,9 +1082,8 @@
             </button>
           </div>
           <div class="control-group speed-navigation" aria-label="Playback speed">
-            <span class="control-group-label">Speed</span>
-            <button class="speed-btn" data-speed="0.75" type="button">0.75×</button>
-            <button class="speed-btn speed-active" data-speed="1" type="button">1×</button>
+            <button class="speed-btn" data-speed="0.75" aria-label="Playback speed 0.75×" title="Playback speed 0.75×" type="button">0.75×</button>
+            <button class="speed-btn speed-active" data-speed="1" aria-label="Playback speed 1×" title="Playback speed 1×" type="button">1×</button>
           </div>
         </div>
         <span id="captionNavigationHint" class="caption-navigation-status">Exact navigation is available when the API provides timing.</span>
@@ -1463,7 +1435,7 @@
       captionNavigationHint: document.getElementById("captionNavigationHint"),
       prevVideoBtn: document.getElementById("prevVideoBtn"),
       nextVideoBtn: document.getElementById("nextVideoBtn"),
-      pauseBtn: document.getElementById("pauseBtn"),
+      playPauseBtn: document.getElementById("playPauseBtn"),
       replayBtn: document.getElementById("replayBtn"),
       repeatCaptionBtn: document.getElementById("repeatCaptionBtn")
     };
@@ -1492,11 +1464,17 @@
     function setButton(button, label, iconName) {
       setButtonLabel(button, label);
       setButtonIcon(button, iconName);
-      if (button && button.id === "pauseBtn") {
-        const accessibleLabel = label === "Listen" ? "Play recording" : "Pause playback";
-        button.setAttribute("aria-label", accessibleLabel);
-        button.title = accessibleLabel;
-      }
+    }
+
+    function renderPlaybackControl() {
+      const isPlaying = state.source === "tatoeba"
+        ? !el.tatoebaAudio.paused
+        : playerState === 1;
+      const action = isPlaying ? "Pause" : "Play";
+      const accessibleLabel = `${action} playback`;
+      setButton(el.playPauseBtn, action, isPlaying ? "pause" : "play");
+      el.playPauseBtn.setAttribute("aria-label", accessibleLabel);
+      el.playPauseBtn.title = accessibleLabel;
     }
 
     function cloneDefaultState() {
@@ -2174,7 +2152,7 @@
         btn.classList.toggle("active", active);
         btn.setAttribute("aria-pressed", active ? "true" : "false");
       });
-      setButton(el.pauseBtn, tatoeba && el.tatoebaAudio.paused ? "Listen" : "Pause", tatoeba && el.tatoebaAudio.paused ? "play" : "pause");
+      renderPlaybackControl();
       renderExampleTools();
       renderCaptionNavigation();
     }
@@ -2487,8 +2465,8 @@
       try {
         await el.tatoebaAudio.play();
       } catch (error) {
-        setButton(el.pauseBtn, "Listen", "play");
-        el.status.textContent = "Recording ready — press Listen.";
+        renderPlaybackControl();
+        el.status.textContent = "Recording ready — press Play.";
         console.info("Autoplay was blocked:", error);
       }
     }
@@ -3164,6 +3142,7 @@
         }
       }
       playerState = nextState;
+      renderPlaybackControl();
     }
 
     function showWidgetError(message) {
@@ -3209,6 +3188,7 @@
     function onPlayerReady() {
       widgetReady = true;
       if (playerState === null) playerState = 1;
+      renderPlaybackControl();
       if (widget && typeof widget.setSpeed === "function") {
         try { widget.setSpeed(state.speed); } catch (_) {}
       }
@@ -3446,12 +3426,13 @@
       else if (usingSavedExamples()) playSavedExample(savedExampleIndex - 1);
       else callWidget("previous");
     });
-    el.pauseBtn.addEventListener("click", () => {
+    el.playPauseBtn.addEventListener("click", () => {
       if (state.source === "tatoeba") {
         if (el.tatoebaAudio.paused) playTatoeba();
         else el.tatoebaAudio.pause();
       } else {
-        callWidget("pause");
+        if (playerState === 1) callWidget("pause");
+        else callWidget("play");
       }
     });
     el.replayBtn.addEventListener("click", () => {
@@ -3481,9 +3462,9 @@
 
     el.tatoebaAudio.addEventListener("loadedmetadata", updateTatoebaProgress);
     el.tatoebaAudio.addEventListener("timeupdate", updateTatoebaProgress);
-    el.tatoebaAudio.addEventListener("play", () => { setButton(el.pauseBtn, "Pause", "pause"); });
+    el.tatoebaAudio.addEventListener("play", renderPlaybackControl);
     el.tatoebaAudio.addEventListener("pause", () => {
-      if (state.source === "tatoeba") setButton(el.pauseBtn, "Listen", "play");
+      if (state.source === "tatoeba") renderPlaybackControl();
     });
     el.tatoebaAudio.addEventListener("ended", () => {
       if (state.source === "tatoeba" && usingSavedExamples() && examplesForCurrentSource().length > 1) {

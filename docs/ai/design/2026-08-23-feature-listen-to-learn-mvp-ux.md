@@ -128,7 +128,7 @@ Controls are explicit:
 - Play/pause, replay, repeat, and speed controls — current media controls.
 - `All` / `Saved`, `Random` / `In order` — global example settings.
 
-The primary groups form one four-column icon toolbar on desktop and a two-column grid on mobile. The caption-navigation explanation sits below the toolbar instead of increasing one group’s height. Icon-only controls keep explicit English `aria-label` and `title` values; mobile source, example-setting, media-expand, and playback targets remain at least 44px high.
+The primary controls form one flat, non-wrapping icon toolbar on desktop and mobile; group wrappers remain in the markup but add no visible boxes or headings. The single play/pause button reflects provider playback state and toggles both ways. The caption-navigation explanation sits below the toolbar. Every icon-only control keeps an explicit English `aria-label` and `title`, and playback targets remain at least 44px high.
 
 ### Caption-history navigation
 

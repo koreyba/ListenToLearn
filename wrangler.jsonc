@@ -19,5 +19,25 @@
       "database_id": "27fe4c19-48ce-4047-b5d5-f486cb9dc23c",
       "migrations_dir": "./drizzle"
     }
-  ]
+  ],
+  "env": {
+    "preview": {
+      "vars": {
+        "ACCESS_TEAM_DOMAIN": "listen-to-learn-koreyba.cloudflareaccess.com",
+        "ACCESS_AUD": "315a0118e28bc19c5d5cc5298a8fb4704ad351ebe58774f9966cd678458d8ff0,a68b687d83c86b363a5c14f609b7026721dc8c6c77b7293c4337390d5dc45341"
+      },
+      "assets": {
+        "directory": "./dist/client",
+        "binding": "ASSETS"
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "listen-to-learn-preview-db",
+          "database_id": "2c137ca2-8b12-498f-98df-127eaa39e6d8",
+          "migrations_dir": "./drizzle"
+        }
+      ]
+    }
+  }
 }

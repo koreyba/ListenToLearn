@@ -1288,6 +1288,7 @@
     </footer>
   </main>
 
+  <script src="/caption-navigation.js"></script>
   <script>
     "use strict";
 
@@ -1381,8 +1382,7 @@
     let exampleOrder = "random";
     let savedExampleSequenceKey = "";
     let savedExampleSequence = [];
-    let captionNavigation = window.ListenToLearnCaptionNavigation || null;
-    let captionNavigationLoading = false;
+    const captionNavigation = window.ListenToLearnCaptionNavigation || null;
     let captionHistory = [];
     let captionHistoryIndex = -1;
     let captionNavigationBlocked = { previous: false, next: false };
@@ -2203,7 +2203,6 @@
       saveState();
       renderSource();
       if (source === "youglish") {
-        ensureCaptionNavigation();
         ensureYouglishApi();
       }
       fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
@@ -2544,24 +2543,6 @@
       }
     }
 
-    function ensureCaptionNavigation() {
-      if (captionNavigation || captionNavigationLoading) return;
-      captionNavigationLoading = true;
-      const script = document.createElement("script");
-      script.src = "/caption-navigation.js";
-      script.async = true;
-      script.onload = () => {
-        captionNavigation = window.ListenToLearnCaptionNavigation || null;
-        captionNavigationLoading = false;
-        renderCaptionNavigation();
-      };
-      script.onerror = () => {
-        captionNavigationLoading = false;
-        if (state.source === "youglish") renderCaptionNavigation();
-      };
-      document.head.appendChild(script);
-    }
-
     function ensureYouglishApi() {
       if (widgetReady || youglishScriptLoading || document.querySelector("script[data-listen-to-learn-youglish]")) return;
       youglishScriptLoading = true;
@@ -2581,7 +2562,6 @@
     }
 
     function fetchYouglish(query, displayQuery, savedLabel = "") {
-      ensureCaptionNavigation();
       ensureYouglishApi();
       if (!widgetReady || !widget) {
         el.status.textContent = "YouGlish is still loading. The phrase will start when it is ready.";
@@ -3643,7 +3623,6 @@
       renderSource();
       if (state.source === "tatoeba") fetchPhrase(VIEWER_PHRASE, true);
       if (state.source === "youglish") {
-        ensureCaptionNavigation();
         ensureYouglishApi();
       }
       void (isAuthenticated ? resolveViewerPhrase(accountPhraseData) : resolveGuestViewerPhrase());

@@ -47,12 +47,25 @@ test("trainer can switch between Tatoeba and YouGlish", async () => {
   assert.match(trainer, /data-source="youglish"/);
   assert.match(trainer, /id="tatoebaAudio"/);
   assert.match(trainer, /fetch\(`\/api\/tatoeba\?q=/);
-  assert.match(trainer, /script\.src = "\/caption-navigation\.js"/);
-  assert.doesNotMatch(trainer, /<script src="\/caption-navigation\.js"><\/script>/);
+  assert.match(trainer, /<script src="\/caption-navigation\.js"><\/script>/);
   assert.match(trainer, /signal: controller\.signal/);
   assert.match(tatoebaRoute, /https:\/\/api\.tatoeba\.org\/v1\/sentences/);
   assert.match(tatoebaRoute, /cacheTtl: 300/);
   assert.match(audioRoute, /https:\/\/api\.tatoeba\.org\/v1\/audios\/\$\{id\}\/file/);
+});
+
+test("caption navigation is ready before the first YouGlish caption callback", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+  const helperTag = '<script src="/caption-navigation.js"></script>';
+  const inlineController = '<script>\n    "use strict";';
+  const helperIndex = trainer.indexOf(helperTag);
+  const controllerIndex = trainer.indexOf(inlineController);
+
+  assert.ok(helperIndex >= 0, "the caption helper must be loaded");
+  assert.ok(controllerIndex > helperIndex, "the helper must load before the trainer controller");
 });
 
 test("YouGlish videos and Tatoeba tracks can be randomized and saved per phrase", async () => {
@@ -167,7 +180,7 @@ test("MVP UX keeps example settings global and separates caption/video navigatio
 
   assert.match(trainer, /id="prevCaptionBtn"/);
   assert.match(trainer, /id="nextCaptionBtn"/);
-  assert.match(trainer, /script\.src = "\/caption-navigation\.js"/);
+  assert.match(trainer, /<script src="\/caption-navigation\.js"><\/script>/);
   assert.match(trainer, /id="prevVideoBtn"/);
   assert.match(trainer, /id="nextVideoBtn"/);
   assert.match(trainer, /data-example-order="random"/);

@@ -381,6 +381,41 @@ test("caption timeline keeps opaque IDs ordered by timing and computes relative 
   assert.equal(navigation.repeatSeekDelta(10, null, 10.2), -0.5);
 });
 
+test("the first caption without timing is a replay target, not a zero-time seek", async () => {
+  const source = await readFile(
+    new URL("../public/caption-navigation.js", import.meta.url),
+    "utf8",
+  );
+  const sandbox = { window: {} };
+  vm.runInNewContext(source, sandbox);
+  const navigation = sandbox.window.ListenToLearnCaptionNavigation;
+
+  const first = navigation.upsert([], {
+    videoId: "video-1",
+    id: "opaque-first",
+    raw: "first",
+    text: "first",
+    startTime: null,
+    navigationMode: "replay",
+  }, 0, 10);
+  const second = navigation.upsert(first.history, {
+    videoId: "video-1",
+    id: "opaque-second",
+    raw: "second",
+    text: "second",
+    startTime: 12,
+    navigationMode: "seek",
+  }, first.nextSequence, 20);
+
+  const previous = navigation.adjacent(second.history, second.index, -1, "video-1");
+  assert.equal(previous.id, "opaque-first");
+  assert.equal(previous.startTime, null);
+  assert.equal(navigation.isReplayTarget(previous), true);
+  assert.equal(navigation.canNavigateTo(previous), true);
+  assert.equal(navigation.canNavigateTo({ startTime: null }), false);
+  assert.equal(navigation.finiteTime(null), null);
+});
+
 test("phrase navigation uses cached neighbors without waiting for a new caption event", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),
@@ -412,12 +447,15 @@ test("phrase navigation uses cached neighbors without waiting for a new caption 
   assert.equal(neighbors.previous.id, "opaque-a");
   assert.equal(neighbors.next, null);
   assert.match(trainer, /captionNavigation\.neighbors\(captionHistory, captionHistoryIndex, currentYouglishVideoId\)/);
-  assert.match(trainer, /Boolean\(previousTarget\)/);
-  assert.match(trainer, /Boolean\(nextTarget\)/);
+  assert.match(trainer, /captionTargetAvailable\(previousTarget\)/);
+  assert.match(trainer, /captionTargetAvailable\(nextTarget\)/);
   const knownSeek = trainer.match(/function seekToKnownCaption\([\s\S]*?\n    function navigateCaption/)?.[0];
   assert.ok(knownSeek);
   assert.doesNotMatch(knownSeek, /waitForCaption/);
   assert.match(knownSeek, /renderCaption\(targetEntry\.raw\)/);
+  assert.match(knownSeek, /captionNavigation\.isReplayTarget\(target\)/);
+  assert.match(knownSeek, /widget\.replay\(\)/);
+  assert.match(trainer, /currentTime === null \? "replay" : "seek"/);
 });
 
 test("integrations keep provider keys server-side and expose only status", async () => {

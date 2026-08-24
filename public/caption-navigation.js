@@ -2,8 +2,27 @@
   "use strict";
 
   function finiteTime(value) {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "string" && value.trim() === "") return null;
     const time = Number(value);
     return Number.isFinite(time) && time >= 0 ? time : null;
+  }
+
+  function isReplayTarget(entry) {
+    return Boolean(entry) && entry.navigationMode === "replay";
+  }
+
+  function canNavigateTo(entry) {
+    return isReplayTarget(entry) || finiteTime(entry && entry.startTime) !== null;
+  }
+
+  function compareEntries(left, right) {
+    const leftTime = finiteTime(left.startTime);
+    const rightTime = finiteTime(right.startTime);
+    if (leftTime === null && rightTime === null) return left.firstSeen - right.firstSeen;
+    if (leftTime === null) return -1;
+    if (rightTime === null) return 1;
+    return leftTime - rightTime || left.firstSeen - right.firstSeen;
   }
 
   function upsert(history, entry, nextSequence, observedAt) {
@@ -18,15 +37,14 @@
         raw: entry.raw,
         text: entry.text,
         startTime: entry.startTime,
+        navigationMode: entry.navigationMode || items[existingIndex].navigationMode,
         observedAt
       };
     } else {
       items.push({ ...entry, firstSeen: nextSequence, observedAt });
     }
 
-    items.sort((left, right) =>
-      left.startTime - right.startTime || left.firstSeen - right.firstSeen
-    );
+    items.sort(compareEntries);
     const index = items.findIndex(item => item.videoId === entry.videoId && item.id === entry.id);
     return {
       history: items,
@@ -66,6 +84,8 @@
 
   global.ListenToLearnCaptionNavigation = Object.freeze({
     finiteTime,
+    isReplayTarget,
+    canNavigateTo,
     upsert,
     adjacent,
     neighbors,

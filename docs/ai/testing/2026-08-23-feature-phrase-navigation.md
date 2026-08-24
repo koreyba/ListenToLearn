@@ -121,9 +121,9 @@ Fresh evidence on 2026-08-23:
   and the deployed trainer contains `navigationMode` and `widget.replay`.
 - Regression gate: removing the cached-neighbor helper produced 1 failing test;
   restoring it returned the suite to 13 passed.
-- `npm test`: blocked before build by the repository wrapper's GNU `timeout`
-  requirement on this macOS host; direct equivalent build and test commands
-  above passed.
+- Historical note: `npm test` was blocked by the build wrapper's GNU `timeout`
+  dependency during this feature run; the shared wrapper was made portable
+  with `scripts/run-bounded.mjs` on 2026-08-24.
 - Local Chrome smoke against the static `public/` server at a 390px viewport
   confirmed `source=tatoeba`, hidden `captionNavigation` and
   `repeatCaptionBtn`, visible whole-track previous/next controls, and

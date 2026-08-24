@@ -237,16 +237,39 @@ test("trainer primary controls expose familiar icons with accessible labels", as
   assert.match(trainer, /\.player-controls \.button-label \{ display: none; \}/);
 });
 
+test("trainer uses one unbroken toolbar and one stateful play pause control", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(trainer, /id="playerControls" class="player-controls player-toolbar"/);
+  assert.match(trainer, /\.player-controls \{[\s\S]*?display: flex;[\s\S]*?flex-wrap: nowrap;/);
+  assert.doesNotMatch(trainer, /\.player-controls \{\s*grid-template-columns:/);
+  assert.doesNotMatch(trainer, /class="control-group-label"/);
+  assert.match(trainer, /id="playPauseBtn"[^>]*aria-label="Pause playback"[^>]*title="Pause playback"/);
+  assert.doesNotMatch(trainer, /id="pauseBtn"/);
+  assert.match(trainer, /data-speed="0\.75"[^>]*aria-label="Playback speed 0\.75×"[^>]*title="Playback speed 0\.75×"/);
+  assert.match(trainer, /data-speed="1"[^>]*aria-label="Playback speed 1×"[^>]*title="Playback speed 1×"/);
+  assert.match(trainer, /function renderPlaybackControl\(\)/);
+  assert.match(trainer, /playerState === 1[\s\S]*?callWidget\("pause"\)[\s\S]*?callWidget\("play"\)/);
+  assert.match(trainer, /playerState = nextState;\s*renderPlaybackControl\(\);/);
+  assert.match(trainer, /Recording ready — press Play\./);
+  assert.doesNotMatch(trainer, /Recording ready — press Listen\./);
+});
+
 test("trainer keeps primary controls compact across desktop and mobile", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),
     "utf8",
   );
 
-  assert.match(trainer, /grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
+  assert.match(trainer, /\.control-group \{\s*display: contents;/);
+  assert.match(trainer, /\.player-controls button \{[\s\S]*?flex: 1 1 0;/);
   assert.match(trainer, /class="caption-navigation-status"/);
   assert.doesNotMatch(trainer, /id="captionNavigationHint" class="control-group-hint"/);
-  assert.match(trainer, /@media \(max-width: 560px\)[\s\S]*?\.player-controls \{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(trainer, /@media \(max-width: 560px\)[\s\S]*?\.player-controls \{ gap: 3px; padding: 4px; \}/);
+  assert.doesNotMatch(trainer, /\.player-controls\.caption-controls-hidden/);
   assert.match(trainer, /\.example-tools \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) auto;/);
 });
 

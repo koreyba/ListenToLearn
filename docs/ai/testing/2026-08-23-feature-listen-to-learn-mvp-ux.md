@@ -37,7 +37,8 @@ Cover 100% of new/changed server branches that can be checked with the repositor
 - [x] The save-example payload retains phrase ID, provider, external ID, caption, and attribution metadata.
 - [x] Word click translation exposes an adjacent `+ To Learn` action; selection actions remain available.
 - [x] The phrase-saving payload carries selected text, original caption context, and available translation.
-- [x] Desktop controls use a four-column compact toolbar; mobile uses a two-column grid and keeps the caption explanation outside the control groups.
+- [x] Desktop and mobile controls use one flat, non-wrapping toolbar and keep the caption explanation below it; former group wrappers add no visible boxes or headings.
+- [x] Play/pause is one stateful button: paused Tatoeba and YouGlish playback renders Play and activation resumes playback; playing state renders Pause and activation pauses playback.
 - [x] Caption controls, caption status, and repeat-caption are hidden for Tatoeba and restored for YouGlish; the Tatoeba toolbar reflows without an empty caption column.
 - [x] Icon-only example settings expose explicit accessible names and mobile touch targets remain at least 44px.
 - [x] The inline trainer script parses with `new Function` after all changes.
@@ -53,8 +54,8 @@ Cover 100% of new/changed server branches that can be checked with the repositor
 
 ## End-to-End / Manual Tests
 
-- [x] Desktop: controls, captions, translation, save actions, and status are visible beside a compact >=200px media frame; no control overlaps the media panel (1280px browser smoke; YouGlish widget itself remained external).
-- [x] Mobile: learning workspace appears before the media panel, controls are tappable, and captions/translation remain reachable without horizontal scrolling (390x844; `scrollWidth === clientWidth`). The compact pass reduced the control grid from 490px to 218px and moved the media start from 1087px to about 700px while retaining 44px targets.
+- [x] Desktop: controls, captions, translation, save actions, and status are visible beside a compact >=200px media frame; no control overlaps the media panel. Fresh 1280x900 browser smoke rendered all nine YouGlish controls in one 56px-high row with zero toolbar/document horizontal overflow.
+- [x] Mobile: learning workspace appears before the media panel, controls are tappable, and captions/translation remain reachable without horizontal scrolling. Fresh 390x844 browser smoke rendered all nine YouGlish controls in one 54px-high row; toolbar and document overflow were both zero, every visible control retained 44px height, and all had non-empty `title` and `aria-label` values.
 - [x] Open a phrase, use Tatoeba, pause/replay controls, speed controls, and previous/next video (live local Worker/Tatoeba smoke; audio loaded with HTTP 206).
 - [x] Verify caption controls are hidden for Tatoeba and restored for YouGlish; static contract also verifies no fake five-second behavior.
 - [ ] For one phrase, save one YouGlish video and one Tatoeba audio item, reopen the phrase, switch to `Сохранённые`, and replay each item (Tatoeba completed; YouGlish end-to-end not run because provider playback is external).
@@ -93,15 +94,16 @@ Record the command output and the exact manual viewport/source/mode combinations
 ## Automated Evidence
 
 - `npx tsc --noEmit`: passed.
-- `npm run lint`: passed with two pre-existing warnings in generated `worker-configuration.d.ts`; no errors.
-- `node --test tests/rendered-html.test.mjs`: 18/18 passed after the compact-toolbar and accessibility regression cases were added.
+- `npm run lint`: the repository wrapper scanned nested `.worktrees/**/dist` and failed on 35 generated-file errors unrelated to this checkout. The equivalent current-checkout command with `--ignore-pattern .worktrees` passed with zero errors and two pre-existing warnings in `worker-configuration.d.ts`.
+- `node --test tests/rendered-html.test.mjs`: 24/24 passed, including compact-toolbar, tooltip/accessibility, and stateful play/pause regression contracts. Removing the YouGlish `play()` branch made the focused regression fail; restoring it returned the test to green.
+- Browser smoke (1280x900 and 390x844): all nine YouGlish controls stayed on one row with zero horizontal overflow. Live clicks changed `Play playback`/play icon to `Pause playback`/pause icon and back again through the YouGlish state callback.
 - `./node_modules/.bin/vinext build`: passed.
-- `npm test`: wrapper blocked before build because `scripts/build-verified.sh` requires GNU `timeout` on this macOS host; direct equivalent checks passed.
+- `npm test`: passed on macOS after `scripts/build-verified.sh` moved to the portable Node timeout runner; 25/25 tests passed, including the runner regression.
 - `git diff --check`: passed.
 - `npx ai-devkit@latest lint --feature listen-to-learn-mvp-ux`: passed.
 - `./node_modules/.bin/wrangler deploy --dry-run`: passed; built Worker/assets and D1/ASSETS bindings were validated without deployment.
 
 ## Remaining Validation Limits
 
-- `npm test` cannot run its wrapper on this macOS host because `scripts/build-verified.sh` requires GNU `timeout`; the direct build and test commands above are the equivalent fresh checks.
-- Live YouGlish playback/caption traversal and successful DeepL translation need external provider/service configuration. The code keeps those boundaries explicit and does not treat unavailable service as a passing success-path test.
+- Live YouGlish playback/caption traversal and successful DeepL translation still need external provider/service configuration. Build/test execution no longer has a macOS-specific timeout limitation.
+- The code keeps external provider boundaries explicit and does not treat unavailable service as a passing success-path test.

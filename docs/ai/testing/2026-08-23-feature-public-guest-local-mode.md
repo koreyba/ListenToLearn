@@ -59,12 +59,12 @@ description: Define testing approach, test cases, and quality assurance
 
 - `npm run lint`
 - `npx tsc --noEmit`
-- `npm run build` (the repository wrapper is unavailable on this macOS host because GNU `timeout` is absent); equivalent bounded `vinext build` passed.
+- Historical note: the repository build wrapper was unavailable on macOS during this feature run; it was made portable with `scripts/run-bounded.mjs` on 2026-08-24. The direct bounded `vinext build` passed at the time.
 - `node --test tests/*.test.mjs` — 26 passed, 0 failed.
 - `git diff --check`
 - `npx ai-devkit@latest lint --feature public-guest-local-mode`
 
-Document any macOS `timeout` wrapper limitation separately from code failures.
+Keep build-runner portability failures separate from application code failures.
 
 ## Manual Testing
 

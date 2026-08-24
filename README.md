@@ -93,6 +93,10 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 - `npm run install:ci`: perform the one bounded lockfile install
 - `npm run dev`: start the Vite/Vinext development server
 - `npm run build`: build the deployable Sites artifact
+- `npm run deploy:preview`: deploy the built artifact to the isolated preview
+  Worker
+- `ALLOW_PRODUCTION_DEPLOY=1 npm run deploy:production`: explicitly deploy the
+  built artifact to production after merge
 - `npm run start`: start the built Vinext application
 - `npm test`: build and verify the rendered development-preview metadata
 - `npm run db:generate`: generate Drizzle migrations after schema changes

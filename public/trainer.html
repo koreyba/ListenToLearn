@@ -2267,6 +2267,15 @@
         && finiteCaptionTime(current.startTime) !== null;
     }
 
+    function captionTargetAvailable(target) {
+      if (!target || !captionNavigation) return false;
+      if (captionNavigation.isReplayTarget(target)) {
+        return typeof widget?.replay === "function";
+      }
+      return finiteCaptionTime(target.startTime) !== null
+        && typeof widget?.move === "function";
+    }
+
     function cancelCaptionNavigation() {
       captionNavigationBusy = false;
     }
@@ -2285,7 +2294,7 @@
       if (repeatCaptionEnabled || repeatPending) disableRepeatCaption(message);
     }
 
-    function upsertCaptionEntry(raw, text, id, startTime) {
+    function upsertCaptionEntry(raw, text, id, startTime, navigationMode = "seek") {
       if (!captionNavigation) return null;
       const result = captionNavigation.upsert(
         captionHistory,
@@ -2294,7 +2303,8 @@
           id,
           raw,
           text,
-          startTime
+          startTime,
+          navigationMode
         },
         captionEntrySequence,
         performance.now()
@@ -2331,10 +2341,10 @@
         ? captionNavigation.neighbors(captionHistory, captionHistoryIndex, currentYouglishVideoId)
         : { previous: null, next: null };
       const previousAvailable = timingAvailable
-        && Boolean(previousTarget)
+        && captionTargetAvailable(previousTarget)
         && !captionNavigationBlocked.previous;
       const nextAvailable = timingAvailable
-        && Boolean(nextTarget)
+        && captionTargetAvailable(nextTarget)
         && !captionNavigationBlocked.next;
       const unavailable = state.source !== "youglish"
         ? "This source has no timestamped captions."
@@ -2371,11 +2381,18 @@
     function seekToKnownCaption(target, wasPlaying) {
       const current = currentCaptionEntry();
       if (!current || !target || !sameCaptionVideo(target)) return null;
-      const currentTime = estimatedCaptionTime(current) ?? current.startTime;
-      const delta = captionNavigation.relativeSeekDelta(currentTime, target.startTime);
+      const replayTarget = captionNavigation.isReplayTarget(target);
+      if (!captionNavigation.canNavigateTo(target)) return null;
       if (wasPlaying && typeof widget.pause === "function") widget.pause();
       try {
-        widget.move(delta);
+        if (replayTarget) {
+          if (typeof widget.replay !== "function") return null;
+          widget.replay();
+        } else {
+          const currentTime = estimatedCaptionTime(current) ?? current.startTime;
+          const delta = captionNavigation.relativeSeekDelta(currentTime, target.startTime);
+          widget.move(delta);
+        }
         const targetIndex = captionHistory.findIndex(entry =>
           entry.videoId === target.videoId && entry.id === target.id
         );
@@ -3098,8 +3115,19 @@
       currentCaptionText = cleanCaptionText(currentCaptionRaw);
       const captionId = event && event.id != null ? String(event.id) : `${currentCaptionText}:${captionHistory.length}`;
       const currentTime = finiteCaptionTime(event && event.current_time);
-      if (currentTime !== null && captionNavigation) {
-        const entry = upsertCaptionEntry(currentCaptionRaw, currentCaptionText, captionId, currentTime);
+      const knownCaption = captionNavigation && captionHistory.find(entry =>
+        entry.videoId === currentYouglishVideoId && entry.id === captionId
+      );
+      const firstCaptionForVideo = Boolean(currentYouglishVideoId) && captionHistory.length === 0;
+      const replayTarget = Boolean(knownCaption && captionNavigation.isReplayTarget(knownCaption));
+      if (captionNavigation && (currentTime !== null || firstCaptionForVideo || replayTarget)) {
+        const entry = upsertCaptionEntry(
+          currentCaptionRaw,
+          currentCaptionText,
+          captionId,
+          currentTime,
+          currentTime === null ? "replay" : "seek"
+        );
         entry.lastKnownTime = currentTime;
         if (repeatCaptionEnabled && entry.id !== repeatTargetId && !captionNavigationBusy) {
           disableRepeatCaption("Phrase repeat disabled: playback moved to another caption.");

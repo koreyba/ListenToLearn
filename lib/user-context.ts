@@ -4,7 +4,7 @@ export type AuthenticatedUser = {
   name: string;
 };
 
-export const AUTHENTICATED_USER_HEADER = "x-listen-to-learn-user";
+export const AUTHENTICATED_USER_HEADER = "x-unmumble-user";
 
 function toBase64Url(bytes: Uint8Array) {
   let binary = "";

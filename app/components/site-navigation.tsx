@@ -22,7 +22,7 @@ export function SiteNavigation({
   return (
     <header className="site-navigation">
       <div className="site-navigation-inner">
-        <Link aria-label="ListenToLearn library" className="site-brand" href="/">ListenToLearn</Link>
+        <Link aria-label="Unmumble library" className="site-brand" href="/">Unmumble</Link>
         <nav aria-label="Primary navigation" className="site-primary-links">
           {primaryLinks.map((link) => (
             <Link

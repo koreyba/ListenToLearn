@@ -25,7 +25,7 @@ test("trainer has an intentional guest branch and never sends guest mutations to
   assert.match(trainer, /Sign in with Google/);
   assert.match(trainer, /localStorage/);
 
-  const authHint = trainer.indexOf('localStorage.getItem("listen-to-learn-authenticated-v1")');
+  const authHint = trainer.indexOf("readMigratedStorage(AUTH_HINT_STORAGE_KEY");
   const accountProbe = trainer.lastIndexOf("fetch(`/api/phrases${query}`");
   assert.ok(authHint >= 0 && accountProbe > authHint, "account probing must be gated by the local auth hint");
   assert.match(trainer, /if \(!isAuthenticated\) \{[\s\S]*?toggleGuestSavedExample/);

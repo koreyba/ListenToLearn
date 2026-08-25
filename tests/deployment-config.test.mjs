@@ -19,12 +19,26 @@ const packageConfig = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
 );
 
-test("preview Wrangler environment has its own Worker name", () => {
-  assert.equal(sourceConfig.env?.preview?.name, "listen-to-learn-preview");
-  assert.equal(previewConfig.name, "listen-to-learn-preview");
+test("Unmumble environments have explicit Worker and D1 names", () => {
+  assert.equal(sourceConfig.name, "unmumble-prod");
+  assert.equal(sourceConfig.env?.preview?.name, "unmumble-preview");
+  assert.equal(previewConfig.name, "unmumble-preview");
   assert.equal(
     previewConfig.d1_databases[0].database_name,
-    "listen-to-learn-preview-db",
+    "unmumble-preview-db",
+  );
+  assert.equal(
+    previewConfig.d1_databases[0].database_id,
+    "0d361b44-60ef-4c5b-b2ea-fe9d4d5020f1",
+  );
+  assert.equal(productionConfig.name, "unmumble-prod");
+  assert.equal(
+    productionConfig.d1_databases[0].database_name,
+    "unmumble-prod-db",
+  );
+  assert.equal(
+    productionConfig.d1_databases[0].database_id,
+    "9e187b50-9012-45d9-aeec-40a573e59d79",
   );
 });
 
@@ -63,6 +77,12 @@ test("preview URLs stay enabled through Wrangler deployments", () => {
   assert.equal(previewConfig.preview_urls, true);
 });
 
+test("production routes the Unmumble domain to the Unmumble Worker", () => {
+  assert.deepEqual(productionConfig.routes, [
+    { pattern: "unmumble.online", custom_domain: true },
+  ]);
+});
+
 test("production deploy is opt-in", () => {
   const result = spawnSync(
     process.execPath,
@@ -83,5 +103,5 @@ test("production deploy is opt-in", () => {
     `${result.stdout}\n${result.stderr}`,
     /ALLOW_PRODUCTION_DEPLOY=1/,
   );
-  assert.equal(productionConfig.name, "listen-to-learn");
+  assert.equal(productionConfig.name, "unmumble-prod");
 });

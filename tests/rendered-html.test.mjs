@@ -781,7 +781,7 @@ test("caption timeline keeps opaque IDs ordered by timing and computes relative 
   );
   const sandbox = { window: {} };
   vm.runInNewContext(source, sandbox);
-  const navigation = sandbox.window.ListenToLearnCaptionNavigation;
+  const navigation = sandbox.window.UnmumbleCaptionNavigation;
   assert.ok(navigation);
 
   const first = navigation.upsert([], {
@@ -836,7 +836,7 @@ test("the first caption without timing is a replay target, not a zero-time seek"
   );
   const sandbox = { window: {} };
   vm.runInNewContext(source, sandbox);
-  const navigation = sandbox.window.ListenToLearnCaptionNavigation;
+  const navigation = sandbox.window.UnmumbleCaptionNavigation;
 
   const first = navigation.upsert([], {
     videoId: "video-1",
@@ -875,7 +875,7 @@ test("phrase navigation uses cached neighbors without waiting for a new caption 
   );
   const sandbox = { window: {} };
   vm.runInNewContext(source, sandbox);
-  const navigation = sandbox.window.ListenToLearnCaptionNavigation;
+  const navigation = sandbox.window.UnmumbleCaptionNavigation;
   const first = navigation.upsert([], {
     videoId: "video-1",
     id: "opaque-a",

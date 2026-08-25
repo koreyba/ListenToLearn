@@ -11,17 +11,17 @@ const repositoryRoot = path.resolve(
 const deployments = {
   "branch-preview": {
     configFile: "wrangler.preview.jsonc",
-    workerName: "listen-to-learn-preview",
+    workerName: "unmumble-preview",
     wranglerCommand: ["versions", "upload"],
   },
   preview: {
     configFile: "wrangler.preview.jsonc",
-    workerName: "listen-to-learn-preview",
+    workerName: "unmumble-preview",
     wranglerCommand: ["deploy"],
   },
   production: {
     configFile: "wrangler.production.jsonc",
-    workerName: "listen-to-learn",
+    workerName: "unmumble-prod",
     wranglerCommand: ["deploy"],
   },
 };

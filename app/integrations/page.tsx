@@ -93,7 +93,7 @@ export default function IntegrationsPage() {
         account={<a className="site-account-link" href="/cdn-cgi/access/logout">Log out</a>}
       />
       <main className="integrations-shell">
-      <p className="eyebrow">Connected speech trainer</p>
+      <p className="eyebrow">Unmumble</p>
       <h1>Integrations</h1>
       <p className="integrations-intro">Connect services that help you learn. Sign in with Google; keys are never returned to the browser after saving.</p>
 

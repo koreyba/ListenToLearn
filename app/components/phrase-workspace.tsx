@@ -2,9 +2,15 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SiteNavigation } from "@/app/components/site-navigation";
+import {
+  readMigratedStorage,
+  removeMigratedStorage,
+  writeMigratedStorage,
+} from "@/lib/browser-storage";
 import { PRESET_PHRASES } from "@/lib/preset-phrases";
 import {
   GUEST_LIBRARY_STORAGE_KEY,
+  LEGACY_GUEST_LIBRARY_STORAGE_KEYS,
   addGuestPhrase,
   createGuestLibrary,
   normalizeGuestLibrary,
@@ -49,9 +55,12 @@ const practiceTabs: Array<{ id: Exclude<PhraseStatus, "pick">; label: string; hi
 
 type PhraseSort = "added_desc" | "added_asc" | "alpha_asc" | "alpha_desc";
 
-const PHRASE_SORT_STORAGE_KEY = "listen-to-learn-library-sort-v1";
-const AUTH_HINT_STORAGE_KEY = "listen-to-learn-authenticated-v1";
-const GUEST_TRAINER_STORAGE_KEY = "connected-speech-trainer-v1:anonymous";
+const PHRASE_SORT_STORAGE_KEY = "unmumble-library-sort-v1";
+const LEGACY_PHRASE_SORT_STORAGE_KEYS = ["listen-to-learn-library-sort-v1"] as const;
+const AUTH_HINT_STORAGE_KEY = "unmumble-authenticated-v1";
+const LEGACY_AUTH_HINT_STORAGE_KEYS = ["listen-to-learn-authenticated-v1"] as const;
+const GUEST_TRAINER_STORAGE_KEY = "unmumble-trainer-v1:anonymous";
+const LEGACY_GUEST_TRAINER_STORAGE_KEYS = ["connected-speech-trainer-v1:anonymous"] as const;
 const GUEST_PRESET_CREATED_AT = "1970-01-01T00:00:00.000Z";
 const phraseSortOptions: Array<{ value: PhraseSort; label: string }> = [
   { value: "added_desc", label: "Added · newest first" },
@@ -135,7 +144,11 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try {
-        const stored = window.localStorage.getItem(PHRASE_SORT_STORAGE_KEY);
+        const stored = readMigratedStorage(
+          window.localStorage,
+          PHRASE_SORT_STORAGE_KEY,
+          LEGACY_PHRASE_SORT_STORAGE_KEYS,
+        );
         if (phraseSortOptions.some((option) => option.value === stored)) {
           setPhraseSort(stored as PhraseSort);
         }
@@ -151,7 +164,12 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
   useEffect(() => {
     if (!phraseSortReady.current) return;
     try {
-      window.localStorage.setItem(PHRASE_SORT_STORAGE_KEY, phraseSort);
+      writeMigratedStorage(
+        window.localStorage,
+        PHRASE_SORT_STORAGE_KEY,
+        LEGACY_PHRASE_SORT_STORAGE_KEYS,
+        phraseSort,
+      );
     } catch {
       // Browser storage is optional; the current selection still applies.
     }
@@ -165,7 +183,12 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     setGuestLibrary(normalized);
     setPhrases(guestPhrases(normalized));
     try {
-      window.localStorage.setItem(GUEST_LIBRARY_STORAGE_KEY, JSON.stringify(normalized));
+      writeMigratedStorage(
+        window.localStorage,
+        GUEST_LIBRARY_STORAGE_KEY,
+        LEGACY_GUEST_LIBRARY_STORAGE_KEYS,
+        JSON.stringify(normalized),
+      );
     } catch {
       setNotice("Guest progress only lasts while this tab is open because localStorage is unavailable.");
     }
@@ -174,7 +197,11 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
   const loadGuestState = useCallback(() => {
     let next = createGuestLibrary();
     try {
-      const raw = window.localStorage.getItem(GUEST_LIBRARY_STORAGE_KEY);
+      const raw = readMigratedStorage(
+        window.localStorage,
+        GUEST_LIBRARY_STORAGE_KEY,
+        LEGACY_GUEST_LIBRARY_STORAGE_KEYS,
+      );
       if (raw) next = normalizeGuestLibrary(JSON.parse(raw));
     } catch {
       setNotice("Could not read guest progress; starting with a clean state.");
@@ -196,11 +223,15 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
         throw new Error(data.error || "account session unavailable");
       }
       setViewer(data.user);
-      try { window.localStorage.setItem(AUTH_HINT_STORAGE_KEY, "1"); } catch { /* optional hint */ }
+      try {
+        writeMigratedStorage(window.localStorage, AUTH_HINT_STORAGE_KEY, LEGACY_AUTH_HINT_STORAGE_KEYS, "1");
+      } catch { /* optional hint */ }
       setPhrases(data.phrases);
       setLoading(false);
     } catch {
-      try { window.localStorage.removeItem(AUTH_HINT_STORAGE_KEY); } catch { /* optional hint */ }
+      try {
+        removeMigratedStorage(window.localStorage, AUTH_HINT_STORAGE_KEY, LEGACY_AUTH_HINT_STORAGE_KEYS);
+      } catch { /* optional hint */ }
       loadGuestState();
     }
   }, [loadGuestState]);
@@ -211,7 +242,13 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     if (signedIn) window.history.replaceState(null, "", window.location.pathname);
 
     let authHint = false;
-    try { authHint = window.localStorage.getItem(AUTH_HINT_STORAGE_KEY) === "1"; } catch { /* optional hint */ }
+    try {
+      authHint = readMigratedStorage(
+        window.localStorage,
+        AUTH_HINT_STORAGE_KEY,
+        LEGACY_AUTH_HINT_STORAGE_KEYS,
+      ) === "1";
+    } catch { /* optional hint */ }
     const timer = window.setTimeout(() => {
       if (signedIn || authHint) void loadAccount();
       else loadGuestState();
@@ -221,7 +258,10 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
-      if (event.key !== GUEST_LIBRARY_STORAGE_KEY || mode !== "guest") return;
+      if (
+        ![GUEST_LIBRARY_STORAGE_KEY, ...LEGACY_GUEST_LIBRARY_STORAGE_KEYS].includes(event.key || "")
+        || mode !== "guest"
+      ) return;
       loadGuestState();
     };
     window.addEventListener("storage", handleStorage);
@@ -378,13 +418,21 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
   function resetGuest() {
     if (!window.confirm("Clear all guest progress in this browser?")) return;
     persistGuestState(createGuestLibrary());
-    try { window.localStorage.removeItem(GUEST_TRAINER_STORAGE_KEY); } catch { /* optional storage */ }
+    try {
+      removeMigratedStorage(
+        window.localStorage,
+        GUEST_TRAINER_STORAGE_KEY,
+        LEGACY_GUEST_TRAINER_STORAGE_KEYS,
+      );
+    } catch { /* optional storage */ }
     setActiveTab(surface === "practice" ? "learning_now" : "pick");
     setNotice("Guest progress cleared.");
   }
 
   function clearAccountHint() {
-    try { window.localStorage.removeItem(AUTH_HINT_STORAGE_KEY); } catch { /* optional storage */ }
+    try {
+      removeMigratedStorage(window.localStorage, AUTH_HINT_STORAGE_KEY, LEGACY_AUTH_HINT_STORAGE_KEYS);
+    } catch { /* optional storage */ }
   }
 
   const current = surface === "library"
@@ -407,7 +455,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
       <main className="library-shell">
       <header className="library-header">
         <div>
-          <p className="eyebrow">Connected speech trainer</p>
+          <p className="eyebrow">Unmumble</p>
           <h1>{surface === "library" ? (
             <>Find useful phrases.<br />Choose what to learn.</>
           ) : (

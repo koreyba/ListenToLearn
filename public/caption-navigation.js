@@ -136,7 +136,7 @@
     return -(elapsed || knownDuration || 0.5);
   }
 
-  global.ListenToLearnCaptionNavigation = Object.freeze({
+  global.UnmumbleCaptionNavigation = Object.freeze({
     finiteTime,
     isReplayTarget,
     canNavigateTo,

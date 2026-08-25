@@ -3,13 +3,20 @@
 import { useCallback, useEffect, useState } from "react";
 import { SiteNavigation } from "@/app/components/site-navigation";
 import {
+  readMigratedStorage,
+  removeMigratedStorage,
+  writeMigratedStorage,
+} from "@/lib/browser-storage";
+import {
   GUEST_LIBRARY_STORAGE_KEY,
+  LEGACY_GUEST_LIBRARY_STORAGE_KEYS,
   normalizeGuestLibrary,
   removeGuestSavedVideo,
   type GuestLibraryState,
   type GuestSavedVideo,
 } from "@/lib/guest-library";
 import {
+  LEGACY_YOUTUBE_PROGRESS_STORAGE_KEYS,
   normalizeYouTubeProgress,
   readYouTubeResume,
   type YouTubeProgressEntry,
@@ -24,11 +31,16 @@ import {
 type SavedVideo = GuestSavedVideo;
 type VideosResponse = { videos?: SavedVideo[]; error?: string };
 
-const AUTH_HINT_STORAGE_KEY = "listen-to-learn-authenticated-v1";
+const AUTH_HINT_STORAGE_KEY = "unmumble-authenticated-v1";
+const LEGACY_AUTH_HINT_STORAGE_KEYS = ["listen-to-learn-authenticated-v1"] as const;
 
 function readGuestLibrary() {
   try {
-    const raw = window.localStorage.getItem(GUEST_LIBRARY_STORAGE_KEY);
+    const raw = readMigratedStorage(
+      window.localStorage,
+      GUEST_LIBRARY_STORAGE_KEY,
+      LEGACY_GUEST_LIBRARY_STORAGE_KEYS,
+    );
     return normalizeGuestLibrary(raw ? JSON.parse(raw) : null);
   } catch {
     return normalizeGuestLibrary(null);
@@ -37,7 +49,11 @@ function readGuestLibrary() {
 
 function readProgressMap() {
   try {
-    const raw = window.localStorage.getItem(YOUTUBE_PROGRESS_STORAGE_KEY);
+    const raw = readMigratedStorage(
+      window.localStorage,
+      YOUTUBE_PROGRESS_STORAGE_KEY,
+      LEGACY_YOUTUBE_PROGRESS_STORAGE_KEYS,
+    );
     return normalizeYouTubeProgress(raw ? JSON.parse(raw) : null).videos;
   } catch {
     return {};
@@ -83,7 +99,9 @@ export default function VideosPage() {
       setVideos(data.videos);
       setLoading(false);
     } catch {
-      try { window.localStorage.removeItem(AUTH_HINT_STORAGE_KEY); } catch { /* optional hint */ }
+      try {
+        removeMigratedStorage(window.localStorage, AUTH_HINT_STORAGE_KEY, LEGACY_AUTH_HINT_STORAGE_KEYS);
+      } catch { /* optional hint */ }
       loadGuest();
     }
   }, [loadGuest]);
@@ -109,7 +127,13 @@ export default function VideosPage() {
       openLegacyDirectLink();
       setProgress(readProgressMap());
       let authHint = false;
-      try { authHint = window.localStorage.getItem(AUTH_HINT_STORAGE_KEY) === "1"; } catch { /* optional hint */ }
+      try {
+        authHint = readMigratedStorage(
+          window.localStorage,
+          AUTH_HINT_STORAGE_KEY,
+          LEGACY_AUTH_HINT_STORAGE_KEYS,
+        ) === "1";
+      } catch { /* optional hint */ }
       if (authHint) void loadAccount();
       else loadGuest();
     }, 0);
@@ -120,8 +144,13 @@ export default function VideosPage() {
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
-      if (event.key === GUEST_LIBRARY_STORAGE_KEY && mode === "guest") loadGuest();
-      if (event.key === YOUTUBE_PROGRESS_STORAGE_KEY) setProgress(readProgressMap());
+      if (
+        [GUEST_LIBRARY_STORAGE_KEY, ...LEGACY_GUEST_LIBRARY_STORAGE_KEYS].includes(event.key || "")
+        && mode === "guest"
+      ) loadGuest();
+      if (
+        [YOUTUBE_PROGRESS_STORAGE_KEY, ...LEGACY_YOUTUBE_PROGRESS_STORAGE_KEYS].includes(event.key || "")
+      ) setProgress(readProgressMap());
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -132,7 +161,12 @@ export default function VideosPage() {
     setGuestLibrary(normalized);
     setVideos(normalized.savedVideos);
     try {
-      window.localStorage.setItem(GUEST_LIBRARY_STORAGE_KEY, JSON.stringify(normalized));
+      writeMigratedStorage(
+        window.localStorage,
+        GUEST_LIBRARY_STORAGE_KEY,
+        LEGACY_GUEST_LIBRARY_STORAGE_KEYS,
+        JSON.stringify(normalized),
+      );
     } catch {
       setError("Could not update the guest video library in this browser.");
     }
@@ -180,7 +214,13 @@ export default function VideosPage() {
             className="site-account-link"
             href="/cdn-cgi/access/logout"
             onClick={() => {
-              try { window.localStorage.removeItem(AUTH_HINT_STORAGE_KEY); } catch { /* optional hint */ }
+              try {
+                removeMigratedStorage(
+                  window.localStorage,
+                  AUTH_HINT_STORAGE_KEY,
+                  LEGACY_AUTH_HINT_STORAGE_KEYS,
+                );
+              } catch { /* optional hint */ }
             }}
           >Log out</a>
         )}

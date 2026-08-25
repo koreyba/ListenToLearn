@@ -1,5 +1,5 @@
 {
-  "name": "connected-speech-trainer",
+  "name": "unmumble",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -13,7 +13,7 @@
     "deploy:preview": "node scripts/deploy-worker.mjs preview",
     "deploy:production": "node scripts/deploy-worker.mjs production",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs tests/bounded-command.test.mjs tests/caption-navigation.test.mjs tests/caption-segments.test.mjs tests/guest-library.test.mjs tests/youtube-player.test.mjs tests/youtube-progress.test.mjs tests/youglish-caption-navigation.test.mjs tests/youglish-full-video.test.mjs",
+    "test": "npm run build && node --test tests/rendered-html.test.mjs tests/bounded-command.test.mjs tests/caption-navigation.test.mjs tests/caption-segments.test.mjs tests/guest-library.test.mjs tests/unmumble-rename.test.mjs tests/youtube-player.test.mjs tests/youtube-progress.test.mjs tests/youglish-caption-navigation.test.mjs tests/youglish-full-video.test.mjs",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"
   },
@@ -44,5 +44,5 @@
     "wrangler": "4.125.0"
   },
   "type": "module",
-  "displayName": "\u0422\u0440\u0435\u043d\u0430\u0436\u0451\u0440 \u0441\u0432\u044f\u0437\u043d\u043e\u0439 \u0430\u043d\u0433\u043b\u0438\u0439\u0441\u043a\u043e\u0439 \u0440\u0435\u0447\u0438"
+  "displayName": "Unmumble"
 }

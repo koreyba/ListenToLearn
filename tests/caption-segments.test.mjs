@@ -10,7 +10,7 @@ async function loadNavigation() {
   );
   const sandbox = { window: {} };
   vm.runInNewContext(source, sandbox);
-  return sandbox.window.ListenToLearnCaptionNavigation;
+  return sandbox.window.UnmumbleCaptionNavigation;
 }
 
 function entry(id, startTime, segmentId) {

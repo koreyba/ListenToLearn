@@ -200,7 +200,7 @@ export async function GET(request: Request) {
     const needsBackfill = result.results.some((phrase) => phrase.status !== "pick" && !phrase.translation);
     return Response.json(
       { phrases: result.results, user: publicUser(user) },
-      needsBackfill ? { headers: { "X-ListenToLearn-Backfill": "1" } } : undefined,
+      needsBackfill ? { headers: { "X-Unmumble-Backfill": "1" } } : undefined,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not load phrases.";

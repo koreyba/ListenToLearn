@@ -168,11 +168,12 @@
     .media-heading {
       display: flex;
       align-items: center;
-      justify-content: flex-end;
+      justify-content: space-between;
       gap: 8px;
       margin-bottom: 7px;
     }
 
+    .media-full-video-btn,
     .media-expand-btn {
       display: inline-flex;
       align-items: center;
@@ -187,11 +188,13 @@
       white-space: nowrap;
     }
 
+    .media-full-video-btn:hover,
     .media-expand-btn:hover {
       border-color: var(--accent);
       background: #1a465a;
     }
 
+    .media-full-video-btn svg,
     .media-expand-btn svg {
       width: 15px;
       height: 15px;
@@ -201,6 +204,10 @@
       stroke-linejoin: round;
       stroke-width: 1.8;
     }
+
+    .media-full-video-btn[hidden] { display: none; }
+
+    .media-expand-btn { margin-left: auto; }
 
     .media-expanded .media-expand-btn {
       border-color: var(--accent);
@@ -1044,6 +1051,7 @@
       .example-settings .segmented button {
         min-height: 44px;
       }
+      .media-full-video-btn,
       .media-expand-btn {
         min-width: 44px;
         min-height: 44px;
@@ -1072,6 +1080,7 @@
       .player-controls .button-label { display: none; }
       .player-controls button { padding-left: 3px; padding-right: 3px; }
       .player-controls .button-icon { width: 18px; height: 18px; }
+      .media-full-video-btn .button-label,
       .media-expand-btn .button-label,
       .example-actions .button-label { display: none; }
       .example-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1178,14 +1187,6 @@
               <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3z" /></svg></span>
               <span class="button-label">Save clip</span>
             </button>
-            <button id="watchLaterBtn" type="button" aria-label="Save full video to Watch Later" title="Save full video to Watch Later" disabled hidden>
-              <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M6 4h12v16l-6-3-6 3V4z" /></svg></span>
-              <span class="button-label">Watch later</span>
-            </button>
-            <button id="watchFullVideoBtn" type="button" aria-label="Watch full video" title="Watch full video" disabled hidden>
-              <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m9 7 8 5-8 5V7zM4 4h16v16H4z" /></svg></span>
-              <span class="button-label">Watch full video</span>
-            </button>
           </div>
         </div>
 
@@ -1225,6 +1226,10 @@
 
       <aside class="media-panel" aria-label="Media example">
         <div class="media-heading">
+          <button id="watchFullVideoBtn" class="media-full-video-btn" type="button" aria-label="Watch full video" title="Watch full video" disabled hidden>
+            <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m9 7 8 5-8 5V7zM4 4h16v16H4z" /></svg></span>
+            <span class="button-label">Watch full video</span>
+          </button>
           <button id="expandMediaBtn" class="media-expand-btn" type="button" aria-label="Expand player" aria-controls="widgetFrame" aria-expanded="false" title="Expand player">
             <span class="button-icon expand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M8 4H4v4M16 4h4v4M20 16v4h-4M4 16v4h4" /></svg></span>
             <span class="button-label">Expand</span>
@@ -1485,7 +1490,6 @@
       exampleOrder: document.getElementById("exampleOrder"),
       savedExampleCount: document.getElementById("savedExampleCount"),
       saveExampleBtn: document.getElementById("saveExampleBtn"),
-      watchLaterBtn: document.getElementById("watchLaterBtn"),
       watchFullVideoBtn: document.getElementById("watchFullVideoBtn"),
       exampleMessage: document.getElementById("exampleMessage"),
       sourceSwitch: document.getElementById("sourceSwitch"),
@@ -2169,9 +2173,7 @@
 
       const isYouGlish = state.source === "youglish";
       const validYouTubeVideo = isYouGlish && /^[A-Za-z0-9_-]{11}$/.test(currentYouglishVideoId);
-      el.watchLaterBtn.hidden = !isYouGlish;
-      el.watchFullVideoBtn.hidden = !isYouGlish;
-      el.watchLaterBtn.disabled = !validYouTubeVideo;
+      el.watchFullVideoBtn.hidden = fullVideoMode || !isYouGlish;
       el.watchFullVideoBtn.disabled = !validYouTubeVideo;
 
       if (!learningPhrase && !el.exampleMessage.textContent) {
@@ -3317,38 +3319,30 @@
       };
     }
 
-    async function saveCurrentVideoForLater() {
-      const origin = currentVideoOrigin();
-      if (state.source !== "youglish" || !/^[A-Za-z0-9_-]{11}$/.test(origin.videoId)) return;
-      el.watchLaterBtn.disabled = true;
-      el.watchLaterBtn.setAttribute("aria-busy", "true");
-      showExampleMessage("Saving full video to Watch Later…");
+    async function recordCurrentVideoHistory(origin) {
       try {
         if (!isAuthenticated) {
           saveGuestVideo(origin);
           saveGuestLibrary();
-        } else {
-          const response = await fetch("/api/videos", {
-            method: "POST",
-            headers: { "Content-Type": "application/json; charset=utf-8" },
-            body: JSON.stringify(origin)
-          });
-          const data = await response.json().catch(() => null);
-          if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
+          return;
         }
-        showExampleMessage("Full video saved to Watch Later.");
+        const response = await fetch("/api/videos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json; charset=utf-8" },
+          body: JSON.stringify(origin)
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
       } catch (error) {
-        showExampleMessage(error.message || "Could not save the full video.", "error");
+        showExampleMessage("Full video opened, but it could not be added to Continue watching.", "error");
         console.error(error);
-      } finally {
-        el.watchLaterBtn.removeAttribute("aria-busy");
-        renderExampleTools();
       }
     }
 
     function watchCurrentFullVideo() {
       const origin = currentVideoOrigin();
       if (state.source !== "youglish" || !/^[A-Za-z0-9_-]{11}$/.test(origin.videoId) || !origin.originQuery) return;
+      void recordCurrentVideoHistory(origin);
       if (widgetReady && widget && typeof widget.pause === "function") {
         try { widget.pause(); } catch (_) {}
       }
@@ -3740,7 +3734,6 @@
       }
     });
     el.saveExampleBtn.addEventListener("click", toggleSavedExample);
-    el.watchLaterBtn.addEventListener("click", saveCurrentVideoForLater);
     el.watchFullVideoBtn.addEventListener("click", watchCurrentFullVideo);
     el.exampleMode.addEventListener("click", event => {
       const btn = event.target.closest("button[data-example-mode]");

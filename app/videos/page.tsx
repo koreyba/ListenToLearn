@@ -145,13 +145,13 @@ export default function VideosPage() {
   }
 
   async function removeVideo(video: SavedVideo) {
-    if (!window.confirm("Remove this video from Watch Later?")) return;
+    if (!window.confirm("Remove this video from Continue watching?")) return;
     setBusyId(video.id);
     setError("");
     setNotice("");
     if (mode === "guest") {
       persistGuest(removeGuestSavedVideo(guestLibrary, video.id));
-      setNotice("Video removed from Watch Later. Its phrase clips were not changed.");
+      setNotice("Video removed from Continue watching. Its phrase clips were not changed.");
       setBusyId("");
       return;
     }
@@ -159,11 +159,11 @@ export default function VideosPage() {
     try {
       const response = await fetch(`/api/videos?id=${encodeURIComponent(video.id)}`, { method: "DELETE" });
       const data = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(data.error || "Could not remove the saved video.");
+      if (!response.ok) throw new Error(data.error || "Could not remove the video.");
       setVideos((items) => items.filter((item) => item.id !== video.id));
-      setNotice("Video removed from Watch Later. Its phrase clips were not changed.");
+      setNotice("Video removed from Continue watching. Its phrase clips were not changed.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not remove the saved video.");
+      setError(reason instanceof Error ? reason.message : "Could not remove the video.");
     } finally {
       setBusyId("");
     }
@@ -174,7 +174,7 @@ export default function VideosPage() {
       <header className="videos-header">
         <div>
           <p className="eyebrow">Long-form listening</p>
-          <h1>Saved videos</h1>
+          <h1>Videos</h1>
           <p>Continue a YouGlish video with the trainer&apos;s captions and learning controls. Resume stays in this browser.</p>
         </div>
         <nav className="videos-nav" aria-label="Videos navigation">
@@ -182,22 +182,22 @@ export default function VideosPage() {
         </nav>
       </header>
 
-      {mode === "guest" && <div className="notice" role="status">Guest mode: saved videos and resume position stay only in this browser.</div>}
+      {mode === "guest" && <div className="notice" role="status">Guest mode: viewing history and resume position stay only in this browser.</div>}
       {error && <div className="notice error" role="alert">{error}</div>}
       {notice && <div className="notice success" role="status">{notice}</div>}
 
-      <section className="saved-videos-section" aria-labelledby="saved-videos-heading">
+      <section className="saved-videos-section" aria-labelledby="continue-watching-heading">
         <div className="section-heading">
           <div>
-            <h2 id="saved-videos-heading">Watch later</h2>
-            <p>{videos.length} saved {videos.length === 1 ? "video" : "videos"}</p>
+            <h2 id="continue-watching-heading">Continue watching</h2>
+            <p>{videos.length} watched {videos.length === 1 ? "video" : "videos"}</p>
           </div>
         </div>
 
-        {loading ? <div className="notice">Loading saved videos…</div> : videos.length === 0 ? (
+        {loading ? <div className="notice">Loading videos…</div> : videos.length === 0 ? (
           <div className="empty-state">
-            <strong>No videos saved yet</strong>
-            <span>Choose Watch later on a YouGlish result to add the first one.</span>
+            <strong>No videos watched yet</strong>
+            <span>Choose Watch full video on a YouGlish result to add the first one.</span>
           </div>
         ) : (
           <div className="video-grid">
@@ -206,7 +206,7 @@ export default function VideosPage() {
               return (
                 <article className="video-card" key={video.id}>
                   <button
-                    aria-label={`Watch ${video.originQuery || "saved YouTube video"}`}
+                    aria-label={`Continue ${video.originQuery || "YouTube video"}`}
                     className="video-thumbnail"
                     onClick={() => selectVideo(video)}
                     style={{ backgroundImage: `url(${youtubeThumbnailUrl(video.videoId)})` }}
@@ -219,10 +219,10 @@ export default function VideosPage() {
                     {video.originCaption && <p>{video.originCaption}</p>}
                     <div className="video-card-meta">
                       <span>{savedProgress > 0 ? `Resume at ${formatProgress(savedProgress)}` : "Not started"}</span>
-                      <span>Saved {new Date(video.updatedAt).toLocaleDateString()}</span>
+                      <span>Last opened {new Date(video.updatedAt).toLocaleDateString()}</span>
                     </div>
                     <div className="video-card-actions">
-                      <button onClick={() => selectVideo(video)} type="button">Watch</button>
+                      <button onClick={() => selectVideo(video)} type="button">Continue</button>
                       <button className="secondary" disabled={busyId === video.id} onClick={() => void removeVideo(video)} type="button">Remove</button>
                     </div>
                   </div>

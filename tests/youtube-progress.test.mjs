@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   clearYouTubeProgress,
+  mergeYouTubeProgress,
   normalizeYouTubeProgress,
   readYouTubeResume,
   readYouTubeProgress,
@@ -18,6 +19,15 @@ test("malformed YouTube progress normalizes to an empty bounded state", () => {
     version: 1,
     videos: {},
   });
+});
+
+test("newer same-account retry progress wins over D1 while older local progress does not", () => {
+  const server = updateYouTubeProgress(null, "M7lc1UVf-VE", 30, "2026-08-25T10:00:00.000Z");
+  const newerLocal = updateYouTubeProgress(null, "M7lc1UVf-VE", 42, "2026-08-25T10:01:00.000Z");
+  const olderLocal = updateYouTubeProgress(null, "M7lc1UVf-VE", 12, "2026-08-25T09:59:00.000Z");
+
+  assert.equal(mergeYouTubeProgress(server, newerLocal).videos["M7lc1UVf-VE"].seconds, 42);
+  assert.equal(mergeYouTubeProgress(server, olderLocal).videos["M7lc1UVf-VE"].seconds, 30);
 });
 
 test("YouTube progress saves, reads and clears a video position", () => {

@@ -1,7 +1,8 @@
 /** Cloudflare Worker entry point for the Listen to Learn application. */
 import handler from "vinext/server/app-router-entry";
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { createRemoteJWKSet } from "jose";
 import { backfillTranslations } from "@/app/api/phrases/route";
+import { accessTokenFromRequest, optionalSessionResponse, verifyAccessJwtIdentity } from "@/lib/access-session";
 import { guestLoginRedirect, isPublicGuestRequest } from "@/lib/guest-access";
 import { AUTHENTICATED_USER_HEADER, encodeUserContext } from "@/lib/user-context";
 
@@ -28,6 +29,7 @@ const PUBLIC_DOCUMENT_PATHS = new Set([
 ]);
 const PUBLIC_LONG_CACHE_PATHS = new Set([
   "/caption-navigation.js",
+  "/video-progress-sync.js",
   "/favicon.svg",
   "/file.svg",
   "/globe.svg",
@@ -57,28 +59,21 @@ function jwksFor(teamDomain: string) {
   return jwks;
 }
 
-function claimString(payload: JWTPayload, key: string) {
-  const value = payload[key];
-  return typeof value === "string" ? value : "";
-}
-
-async function verifyAccessIdentity(request: Request, env: AccessEnv) {
-  const token = request.headers.get("Cf-Access-Jwt-Assertion");
+async function verifyAccessIdentity(
+  request: Request,
+  env: AccessEnv,
+  options: { allowCookie?: boolean } = {},
+) {
+  const token = accessTokenFromRequest(request, options);
   const config = accessConfiguration(env);
   if (!token || !config) return null;
 
   try {
-    const { payload } = await jwtVerify(token, jwksFor(config.teamDomain), {
+    return await verifyAccessJwtIdentity(token, {
       issuer: config.issuer,
-      audience: config.audiences,
+      audiences: config.audiences,
+      getKey: jwksFor(config.teamDomain),
     });
-    const subject = claimString(payload, "sub");
-    if (!subject) return null;
-    return {
-      subject,
-      email: claimString(payload, "email").toLowerCase(),
-      name: claimString(payload, "name") || claimString(payload, "preferred_username"),
-    };
   } catch (error) {
     console.warn("Access identity verification failed:", error instanceof Error ? error.message : "unknown error");
     return null;
@@ -143,6 +138,15 @@ const worker = {
   async fetch(request: Request, env: AccessEnv, ctx: ExecutionContext): Promise<Response> {
     const pathname = new URL(request.url).pathname;
     const headers = sanitizedHeaders(request);
+
+    if (pathname === "/api/session" && (request.method === "GET" || request.method === "HEAD")) {
+      const identity = await verifyAccessIdentity(request, env, { allowCookie: true });
+      const response = optionalSessionResponse(identity);
+      if (request.method === "HEAD") {
+        return new Response(null, { status: response.status, headers: response.headers });
+      }
+      return response;
+    }
 
     // Guest-safe documents, assets, and the public Tatoeba proxy do not consume
     // identity data. Avoid a remote JWKS lookup on every public navigation.

@@ -1,10 +1,22 @@
 const publicAssetPaths = new Set([
   "/caption-navigation.js",
+  "/video-progress-sync.js",
   "/favicon.svg",
   "/file.svg",
   "/globe.svg",
   "/og.png",
   "/window.svg",
+]);
+
+const publicLoginReturnPaths = new Set([
+  "/",
+  "/practice",
+  "/practice/",
+  "/trainer",
+  "/trainer/",
+  "/trainer.html",
+  "/videos",
+  "/videos/",
 ]);
 
 export function isPublicGuestRequest(request: Request) {
@@ -19,6 +31,7 @@ export function isPublicGuestRequest(request: Request) {
     || pathname === "/practice/"
     || pathname === "/videos"
     || pathname === "/videos/"
+    || pathname === "/api/session"
     || publicAssetPaths.has(pathname)
   ) return true;
   if (pathname.startsWith("/_next/")) return true;
@@ -26,5 +39,21 @@ export function isPublicGuestRequest(request: Request) {
 }
 
 export function guestLoginRedirect(request: Request) {
-  return new URL("/?signedIn=1", request.url);
+  const requestUrl = new URL(request.url);
+  const requested = requestUrl.searchParams.get("returnTo") || "/";
+  let target = new URL("/", requestUrl);
+
+  if (requested.length <= 2_000 && requested.startsWith("/") && !requested.startsWith("//")) {
+    try {
+      const candidate = new URL(requested, requestUrl);
+      if (candidate.origin === requestUrl.origin && publicLoginReturnPaths.has(candidate.pathname)) {
+        target = candidate;
+      }
+    } catch {
+      // Invalid or hostile return targets use the public home page.
+    }
+  }
+
+  target.searchParams.set("signedIn", "1");
+  return target;
 }

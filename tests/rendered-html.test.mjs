@@ -298,7 +298,7 @@ test("Full Video Mode keeps learning controls and removes result-only controls",
   assert.doesNotMatch(warmTransition, /fetchPhrase|fetchYouglish|widget\.fetch|window\.location/);
 
   const listenTransition = trainer.match(/function listenToText\(text\) \{([\s\S]*?)\n    \}\n\n    async function addTextToLearn/)?.[1] || "";
-  assert.match(listenTransition, /persistFullVideoProgress\(\)/);
+  assert.match(listenTransition, /persistFullVideoProgress\(\{ flush: true \}\)/);
   assert.match(listenTransition, /history\.pushState\(\{ listenFromFullVideo: true \}/);
   assert.match(trainer, /window\.addEventListener\("popstate"[\s\S]*?fetchPhrase\(fullVideoOrigin\.resumeCaption/);
   assert.match(trainer, /event\.state && event\.state\.listenFromFullVideo[\s\S]*?fetchPhrase\(VIEWER_PHRASE, true\)/);
@@ -336,7 +336,7 @@ test("YouGlish results keep clip filters aligned and record history on Full Vide
   assert.match(trainer, /currentYouglishVideoId/);
   assert.match(trainer, /\^\[A-Za-z0-9_-\]\{11\}\$/);
   assert.match(trainer, /const itemLabel = state\.source === "tatoeba" \? "track" : "clip"/);
-  assert.match(trainer, /function recordCurrentVideoHistory\(origin\)/);
+  assert.match(trainer, /function recordCurrentVideoHistory\(origin, progress\)/);
   assert.match(trainer, /saveGuestVideo\(origin\)/);
   assert.equal(
     [...trainer.matchAll(/recordCurrentVideoHistory\(/g)].length,
@@ -344,9 +344,9 @@ test("YouGlish results keep clip filters aligned and record history on Full Vide
     "history must be written only by the Full Video action",
   );
   const warmTransition = trainer.match(/function watchCurrentFullVideo\(\) \{([\s\S]*?)\n    \}/)?.[1] || "";
-  assert.match(warmTransition, /void recordCurrentVideoHistory\(origin\)/);
+  assert.match(warmTransition, /void recordCurrentVideoHistory\(origin, progress\)/);
   assert.ok(
-    warmTransition.indexOf("recordCurrentVideoHistory(origin)") < warmTransition.indexOf("widget.pause()"),
+    warmTransition.indexOf("recordCurrentVideoHistory(origin, progress)") < warmTransition.indexOf("widget.pause()"),
     "history upsert must start before entering Full Video Mode",
   );
   assert.match(page, /<SiteNavigation\s+active=\{surface\}/);
@@ -970,9 +970,15 @@ test("Worker authenticates through Cloudflare Access and strips client identity 
     new URL("../lib/user-context.ts", import.meta.url),
     "utf8",
   );
+  const access = await readFile(
+    new URL("../lib/access-session.ts", import.meta.url),
+    "utf8",
+  );
 
-  assert.match(worker, /jwtVerify/);
-  assert.match(worker, /Cf-Access-Jwt-Assertion/);
+  assert.match(access, /jwtVerify/);
+  assert.match(access, /Cf-Access-Jwt-Assertion/);
+  assert.match(access, /CF_Authorization/);
+  assert.match(worker, /verifyAccessJwtIdentity/);
   assert.match(worker, /ACCESS_TEAM_DOMAIN/);
   assert.match(worker, /ACCESS_AUD/);
   assert.match(worker, /headers\.delete\(AUTHENTICATED_USER_HEADER\)/);

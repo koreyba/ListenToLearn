@@ -19,7 +19,9 @@ test("guest allowlist exposes only UI, static assets and read-only Tatoeba", () 
     "/practice/",
     "/videos",
     "/videos/",
+    "/api/session",
     "/caption-navigation.js",
+    "/video-progress-sync.js",
     "/favicon.svg",
     "/_next/static/chunk.js",
     "/api/tatoeba?q=hello",
@@ -51,4 +53,29 @@ test("login redirect is fixed to the public home marker and cannot become an ope
     guestLoginRedirect(request("/login?returnTo=https%3A%2F%2Fevil.example")).toString(),
     "https://listen-to-learn.example/?signedIn=1",
   );
+});
+
+test("login redirect returns to an approved public page and rejects unsafe targets", () => {
+  assert.equal(
+    guestLoginRedirect(request("/login?returnTo=%2Fvideos")).toString(),
+    "https://listen-to-learn.example/videos?signedIn=1",
+  );
+  assert.equal(
+    guestLoginRedirect(request("/login?returnTo=%2Ftrainer%3Fphrase%3Dget%2Bit")).toString(),
+    "https://listen-to-learn.example/trainer?phrase=get+it&signedIn=1",
+  );
+  for (const target of [
+    "//evil.example",
+    "/api/me",
+    "/integrations",
+    "/login",
+    "/videos/../integrations",
+    `/videos?value=${"x".repeat(2_000)}`,
+  ]) {
+    assert.equal(
+      guestLoginRedirect(request(`/login?returnTo=${encodeURIComponent(target)}`)).toString(),
+      "https://listen-to-learn.example/?signedIn=1",
+      target,
+    );
+  }
 });

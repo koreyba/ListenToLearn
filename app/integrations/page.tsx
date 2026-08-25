@@ -90,7 +90,7 @@ export default function IntegrationsPage() {
     <>
       <SiteNavigation
         active="settings"
-        account={<a className="site-account-link" href="/cdn-cgi/access/logout">Log out</a>}
+        account={<a className="site-account-link" href="/cdn-cgi/access/logout">Sign out</a>}
       />
       <main className="integrations-shell">
       <p className="eyebrow">Connected speech trainer</p>

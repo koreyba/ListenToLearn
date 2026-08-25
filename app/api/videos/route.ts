@@ -1,5 +1,6 @@
 import { getD1 } from "@/db";
 import { getCurrentUser, unauthorizedResponse } from "@/lib/auth";
+import { normalizeStoredVideoProgress, readVideoProgressInput } from "@/lib/video-history";
 import { isYouTubeVideoId } from "@/lib/youtube-player";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +14,10 @@ type SavedVideoRow = {
   origin_caption: string;
   language: string;
   accent: string;
+  resume_seconds: number;
+  resume_caption_id: string;
+  resume_caption_text: string;
+  progress_updated_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -30,6 +35,12 @@ function publicVideo(row: SavedVideoRow) {
     originCaption: row.origin_caption,
     language: row.language,
     accent: row.accent,
+    progress: normalizeStoredVideoProgress({
+      seconds: row.resume_seconds,
+      captionId: row.resume_caption_id,
+      captionText: row.resume_caption_text,
+      updatedAt: row.progress_updated_at,
+    }),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -47,7 +58,8 @@ export async function GET(request: Request) {
 
   try {
     const result = await getD1().prepare(`
-      SELECT id, youtube_video_id, origin_phrase_id, origin_query, origin_caption, language, accent, created_at, updated_at
+      SELECT id, youtube_video_id, origin_phrase_id, origin_query, origin_caption, language, accent,
+        resume_seconds, resume_caption_id, resume_caption_text, progress_updated_at, created_at, updated_at
       FROM saved_videos
       WHERE user_id = ?
       ORDER BY updated_at DESC, id ASC
@@ -87,6 +99,7 @@ export async function POST(request: Request) {
     const originCaption = cleanText(payload.originCaption, 1_000);
     const language = cleanText(payload.language, 20).toLocaleLowerCase("en") || "english";
     const accent = cleanText(payload.accent, 20).toLocaleLowerCase("en");
+    const progressResult = readVideoProgressInput(payload.progress);
     const validLanguage = language === "english";
     const validAccent = !accent || accent === "us" || accent === "uk";
     if (!isYouTubeVideoId(videoId) || !originQuery) {
@@ -94,6 +107,9 @@ export async function POST(request: Request) {
     }
     if (!validLanguage || !validAccent) {
       return json({ error: "Unsupported YouGlish language or accent." }, { status: 400 });
+    }
+    if (!progressResult.ok) {
+      return json({ error: progressResult.error }, { status: 400 });
     }
 
     const db = getD1();
@@ -114,11 +130,14 @@ export async function POST(request: Request) {
       WHERE user_id = ? AND youtube_video_id = ?
     `).bind(user.subject, videoId).first<{ id: string }>();
     const now = new Date().toISOString();
+    const progress = progressResult.value;
+    const progressProvided = progress !== null;
     const id = existing?.id || "video-" + crypto.randomUUID();
     await db.prepare(`
       INSERT INTO saved_videos
-        (id, user_id, youtube_video_id, origin_phrase_id, origin_query, origin_caption, language, accent, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, user_id, youtube_video_id, origin_phrase_id, origin_query, origin_caption, language, accent,
+          resume_seconds, resume_caption_id, resume_caption_text, progress_updated_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, youtube_video_id) DO UPDATE SET
         origin_phrase_id = CASE
           WHEN excluded.origin_phrase_id IS NOT NULL THEN excluded.origin_phrase_id
@@ -134,6 +153,22 @@ export async function POST(request: Request) {
         END,
         language = excluded.language,
         accent = excluded.accent,
+        resume_seconds = CASE
+          WHEN excluded.progress_updated_at IS NOT NULL THEN excluded.resume_seconds
+          ELSE saved_videos.resume_seconds
+        END,
+        resume_caption_id = CASE
+          WHEN excluded.progress_updated_at IS NOT NULL THEN excluded.resume_caption_id
+          ELSE saved_videos.resume_caption_id
+        END,
+        resume_caption_text = CASE
+          WHEN excluded.progress_updated_at IS NOT NULL THEN excluded.resume_caption_text
+          ELSE saved_videos.resume_caption_text
+        END,
+        progress_updated_at = CASE
+          WHEN excluded.progress_updated_at IS NOT NULL THEN excluded.progress_updated_at
+          ELSE saved_videos.progress_updated_at
+        END,
         updated_at = excluded.updated_at
     `).bind(
       id,
@@ -144,12 +179,17 @@ export async function POST(request: Request) {
       originCaption,
       language,
       accent,
+      progress?.seconds || 0,
+      progress?.captionId || "",
+      progress?.captionText || "",
+      progressProvided ? now : null,
       now,
       now,
     ).run();
 
     const row = await db.prepare(`
-      SELECT id, youtube_video_id, origin_phrase_id, origin_query, origin_caption, language, accent, created_at, updated_at
+      SELECT id, youtube_video_id, origin_phrase_id, origin_query, origin_caption, language, accent,
+        resume_seconds, resume_caption_id, resume_caption_text, progress_updated_at, created_at, updated_at
       FROM saved_videos
       WHERE user_id = ? AND youtube_video_id = ?
     `).bind(user.subject, videoId).first<SavedVideoRow>();

@@ -94,3 +94,16 @@ export function clearYouTubeProgress(state: unknown, videoId: string) {
   if (isYouTubeVideoId(videoId)) delete next.videos[videoId];
   return next;
 }
+
+export function mergeYouTubeProgress(...states: unknown[]) {
+  const merged: YouTubeProgressState = { version: 1, videos: {} };
+  for (const state of states) {
+    for (const [videoId, entry] of Object.entries(normalizeYouTubeProgress(state).videos)) {
+      const existing = merged.videos[videoId];
+      if (!existing || Date.parse(entry.updatedAt) >= Date.parse(existing.updatedAt)) {
+        merged.videos[videoId] = entry;
+      }
+    }
+  }
+  return normalizeYouTubeProgress(merged);
+}

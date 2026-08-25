@@ -98,8 +98,8 @@ function isYouTubeVideoId(value: string) {
   return /^[A-Za-z0-9_-]{11}$/.test(value);
 }
 
-function videoLanguage(value: unknown) {
-  return text(value, 20).toLocaleLowerCase("en") === "english" ? "english" : "english";
+function videoLanguage() {
+  return "english";
 }
 
 function videoAccent(value: unknown) {
@@ -201,7 +201,7 @@ export function normalizeGuestLibrary(value: unknown): GuestLibraryState {
       originPhraseId: text(item.originPhraseId, 120),
       originQuery: text(item.originQuery, 240),
       originCaption: text(item.originCaption, 1_000),
-      language: videoLanguage(item.language),
+      language: videoLanguage(),
       accent: videoAccent(item.accent),
       createdAt: nowIso(typeof item.createdAt === "string" ? item.createdAt : undefined),
       updatedAt: nowIso(typeof item.updatedAt === "string" ? item.updatedAt : undefined),
@@ -339,7 +339,7 @@ export function saveGuestVideo(
         originPhraseId: text(input.originPhraseId, 120) || existing.originPhraseId,
         originQuery: originQuery || existing.originQuery,
         originCaption: text(input.originCaption, 1_000) || existing.originCaption,
-        language: videoLanguage(input.language || existing.language),
+        language: videoLanguage(),
         accent: input.accent === undefined ? existing.accent : videoAccent(input.accent),
         updatedAt: timestamp,
       }
@@ -349,7 +349,7 @@ export function saveGuestVideo(
         originPhraseId: text(input.originPhraseId, 120),
         originQuery,
         originCaption: text(input.originCaption, 1_000),
-        language: videoLanguage(input.language),
+        language: videoLanguage(),
         accent: videoAccent(input.accent),
         createdAt: timestamp,
         updatedAt: timestamp,

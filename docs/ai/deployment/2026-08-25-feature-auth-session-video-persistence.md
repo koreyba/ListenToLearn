@@ -16,14 +16,14 @@ description: Ordered D1, Worker, and Cloudflare Access rollout with exact readba
 ## Release Preconditions
 
 - Review-ready branch with all gates in the testing doc green.
-- Explicit authorization to deploy and change Cloudflare Access.
+- Explicit authorization for each remote mutation. Preview D1 migrations were authorized and applied on 2026-08-25; Access, preview promotion, and production rollout remain separately gated.
 - Fresh Access application GET readback immediately before mutation.
 - Real Google-authenticated browser session available for manual smoke; credentials/tokens are never copied into logs or automation.
 
 ## Ordered Rollout
 
 1. Capture aggregate-only preview D1 baseline: migration list, total `saved_videos`, rows with `progress_updated_at`.
-2. Apply `0011_tranquil_siren.sql` to preview D1 and read back the four column definitions.
+2. Apply every pending additive migration to preview D1. On 2026-08-25 this applied `0010_early_angel.sql` and `0011_tranquil_siren.sql`; a fresh migration-list readback is empty and all six added `saved_videos` columns match their expected defaults/nullability.
 3. Deploy the preview Worker through the repository's preview deployment command.
 4. Update the existing account Access application by adding only the exact preview and production `/api/videos` destinations. Preserve application ID, audience, 24-hour session, existing destinations, CORS/cookie settings, and policy.
 5. Read the Access application back and diff every field; stop on any drift beyond the two destinations.
@@ -57,4 +57,4 @@ description: Ordered D1, Worker, and Cloudflare Access rollout with exact readba
 
 ## Current Status
 
-Local implementation and local D1 migration verification are complete. PR #19 has an automatically uploaded branch preview version. Remote preview/production migrations, Access mutation, preview promotion, production deploy, and the complete authenticated persistence smoke have not been executed because they require separate explicit operational authorization.
+Local implementation and local D1 migration verification are complete. PR #19 has an automatically uploaded branch preview version. Authorized preview D1 migrations `0010` and `0011` were applied on 2026-08-25; a fresh list reports no pending migrations, and authenticated Practice and Videos both load without the former JSON/API failure. Access destination mutation, preview promotion, production migration/deploy, authenticated create/update/delete persistence smoke, cross-browser restore, and live Sign out remain separately gated.

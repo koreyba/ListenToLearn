@@ -81,6 +81,8 @@ description: Regression, ownership, persistence, and live Access verification fo
 - Red/green live-preview regression: the branch Access application audience was absent from preview Worker variables, reproducing the authenticated `/login` `401`; the deployment-config test fails when that audience is removed and also proves production is not widened.
 - Green targeted suites cover Access JWT issuer/audience/expiry, cookie/header extraction, safe redirects, all client bootstraps, progress validation/freshness, controller timing/retry, migration contract, Trainer wiring, and Videos source selection.
 - Local Wrangler applied migrations `0000` through `0011`; pragma readback proved the four expected columns, defaults, and nullability.
+- Remote preview Wrangler applied the two pending migrations, `0010` and `0011`. A fresh list reports no pending migrations; pragma readback proves `language`, `accent`, `resume_seconds`, `resume_caption_id`, `resume_caption_text`, and nullable `progress_updated_at` with the expected defaults.
+- Authenticated live-preview smoke after migration loads Practice without the former empty-JSON alert and loads Videos account history with a valid empty state and Sign out action.
 - The first full wildcard run passed 162/164 and exposed two obsolete assertions for the old no-progress signatures; both were reconciled with the intentional contract. The latest `npm test` build plus wildcard suite passed 168/168 after the preview-AUD regression was added.
 - Regression sensitivity proof: temporarily routing the client probe to `/api/me` made `tests/client-session.test.mjs` fail 2/3 with the expected endpoint mismatch; restoring `/api/session` passed 3/3.
 
@@ -88,7 +90,7 @@ description: Regression, ownership, persistence, and live Access verification fo
 
 - The current harness separately proves Access JWT verification, optional response shape, and Worker routing order, but does not execute the bundled Worker with an injected Access verifier. It also proves subject scoping from SQL/source contracts but does not execute `app/api/videos/route.ts` against a two-user D1 fixture. A future Worker integration harness should close these unchecked integration cases.
 - No line/branch coverage reporter is configured. Coverage claims are therefore contract/test-case based, not a numeric line percentage.
-- Authenticated cross-application and cross-browser E2E requires the real Cloudflare Access configuration and a user-controlled Google session; all E2E items remain unchecked until authorized deployment smoke.
+- The current signed-in preview session proves Practice and Videos account reads after the migration. Sign-in return from every surface, write/update/delete persistence, cross-browser restore, and live Sign out still require the remaining authorized deployment smoke.
 
 ## Manual Testing
 

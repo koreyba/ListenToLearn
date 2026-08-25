@@ -122,4 +122,4 @@ Execution is sequential by evidence, not by calendar date. A red test, reviewed 
 
 ## Progress Summary
 
-Milestones 1–3 and the local release-readiness review are complete. Red/green tests, 168/168 full tests, TypeScript, lint, build, feature lint, diff check, regression sensitivity, and a clean local D1 migration/readback pass. Task 4.4 remains intentionally unexecuted pending explicit deploy and Cloudflare Access authorization, so Milestone 4 is not yet closed.
+Milestones 1–3 and the local release-readiness review are complete. Red/green tests, 168/168 full tests, TypeScript, lint, build, feature lint, diff check, regression sensitivity, and local D1 migration/readback pass. The authorized preview portion of Task 4.4 is complete: migrations `0010` and `0011` are applied, no preview migrations remain pending, and authenticated Practice/Videos reads pass. Access mutation, persistence-write/cross-browser smoke, preview promotion, and production rollout remain separately gated, so Milestone 4 is not yet closed.

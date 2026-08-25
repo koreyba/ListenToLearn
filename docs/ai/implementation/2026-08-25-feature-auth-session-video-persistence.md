@@ -11,7 +11,7 @@ description: Implemented trust boundary, D1 resume model, client mode selection,
 - Isolated worktree: `.worktrees/feature-auth-session-video-persistence` on branch `feature-auth-session-video-persistence`, based on `9683bdf`.
 - Dependencies installed with `npm ci`; baseline and final Vinext builds pass.
 - Durable AI DevKit task: `121411b4-6fa8-41f4-99c6-c7477ebe2c89`.
-- Local D1 verification uses Wrangler's local state only. PR #19 is published and Workers Builds uploaded its isolated branch preview version; no remote D1 migration, Access edit, preview promotion, or production deployment has been performed.
+- Local D1 verification uses Wrangler's local state. PR #19 is published and Workers Builds uploaded its isolated branch preview version. Authorized preview D1 migrations `0010` and `0011` were applied and read back on 2026-08-25; no Access edit, preview promotion, production migration, or production deployment has been performed.
 
 ## Code Structure
 
@@ -77,4 +77,4 @@ description: Implemented trust boundary, D1 resume model, client mode selection,
 - Live PR preview diagnosis reproduced an authenticated `/login` `401`: Access issued the branch-preview application's audience while the deployed preview Worker accepted only the two production audiences. A red/green configuration test now requires the third audience in preview and rejects it in production.
 - `npx tsc --noEmit`, `npm run lint`, `npm run build`, feature lint, `git diff --check`, and local D1 migration/schema readback pass.
 - No P0/P1 code or design blocker remains in local review. The named runtime-harness and live-environment gaps remain explicit in the testing doc.
-- Remaining release evidence is operational: preview/production migration, Access edit/readback, deployed guest/authenticated smoke, and aggregate remote D1 delta.
+- Remaining release evidence is operational: production migration, Access edit/readback, authenticated preview write/update/delete and cross-browser restore, deployed guest smoke, and aggregate remote D1 delta. Authenticated preview Practice/Videos reads now pass after the preview migration.

@@ -1434,13 +1434,27 @@
     const captionNavigation = window.ListenToLearnCaptionNavigation || null;
     let captionHistory = [];
     let captionHistoryIndex = -1;
+    const captionVideoStates = new Map();
+    let activeCaptionSegmentId = "";
+    let captionSegmentSequence = 0;
     let captionNavigationBlocked = { previous: false, next: false };
     let captionNavigationBusy = false;
+    let captionNavigationPendingTargetId = "";
+    let captionNavigationPendingTimer = null;
+    let controlledCaptionTargetId = "";
+    let controlledCaptionRestorePaused = false;
+    let replayPendingTargetId = "";
+    let replayPendingTimer = null;
+    let replayRestorePaused = false;
     let repeatCaptionEnabled = false;
     let repeatTargetId = "";
     let repeatPending = false;
     let playerState = null;
+    let requestedYouglishPlayback = null;
+    let captionPlaybackContinuity = 0;
     let captionEntrySequence = 0;
+    const CAPTION_NAVIGATION_LOCK_MS = 500;
+    const CONTROLLED_CAPTION_TIMEOUT_MS = 20_000;
     let lastTranslation = { source: "", context: "", translation: "" };
     let translationRequest = 0;
     let translationAbortController = null;
@@ -1534,6 +1548,68 @@
       replayBtn: document.getElementById("replayBtn"),
       repeatCaptionBtn: document.getElementById("repeatCaptionBtn")
     };
+
+    const captionTraceEnabled = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+      && new URLSearchParams(window.location.search).get("captionTrace") === "1";
+    const captionTraceStartedAt = performance.now();
+    const captionTraceEvents = [];
+    const captionTraceCaptionTokens = new Map();
+    const captionTraceRenderedTokens = new Map();
+    const captionTraceVideoTokens = new Map();
+
+    function captionTraceToken(tokens, value, prefix) {
+      const key = String(value || "");
+      if (!key) return "";
+      if (!tokens.has(key)) tokens.set(key, `${prefix}-${tokens.size + 1}`);
+      return tokens.get(key);
+    }
+
+    function captionTraceState() {
+      const current = currentCaptionEntry();
+      return {
+        video: captionTraceToken(captionTraceVideoTokens, currentYouglishVideoId, "video"),
+        history: captionHistory.map(entry => ({
+          caption: captionTraceToken(captionTraceCaptionTokens, entry.id, "caption"),
+          startTime: finiteCaptionTime(entry.startTime),
+          nextOffsetSeconds: finiteCaptionTime(entry.nextOffsetSeconds),
+          nextOffsetTarget: captionTraceToken(
+            captionTraceCaptionTokens,
+            entry.nextOffsetTargetId,
+            "caption"
+          ),
+          mode: entry.navigationMode,
+          segment: entry.segmentId,
+          firstSeen: entry.firstSeen
+        })),
+        index: captionHistoryIndex,
+        current: captionTraceToken(captionTraceCaptionTokens, current && current.id, "caption"),
+        rendered: captionTraceToken(captionTraceRenderedTokens, currentCaptionText, "rendered"),
+        pending: captionTraceToken(captionTraceCaptionTokens, captionNavigationPendingTargetId, "caption"),
+        controlled: captionTraceToken(captionTraceCaptionTokens, controlledCaptionTargetId, "caption"),
+        replayPending: captionTraceToken(captionTraceCaptionTokens, replayPendingTargetId, "caption"),
+        playerState,
+        speed: Number(state.speed),
+        requestedPlayback: requestedYouglishPlayback,
+        previousDisabled: Boolean(el.prevCaptionBtn && el.prevCaptionBtn.disabled),
+        nextDisabled: Boolean(el.nextCaptionBtn && el.nextCaptionBtn.disabled)
+      };
+    }
+
+    function recordCaptionTrace(type, detail = {}) {
+      if (!captionTraceEnabled || !el.captionNavigation) return;
+      captionTraceEvents.push({
+        sequence: captionTraceEvents.length + 1,
+        atMs: Math.round((performance.now() - captionTraceStartedAt) * 10) / 10,
+        type,
+        ...detail,
+        state: captionTraceState()
+      });
+      if (captionTraceEvents.length > 300) captionTraceEvents.shift();
+      el.captionNavigation.dataset.trace = JSON.stringify({
+        version: "listen-to-learn.youglish-caption-trace/v1",
+        events: captionTraceEvents
+      });
+    }
 
     const BUTTON_ICON_PATHS = Object.freeze({
       play: '<path d="m8 5 11 7-11 7V5z" />',
@@ -2368,6 +2444,12 @@
       return captionHistory[captionHistoryIndex] || null;
     }
 
+    function wantsYouglishPlayback() {
+      return requestedYouglishPlayback === null
+        ? playerState === 1
+        : requestedYouglishPlayback;
+    }
+
     function sameCaptionVideo(entry) {
       return Boolean(entry) && entry.videoId === currentYouglishVideoId;
     }
@@ -2380,20 +2462,83 @@
         && widget
         && typeof widget.move === "function"
         && sameCaptionVideo(current)
-        && finiteCaptionTime(current.startTime) !== null;
+        && (finiteCaptionTime(current.startTime) !== null
+          || captionNavigation.isReplayTarget(current));
     }
 
-    function captionTargetAvailable(target) {
+    function captionTargetAvailable(target, current = currentCaptionEntry()) {
       if (!target || !captionNavigation) return false;
       if (captionNavigation.isReplayTarget(target)) {
         return typeof widget?.replay === "function";
       }
-      return finiteCaptionTime(target.startTime) !== null
+      if (captionNavigation.isReplayTarget(current)
+          && finiteCaptionTime(current.startTime) === null) {
+        return typeof widget?.play === "function";
+      }
+      const targetTime = finiteCaptionTime(target.startTime);
+      const currentTime = finiteCaptionTime(current && current.startTime);
+      return targetTime !== null
+        && currentTime !== null
+        && Math.abs(targetTime - currentTime) >= 0.05
         && typeof widget?.move === "function";
+    }
+
+    function clearCaptionNavigationPendingTimer() {
+      if (captionNavigationPendingTimer !== null) {
+        window.clearTimeout(captionNavigationPendingTimer);
+        captionNavigationPendingTimer = null;
+      }
+    }
+
+    function clearCaptionNavigationPending() {
+      clearCaptionNavigationPendingTimer();
+      captionNavigationPendingTargetId = "";
+    }
+
+    function startCaptionNavigationPending(targetId, timeoutMs = CAPTION_NAVIGATION_LOCK_MS) {
+      clearCaptionNavigationPending();
+      captionNavigationPendingTargetId = targetId;
+      captionNavigationPendingTimer = window.setTimeout(() => {
+        const expiredTargetId = captionNavigationPendingTargetId;
+        captionNavigationPendingTimer = null;
+        captionNavigationPendingTargetId = "";
+        if (controlledCaptionTargetId === expiredTargetId) {
+          const restorePaused = controlledCaptionRestorePaused;
+          controlledCaptionTargetId = "";
+          controlledCaptionRestorePaused = false;
+          if (restorePaused) callWidget("pause");
+          el.status.textContent = "Could not confirm the next caption; try again.";
+        }
+        renderCaptionNavigation();
+      }, timeoutMs);
+    }
+
+    function clearReplayPending() {
+      if (replayPendingTimer !== null) {
+        window.clearTimeout(replayPendingTimer);
+        replayPendingTimer = null;
+      }
+      replayPendingTargetId = "";
+      replayRestorePaused = false;
+    }
+
+    function startReplayPending(targetId, restorePaused) {
+      clearReplayPending();
+      replayPendingTargetId = targetId;
+      replayRestorePaused = restorePaused;
+      replayPendingTimer = window.setTimeout(() => {
+        const shouldRestorePause = replayRestorePaused;
+        replayPendingTimer = null;
+        replayPendingTargetId = "";
+        replayRestorePaused = false;
+        if (shouldRestorePause && typeof widget?.pause === "function") widget.pause();
+        renderCaptionNavigation();
+      }, CAPTION_NAVIGATION_LOCK_MS);
     }
 
     function cancelCaptionNavigation() {
       captionNavigationBusy = false;
+      clearCaptionNavigationPending();
     }
 
     function disableRepeatCaption(message = "") {
@@ -2410,8 +2555,45 @@
       if (repeatCaptionEnabled || repeatPending) disableRepeatCaption(message);
     }
 
+    function storeActiveCaptionVideoState() {
+      if (!currentYouglishVideoId) return;
+      captionVideoStates.set(currentYouglishVideoId, {
+        history: captionHistory,
+        index: captionHistoryIndex,
+        activeSegmentId: activeCaptionSegmentId,
+        nextEntrySequence: captionEntrySequence,
+        nextSegmentSequence: captionSegmentSequence
+      });
+    }
+
+    function activateCaptionVideo(videoId) {
+      const switchingVideo = Boolean(currentYouglishVideoId) && currentYouglishVideoId !== videoId;
+      storeActiveCaptionVideoState();
+      currentYouglishVideoId = videoId;
+      const saved = captionVideoStates.get(videoId);
+      captionHistory = saved ? saved.history : [];
+      captionHistoryIndex = saved ? saved.index : -1;
+      activeCaptionSegmentId = saved ? saved.activeSegmentId : "";
+      captionEntrySequence = saved ? saved.nextEntrySequence : 0;
+      captionSegmentSequence = saved ? saved.nextSegmentSequence : 0;
+      captionNavigationBlocked = { previous: false, next: false };
+      captionNavigationBusy = false;
+      if (switchingVideo) {
+        captionPlaybackContinuity += 1;
+        clearCaptionNavigationPending();
+      }
+    }
+
     function upsertCaptionEntry(raw, text, id, startTime, navigationMode = "seek") {
       if (!captionNavigation) return null;
+      const segment = captionNavigation.resolveSegment(
+        captionHistory,
+        { videoId: currentYouglishVideoId, id, startTime },
+        activeCaptionSegmentId,
+        captionSegmentSequence
+      );
+      activeCaptionSegmentId = segment.segmentId;
+      captionSegmentSequence = segment.nextSegmentSequence;
       const result = captionNavigation.upsert(
         captionHistory,
         {
@@ -2420,7 +2602,8 @@
           raw,
           text,
           startTime,
-          navigationMode
+          navigationMode,
+          segmentId: activeCaptionSegmentId
         },
         captionEntrySequence,
         performance.now()
@@ -2440,6 +2623,7 @@
       }
       captionEntrySequence = result.nextSequence;
       captionNavigationBlocked = { previous: false, next: false };
+      storeActiveCaptionVideoState();
       return result.entry;
     }
 
@@ -2447,11 +2631,18 @@
       cancelCaptionNavigation();
       captionHistory = [];
       captionHistoryIndex = -1;
+      captionVideoStates.clear();
+      activeCaptionSegmentId = "";
+      captionSegmentSequence = 0;
       captionNavigationBlocked = { previous: false, next: false };
       captionEntrySequence = 0;
+      controlledCaptionTargetId = "";
+      controlledCaptionRestorePaused = false;
+      clearReplayPending();
       repeatCaptionEnabled = false;
       repeatTargetId = "";
       repeatPending = false;
+      requestedYouglishPlayback = null;
       renderCaptionNavigation();
     }
 
@@ -2465,22 +2656,28 @@
       const timingAvailable = captionTimingAvailable();
       const current = currentCaptionEntry();
       const { previous: previousTarget, next: nextTarget } = captionNavigation
-        ? captionNavigation.neighbors(captionHistory, captionHistoryIndex, currentYouglishVideoId)
+        ? captionNavigation.neighbors(
+            captionHistory,
+            captionHistoryIndex,
+            currentYouglishVideoId,
+            activeCaptionSegmentId
+          )
         : { previous: null, next: null };
       const previousAvailable = timingAvailable
-        && captionTargetAvailable(previousTarget)
+        && captionTargetAvailable(previousTarget, current)
         && !captionNavigationBlocked.previous;
       const nextAvailable = timingAvailable
-        && captionTargetAvailable(nextTarget)
+        && captionTargetAvailable(nextTarget, current)
         && !captionNavigationBlocked.next;
       const unavailable = state.source !== "youglish"
         ? "This source has no timestamped captions."
         : (!current || !timingAvailable
           ? "Exact navigation is waiting for the current caption timestamp."
           : "The neighboring caption has not been observed in this video yet.");
-      el.prevCaptionBtn.disabled = captionNavigationBusy || !previousAvailable;
-      el.nextCaptionBtn.disabled = captionNavigationBusy || !nextAvailable;
-      el.repeatCaptionBtn.disabled = captionNavigationBusy || !timingAvailable;
+      el.prevCaptionBtn.disabled = !previousAvailable;
+      el.nextCaptionBtn.disabled = !nextAvailable;
+      el.repeatCaptionBtn.disabled = !captionsAvailable;
+      if (el.replayBtn) el.replayBtn.disabled = false;
       el.repeatCaptionBtn.setAttribute("aria-pressed", String(repeatCaptionEnabled));
       setButtonLabel(el.repeatCaptionBtn, `Repeat caption: ${repeatCaptionEnabled ? "on" : "off"}`);
       el.captionNavigationHint.textContent = state.source !== "youglish"
@@ -2505,19 +2702,86 @@
       return finiteCaptionTime(entry.lastKnownTime) ?? startTime;
     }
 
+    function elapsedCaptionMediaTime(entry) {
+      if (!entry || playerState !== 1 || !Number.isFinite(entry.observedAt)) return 0;
+      const speed = Number(state.speed) > 0 ? Number(state.speed) : 1;
+      return Math.max(0, (performance.now() - entry.observedAt) / 1000) * speed;
+    }
+
+    function learnedUntimedEdgeDelta(current, target) {
+      if (!current || !target || typeof widget?.move !== "function") return null;
+      const currentIndex = captionHistory.findIndex(entry =>
+        entry.videoId === current.videoId && entry.id === current.id
+      );
+      const targetIndex = captionHistory.findIndex(entry =>
+        entry.videoId === target.videoId && entry.id === target.id
+      );
+      if (currentIndex < 0 || targetIndex < 0 || Math.abs(currentIndex - targetIndex) !== 1) return null;
+
+      const replayEntry = targetIndex < currentIndex ? target : current;
+      if (!captionNavigation.isReplayTarget(replayEntry)
+          || finiteCaptionTime(replayEntry.startTime) !== null) return null;
+      const edgeSeconds = finiteCaptionTime(replayEntry.nextOffsetSeconds);
+      if (edgeSeconds === null || edgeSeconds < 0.05) return null;
+      const edgeTarget = targetIndex < currentIndex ? current : target;
+      if (replayEntry.nextOffsetTargetId !== edgeTarget.id) return null;
+
+      if (targetIndex < currentIndex) {
+        return -(edgeSeconds + elapsedCaptionMediaTime(current));
+      }
+      const remaining = edgeSeconds - elapsedCaptionMediaTime(current);
+      return remaining >= 0.05 ? remaining : null;
+    }
+
     function seekToKnownCaption(target, wasPlaying) {
       const current = currentCaptionEntry();
       if (!current || !target || !sameCaptionVideo(target)) return null;
       const replayTarget = captionNavigation.isReplayTarget(target);
+      const learnedDelta = learnedUntimedEdgeDelta(current, target);
       if (!captionNavigation.canNavigateTo(target)) return null;
-      if (wasPlaying && typeof widget.pause === "function") widget.pause();
+      const controlledNext = !replayTarget
+        && captionNavigation.isReplayTarget(current)
+        && finiteCaptionTime(current.startTime) === null
+        && learnedDelta === null;
+      if (controlledNext) {
+        if (typeof widget.play !== "function") return null;
+        controlledCaptionTargetId = target.id;
+        controlledCaptionRestorePaused = !wasPlaying;
+        try {
+          if (wasPlaying && playerState === 1) return { pending: true };
+          recordCaptionTrace("widget.command", { command: "play", reason: "controlled-next" });
+          widget.play();
+          return { pending: true };
+        } catch (error) {
+          controlledCaptionTargetId = "";
+          controlledCaptionRestorePaused = false;
+          throw error;
+        }
+      }
+      if (wasPlaying && typeof widget.pause === "function") {
+        recordCaptionTrace("widget.command", { command: "pause", reason: "caption-navigation" });
+        widget.pause();
+      }
       try {
-        if (replayTarget) {
+        if (learnedDelta !== null) {
+          recordCaptionTrace("widget.command", {
+            command: "move",
+            reason: "learned-untimed-edge",
+            delta: Math.round(learnedDelta * 1000) / 1000
+          });
+          widget.move(learnedDelta);
+        } else if (replayTarget) {
           if (typeof widget.replay !== "function") return null;
+          recordCaptionTrace("widget.command", { command: "replay", reason: "caption-navigation" });
           widget.replay();
         } else {
           const currentTime = estimatedCaptionTime(current) ?? current.startTime;
           const delta = captionNavigation.relativeSeekDelta(currentTime, target.startTime);
+          recordCaptionTrace("widget.command", {
+            command: "move",
+            reason: "caption-navigation",
+            delta: Math.round(delta * 1000) / 1000
+          });
           widget.move(delta);
         }
         const targetIndex = captionHistory.findIndex(entry =>
@@ -2526,33 +2790,65 @@
         if (targetIndex < 0) return null;
         const targetEntry = captionHistory[targetIndex];
         captionHistoryIndex = targetIndex;
+        activeCaptionSegmentId = targetEntry.segmentId || activeCaptionSegmentId;
         targetEntry.lastKnownTime = targetEntry.startTime;
         targetEntry.observedAt = performance.now();
         currentCaptionRaw = targetEntry.raw;
         currentCaptionText = targetEntry.text;
         renderCaption(targetEntry.raw);
         hideTranslation();
+        storeActiveCaptionVideoState();
         return targetEntry;
       } finally {
-        if (wasPlaying && typeof widget.play === "function") widget.play();
+        if (wasPlaying && typeof widget.play === "function") {
+          recordCaptionTrace("widget.command", { command: "play", reason: "restore-playback" });
+          widget.play();
+        }
       }
     }
 
     function navigateCaption(direction) {
-      if (captionNavigationBusy || !captionTimingAvailable()) return;
+      recordCaptionTrace("ui.caption-navigation", { direction });
+      if (captionNavigationBusy
+          || controlledCaptionTargetId
+          || !captionTimingAvailable()) {
+        recordCaptionTrace("ui.caption-navigation-rejected", {
+          direction,
+          reason: captionNavigationBusy
+            ? "busy"
+            : (controlledCaptionTargetId ? "controlled-navigation" : "timing-unavailable")
+        });
+        return;
+      }
       const target = captionNavigation.adjacent(
         captionHistory,
         captionHistoryIndex,
         direction === "previous" ? -1 : 1,
-        currentYouglishVideoId
+        currentYouglishVideoId,
+        activeCaptionSegmentId
       );
-      if (!target) return;
+      if (!target) {
+        recordCaptionTrace("ui.caption-navigation-rejected", { direction, reason: "no-neighbor" });
+        return;
+      }
+      recordCaptionTrace("ui.caption-navigation-target", {
+        direction,
+        target: captionTraceToken(captionTraceCaptionTokens, target.id, "caption")
+      });
+      if (replayPendingTargetId) clearReplayPending();
       captionNavigationBusy = true;
+      startCaptionNavigationPending(target.id);
       renderCaptionNavigation();
-      const wasPlaying = playerState === 1;
+      const wasPlaying = wantsYouglishPlayback();
       try {
         const reached = seekToKnownCaption(target, wasPlaying);
+        if (reached && reached.pending) {
+          startCaptionNavigationPending(target.id, CONTROLLED_CAPTION_TIMEOUT_MS);
+          repeatPending = false;
+          return;
+        }
         if (!reached) {
+          clearCaptionNavigationPending();
           captionNavigationBlocked[direction] = true;
           if (repeatCaptionEnabled) disableRepeatCaption("Phrase repeat disabled: the next caption could not be confirmed.");
           el.status.textContent = "Could not confirm the next caption; try again.";
@@ -2562,6 +2858,7 @@
         if (repeatCaptionEnabled) repeatTargetId = reached.id;
         hideTranslation();
       } catch (error) {
+        clearCaptionNavigationPending();
         if (repeatCaptionEnabled) disableRepeatCaption("Phrase repeat disabled: caption navigation could not be confirmed.");
         el.status.textContent = "Caption navigation is temporarily unavailable.";
         console.error(error);
@@ -2585,12 +2882,13 @@
 
     function repeatCurrentCaption() {
       const current = currentCaptionEntry();
-      if (captionNavigationBusy || !repeatCaptionEnabled || !captionTimingAvailable() || !current || repeatTargetId !== current.id) return;
+      if (captionNavigationBusy || captionNavigationPendingTargetId || !repeatCaptionEnabled || !captionTimingAvailable() || !current || repeatTargetId !== current.id) return;
       const next = captionNavigation.adjacent(
         captionHistory,
         captionHistoryIndex,
         1,
-        currentYouglishVideoId
+        currentYouglishVideoId,
+        activeCaptionSegmentId
       );
       const delta = captionNavigation.repeatSeekDelta(
         current.startTime,
@@ -2753,7 +3051,6 @@
         return;
       }
 
-      currentYouglishVideoId = example.external_id;
       renderExampleTools();
       const query = example.query || VIEWER_PHRASE;
       fetchYouglish(
@@ -3395,27 +3692,135 @@
       catch (_) { return encoded; }
     }
 
+    function resolveCaptionId(event, text, currentTime) {
+      const providerId = event && event.id != null ? String(event.id).trim() : "";
+      if (providerId) return providerId;
+      const matchingText = captionHistory.filter(entry =>
+        entry.videoId === currentYouglishVideoId && entry.text === text
+      );
+      const current = currentCaptionEntry();
+      if (current && current.videoId === currentYouglishVideoId && current.text === text) {
+        const currentStartTime = finiteCaptionTime(current.startTime);
+        if (currentTime === null || currentStartTime === null
+            || Math.abs(currentStartTime - currentTime) <= 30) {
+          return current.id;
+        }
+      }
+      if (currentTime !== null) {
+        const timedMatch = matchingText
+          .map(entry => ({ entry, time: finiteCaptionTime(entry.startTime) }))
+          .filter(candidate => candidate.time !== null)
+          .sort((left, right) =>
+            Math.abs(left.time - currentTime) - Math.abs(right.time - currentTime)
+          )[0];
+        if (timedMatch && Math.abs(timedMatch.time - currentTime) <= 2) {
+          return timedMatch.entry.id;
+        }
+        const untimedMatch = matchingText.find(entry =>
+          captionNavigation && captionNavigation.isReplayTarget(entry)
+        );
+        if (untimedMatch) return untimedMatch.id;
+      } else if (matchingText.length === 1) {
+        return matchingText[0].id;
+      }
+      return `auto-caption-${captionEntrySequence}`;
+    }
+
     function onCaptionChange(event) {
       if (state.source !== "youglish") return;
-      currentCaptionRaw = decodeCaption(event && event.caption);
-      currentCaptionText = cleanCaptionText(currentCaptionRaw);
-      const captionId = event && event.id != null ? String(event.id) : `${currentCaptionText}:${captionHistory.length}`;
+      const eventVideoId = String(event && event.video || "").trim();
+      if (eventVideoId && currentYouglishVideoId && eventVideoId !== currentYouglishVideoId) return;
+      if (eventVideoId && !currentYouglishVideoId) activateCaptionVideo(eventVideoId);
+      const nextCaptionRaw = decodeCaption(event && event.caption);
+      const nextCaptionText = cleanCaptionText(nextCaptionRaw);
       const currentTime = finiteCaptionTime(event && event.current_time);
+      const captionId = resolveCaptionId(event, nextCaptionText, currentTime);
+      const tracedCaption = captionTraceToken(captionTraceCaptionTokens, captionId, "caption");
+      recordCaptionTrace("widget.caption", {
+        caption: tracedCaption,
+        hasProviderId: Boolean(event && event.id != null && String(event.id).trim()),
+        currentTime,
+        video: captionTraceToken(captionTraceVideoTokens, eventVideoId || currentYouglishVideoId, "video")
+      });
+      const pendingTargetId = captionNavigationPendingTargetId || replayPendingTargetId;
+      if (pendingTargetId && captionId !== pendingTargetId) {
+        recordCaptionTrace("widget.caption-ignored", {
+          caption: tracedCaption,
+          reason: "pending-target-mismatch"
+        });
+        renderCaptionNavigation();
+        return;
+      }
+      const previousCaption = currentCaptionEntry();
+      const previousCaptionSnapshot = previousCaption ? {
+        id: previousCaption.id,
+        observedAt: previousCaption.observedAt,
+        continuity: previousCaption.playbackContinuity
+      } : null;
+      currentCaptionRaw = nextCaptionRaw;
+      currentCaptionText = nextCaptionText;
       const knownCaption = captionNavigation && captionHistory.find(entry =>
         entry.videoId === currentYouglishVideoId && entry.id === captionId
       );
-      const firstCaptionForVideo = Boolean(currentYouglishVideoId) && captionHistory.length === 0;
+      const knownTime = finiteCaptionTime(knownCaption && knownCaption.startTime);
       const replayTarget = Boolean(knownCaption && captionNavigation.isReplayTarget(knownCaption));
-      if (captionNavigation && (currentTime !== null || firstCaptionForVideo || replayTarget)) {
+      const resolvedTime = replayTarget ? null : (knownTime ?? currentTime);
+      const firstCaptionForVideo = Boolean(currentYouglishVideoId) && captionHistory.length === 0;
+      if (captionNavigation && (resolvedTime !== null || firstCaptionForVideo || replayTarget)) {
         const entry = upsertCaptionEntry(
           currentCaptionRaw,
           currentCaptionText,
           captionId,
-          currentTime,
-          currentTime === null ? "replay" : "seek"
+          resolvedTime,
+          resolvedTime === null ? "replay" : "seek"
         );
-        entry.lastKnownTime = currentTime;
-        if (repeatCaptionEnabled && entry.id !== repeatTargetId && !captionNavigationBusy) {
+        const observedAt = performance.now();
+        if (previousCaptionSnapshot
+            && previousCaptionSnapshot.id !== entry.id
+            && playerState === 1
+            && previousCaptionSnapshot.continuity === captionPlaybackContinuity
+            && Number.isFinite(previousCaptionSnapshot.observedAt)) {
+          const speed = Number(state.speed) > 0 ? Number(state.speed) : 1;
+          const edgeSeconds = Math.max(0, observedAt - previousCaptionSnapshot.observedAt) / 1000 * speed;
+          const previousIndex = captionHistory.findIndex(candidate =>
+            candidate.videoId === currentYouglishVideoId
+              && candidate.id === previousCaptionSnapshot.id
+              && candidate.segmentId === entry.segmentId
+          );
+          const entryIndex = captionHistory.findIndex(candidate =>
+            candidate.videoId === entry.videoId && candidate.id === entry.id
+          );
+          const previousEntry = captionHistory[previousIndex];
+          if (previousEntry
+              && entryIndex === previousIndex + 1
+              && edgeSeconds >= 0.05 && edgeSeconds <= 30) {
+            previousEntry.nextOffsetSeconds = edgeSeconds;
+            previousEntry.nextOffsetTargetId = entry.id;
+          }
+        }
+        entry.playbackContinuity = captionPlaybackContinuity;
+        entry.lastKnownTime = resolvedTime;
+        if (captionNavigationPendingTargetId === entry.id) {
+          clearCaptionNavigationPending();
+        }
+        const controlledTargetReached = controlledCaptionTargetId === entry.id;
+        if (controlledTargetReached) {
+          const restorePaused = controlledCaptionRestorePaused;
+          controlledCaptionTargetId = "";
+          controlledCaptionRestorePaused = false;
+          if (restorePaused && typeof widget?.pause === "function") widget.pause();
+        }
+        const replayTargetReached = replayPendingTargetId === entry.id;
+        if (replayTargetReached) {
+          const restorePaused = replayRestorePaused;
+          clearReplayPending();
+          if (restorePaused && typeof widget?.pause === "function") widget.pause();
+        }
+        if (repeatCaptionEnabled && entry.id === repeatTargetId && repeatPending) {
+          repeatPending = false;
+        }
+        if (repeatCaptionEnabled && entry.id !== repeatTargetId
+            && !captionNavigationBusy && !captionNavigationPendingTargetId) {
           disableRepeatCaption("Phrase repeat disabled: playback moved to another caption.");
         }
       } else {
@@ -3433,19 +3838,26 @@
           renderPlaybackControl();
         }
       }
+      recordCaptionTrace("widget.caption-applied", { caption: tracedCaption });
     }
 
     function onCaptionConsumed(event) {
-      if (state.source !== "youglish" || !repeatCaptionEnabled || captionNavigationBusy) return;
+      if (state.source !== "youglish") return;
       const consumedId = event && event.id != null ? String(event.id) : "";
+      recordCaptionTrace("widget.caption-consumed", {
+        caption: captionTraceToken(captionTraceCaptionTokens, consumedId, "caption")
+      });
+      if (!repeatCaptionEnabled || captionNavigationBusy || captionNavigationPendingTargetId) return;
       if (!consumedId || consumedId !== repeatTargetId) return;
-      if (repeatPending) repeatPending = false;
+      if (repeatPending) return;
       repeatCurrentCaption();
     }
 
     function onPlayerStateChange(event) {
       const nextState = Number(event && event.state);
       if (!Number.isFinite(nextState)) return;
+      recordCaptionTrace("widget.player-state", { from: playerState, to: nextState });
+      if (nextState !== playerState) captionPlaybackContinuity += 1;
       const current = currentCaptionEntry();
       if (current && playerState === 1 && nextState !== 1) {
         const pausedTime = estimatedCaptionTime(current);
@@ -3456,11 +3868,16 @@
           const speed = Number(state.speed) > 0 ? Number(state.speed) : 1;
           current.observedAt = performance.now()
             - Math.max(0, resumedTime - current.startTime) / speed * 1000;
+        } else if (captionNavigation.isReplayTarget(current)
+            && finiteCaptionTime(current.startTime) === null) {
+          current.observedAt = performance.now();
+          current.playbackContinuity = captionPlaybackContinuity;
         }
       }
       playerState = nextState;
       renderPlaybackControl();
       if (fullVideoMode && nextState !== 1) persistFullVideoProgress();
+      recordCaptionTrace("widget.player-state-applied", { state: nextState });
     }
 
     function showWidgetError(message) {
@@ -3492,12 +3909,27 @@
 
     function onVideoChange(event) {
       if (state.source !== "youglish") return;
-      currentYouglishVideoId = String(event && event.video || "").trim();
-      if (fullVideoMode && currentYouglishVideoId !== fullVideoOrigin.videoId) {
+      const previousVideoId = currentYouglishVideoId;
+      const nextVideoId = String(event && event.video || "").trim();
+      if (!nextVideoId) return;
+      if (fullVideoMode && nextVideoId !== fullVideoOrigin.videoId) {
         showWidgetError("YouGlish could not restore the saved video.");
         return;
       }
-      resetCaptionHistory();
+      recordCaptionTrace("widget.video", {
+        from: captionTraceToken(captionTraceVideoTokens, previousVideoId, "video"),
+        to: captionTraceToken(captionTraceVideoTokens, nextVideoId, "video"),
+        trackNumber: Number.isFinite(Number(event.trackNumber)) ? Number(event.trackNumber) : null
+      });
+      activateCaptionVideo(nextVideoId);
+      if (previousVideoId && previousVideoId !== nextVideoId) {
+        controlledCaptionTargetId = "";
+        controlledCaptionRestorePaused = false;
+        clearReplayPending();
+        if (repeatCaptionEnabled || repeatPending) {
+          disableRepeatCaption("Phrase repeat disabled: playback moved to another video.");
+        }
+      }
       currentCaptionRaw = "";
       currentCaptionText = "";
       renderCaption("");
@@ -3509,6 +3941,9 @@
       }
       renderExampleTools();
       renderCaptionNavigation();
+      recordCaptionTrace("widget.video-applied", {
+        video: captionTraceToken(captionTraceVideoTokens, nextVideoId, "video")
+      });
     }
 
     function onPlayerReady() {
@@ -3533,6 +3968,7 @@
         state.speed = speed;
         saveState();
         renderFilters();
+        recordCaptionTrace("widget.speed", { speed });
       }
     }
 
@@ -3580,14 +4016,22 @@
 
     function callWidget(method, ...args) {
       if (!widgetReady || !widget || typeof widget[method] !== "function") {
+        recordCaptionTrace("widget.command-rejected", { command: method, reason: "not-ready" });
         el.status.textContent = "Player is not ready yet.";
-        return;
+        return false;
       }
       try {
+        recordCaptionTrace("widget.command", {
+          command: method,
+          args: args.map(value => typeof value === "number" ? value : String(value))
+        });
         widget[method](...args);
+        return true;
       } catch (err) {
+        recordCaptionTrace("widget.command-rejected", { command: method, reason: "provider-error" });
         showWidgetError(`Command “${method}” failed.`);
         console.error(err);
+        return false;
       }
     }
 
@@ -3754,20 +4198,56 @@
       else callWidget("previous");
     });
     el.playPauseBtn.addEventListener("click", () => {
+      recordCaptionTrace("ui.play-pause", { source: state.source });
       if (state.source === "tatoeba") {
         if (el.tatoebaAudio.paused) playTatoeba();
         else el.tatoebaAudio.pause();
       } else {
-        if (playerState === 1) callWidget("pause");
-        else callWidget("play");
+        const wantsPlayback = playerState !== 1;
+        const previousRequest = requestedYouglishPlayback;
+        requestedYouglishPlayback = wantsPlayback;
+        if (!callWidget(wantsPlayback ? "play" : "pause")) {
+          requestedYouglishPlayback = previousRequest;
+        } else if (!wantsPlayback && controlledCaptionTargetId) {
+          controlledCaptionTargetId = "";
+          controlledCaptionRestorePaused = false;
+          clearCaptionNavigationPending();
+          renderCaptionNavigation();
+        }
       }
     });
     el.replayBtn.addEventListener("click", () => {
+      recordCaptionTrace("ui.replay", { source: state.source });
       if (state.source === "tatoeba") {
         el.tatoebaAudio.currentTime = 0;
         playTatoeba();
       } else {
-        callWidget("replay");
+        if (replayPendingTargetId) return;
+        if (controlledCaptionTargetId) {
+          controlledCaptionTargetId = "";
+          controlledCaptionRestorePaused = false;
+        }
+        clearCaptionNavigationPending();
+        const replayTarget = [...captionHistory]
+          .sort((left, right) => left.firstSeen - right.firstSeen)[0];
+        if (replayTarget) startReplayPending(replayTarget.id, !wantsYouglishPlayback());
+        if (!callWidget("replay")) {
+          clearReplayPending();
+        } else if (replayTarget) {
+          const replayTargetIndex = captionHistory.findIndex(entry =>
+            entry.videoId === replayTarget.videoId && entry.id === replayTarget.id
+          );
+          if (replayTargetIndex >= 0) {
+            captionHistoryIndex = replayTargetIndex;
+            activeCaptionSegmentId = replayTarget.segmentId || activeCaptionSegmentId;
+            currentCaptionRaw = replayTarget.raw;
+            currentCaptionText = replayTarget.text;
+            renderCaption(replayTarget.raw);
+            hideTranslation();
+            storeActiveCaptionVideoState();
+          }
+        }
+        renderCaptionNavigation();
       }
     });
     el.nextVideoBtn.addEventListener("click", () => {

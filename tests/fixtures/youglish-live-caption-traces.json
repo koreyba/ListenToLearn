@@ -1,0 +1,108 @@
+{
+  "schema": "listen-to-learn.youglish-live-caption-traces/v1",
+  "capturedAt": "2026-08-25",
+  "privacy": "Caption text, provider caption IDs, and video IDs are replaced with session-local tokens.",
+  "scenarios": [
+    {
+      "id": "previous-then-natural-forward",
+      "observedOutcome": "pass",
+      "initialHistory": [
+        { "caption": "caption-1", "startTime": null, "mode": "replay" },
+        { "caption": "caption-2", "startTime": 2200.024, "mode": "seek" }
+      ],
+      "events": [
+        { "atMs": 0, "type": "ui.navigate", "direction": "previous" },
+        { "atMs": 0.2, "type": "command", "command": "pause" },
+        { "atMs": 0.2, "type": "command", "command": "replay" },
+        { "atMs": 0.4, "type": "command", "command": "play" },
+        { "atMs": 1.6, "type": "caption", "caption": "caption-1", "currentTime": 2201.563 },
+        { "atMs": 4.8, "type": "playerState", "state": 2 },
+        { "atMs": 8.2, "type": "playerState", "state": 3 },
+        { "atMs": 272.5, "type": "playerState", "state": 1 },
+        { "atMs": 5003.1, "type": "caption", "caption": "caption-2", "currentTime": 2199.931 }
+      ],
+      "contract": [
+        "caption-1 remains the first history entry despite the later currentTime",
+        "caption-2 restores Previous and removes Next at the two-caption boundary"
+      ]
+    },
+    {
+      "id": "next-during-provider-state-race",
+      "observedOutcome": "fail",
+      "initialHistory": [
+        { "caption": "caption-1", "startTime": null, "mode": "replay" },
+        { "caption": "caption-2", "startTime": 728.939, "mode": "seek" }
+      ],
+      "events": [
+        { "atMs": -290.8, "type": "playerState", "state": 2 },
+        { "atMs": -282.6, "type": "playerState", "state": 3 },
+        { "atMs": -8.5, "type": "playerState", "state": 1 },
+        { "atMs": 0, "type": "ui.navigate", "direction": "next" },
+        { "atMs": 0.1, "type": "command", "command": "pause" },
+        { "atMs": 0.1, "type": "command", "command": "play", "reason": "controlled-next" },
+        { "atMs": 0.1, "type": "command", "command": "play", "reason": "restore-playback" },
+        { "atMs": 2.8, "type": "playerState", "state": 2 },
+        { "atMs": 3.9, "type": "playerState", "state": 3 },
+        { "atMs": 256.4, "type": "playerState", "state": 1 },
+        { "atMs": 4764.4, "type": "caption", "caption": "caption-2", "currentTime": 728.976 },
+        { "atMs": 11719.1, "type": "caption", "caption": "caption-3", "currentTime": 735.930 }
+      ],
+      "observedFailure": "The transient state=2 clears the target intent 2.7ms after the click; playback later reaches caption-2 and continues to caption-3 without an active navigation intent.",
+      "contract": [
+        "provider state noise from a command must not cancel a newer navigation intent",
+        "one Next action must not emit duplicate play commands",
+        "the pending target is recorded without adding visible navigation status"
+      ]
+    },
+    {
+      "id": "replay-from-paused-third-caption",
+      "observedOutcome": "pass",
+      "initialHistory": [
+        { "caption": "caption-1", "startTime": null, "mode": "replay" },
+        { "caption": "caption-2", "startTime": 3069.971, "mode": "seek" },
+        { "caption": "caption-3", "startTime": 3074.961, "mode": "seek" }
+      ],
+      "events": [
+        { "atMs": 0, "type": "ui.replay" },
+        { "atMs": 0.1, "type": "command", "command": "replay" },
+        { "atMs": 1.5, "type": "caption", "caption": "caption-1", "currentTime": 3076.507 },
+        { "atMs": 6.9, "type": "playerState", "state": 3 }
+      ],
+      "contract": [
+        "Replay preserves the three-caption history",
+        "Replay selects caption-1 and restores the paused state",
+        "caption-1 remains an untimed replay anchor"
+      ]
+    },
+    {
+      "id": "three-caption-next-after-back-navigation",
+      "observedOutcome": "fail",
+      "initialHistory": [
+        { "caption": "caption-1", "startTime": null, "mode": "replay" },
+        { "caption": "caption-2", "startTime": 870.983, "mode": "seek" },
+        { "caption": "caption-3", "startTime": 874.914, "mode": "seek" }
+      ],
+      "events": [
+        { "atMs": -1534.6, "type": "playerState", "state": 2 },
+        { "atMs": -1533.6, "type": "playerState", "state": 3 },
+        { "atMs": -1260.3, "type": "playerState", "state": 1 },
+        { "atMs": 0, "type": "ui.navigate", "direction": "next" },
+        { "atMs": 0.2, "type": "command", "command": "pause" },
+        { "atMs": 0.3, "type": "command", "command": "play", "reason": "controlled-next" },
+        { "atMs": 0.3, "type": "command", "command": "play", "reason": "restore-playback" },
+        { "atMs": 3.1, "type": "playerState", "state": 2 },
+        { "atMs": 5.3, "type": "playerState", "state": 3 },
+        { "atMs": 260.1, "type": "playerState", "state": 1 },
+        { "atMs": 2490.1, "type": "caption", "caption": "caption-2", "currentTime": 870.961 },
+        { "atMs": 6575.4, "type": "caption", "caption": "caption-3", "currentTime": 875.047 },
+        { "atMs": 10506.9, "type": "caption", "caption": "caption-4", "currentTime": 878.979 }
+      ],
+      "observedFailure": "The target intent is cleared before caption-2 arrives, so a single Next action runs through caption-2, caption-3, and a new caption-4.",
+      "contract": [
+        "Next from caption-1 targets only caption-2",
+        "caption-2 must become the stable cursor before any later caption is accepted as navigation progress",
+        "provider command state transitions must be correlated with the command that caused them"
+      ]
+    }
+  ]
+}

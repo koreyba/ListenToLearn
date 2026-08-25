@@ -48,6 +48,7 @@ description: Regression, ownership, persistence, and live Access verification fo
 - [x] Guest history and playback generate no call to protected video APIs.
 - [x] Migration/schema/rendered route contracts include all resume columns and existing unique/index ownership constraints.
 - [x] Sign out wording/action is consistent on Library, Practice, Videos, Trainer, and Settings.
+- [x] `/logout` is public, requests the official Access endpoint with same-origin credentials/manual redirects, returns home only on completion, and keeps failures inside the app.
 
 ## End-to-End Tests
 
@@ -79,6 +80,7 @@ description: Regression, ownership, persistence, and live Access verification fo
 - Red: synchronization tests failed on missing throttle/flush controller; later retry and stored-row normalization tests also failed before their implementations.
 - Red/green review regression: account history requests initially serialized `progress: null` when `localStorage` was unavailable; the focused Trainer contract failed before the fallback fix and passed after account payloads began omitting absent progress.
 - Red/green live-preview regression: the branch Access application audience was absent from preview Worker variables, reproducing the authenticated `/login` `401`; the deployment-config test fails when that audience is removed and also proves production is not widened.
+- Red/green logout regression: shared-link tests initially failed on the direct Access endpoint and missing `/logout`; surface tests failed while Settings and Trainer still linked directly to Cloudflare. The green flow routes every surface through the branded page and keeps the official endpoint as a background request only.
 - Green targeted suites cover Access JWT issuer/audience/expiry, cookie/header extraction, safe redirects, all client bootstraps, progress validation/freshness, controller timing/retry, migration contract, Trainer wiring, and Videos source selection.
 - Local Wrangler applied migrations `0000` through `0011`; pragma readback proved the four expected columns, defaults, and nullability.
 - Remote preview Wrangler applied the two pending migrations, `0010` and `0011`. A fresh list reports no pending migrations; pragma readback proves `language`, `accent`, `resume_seconds`, `resume_caption_id`, `resume_caption_text`, and nullable `progress_updated_at` with the expected defaults.

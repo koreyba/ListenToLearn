@@ -38,7 +38,7 @@ description: Ordered D1, Worker, and Cloudflare Access rollout with exact readba
 - Guest `GET /api/session` returns `200`, `no-store`, `{ "user": null }`.
 - Unauthenticated `/api/videos` receives the Access flow rather than Worker `401`.
 - Authenticated `/api/session` returns a verified user; `/api/videos` create/read/update/delete succeeds and a second browser restores resume data.
-- Sign out via `/cdn-cgi/access/logout` returns all public surfaces to guest mode.
+- Sign out via public `/logout` invokes `/cdn-cgi/access/logout` in the background, returns to Library without exposing Cloudflare service HTML, and leaves all public surfaces in guest mode.
 - Aggregate D1 change matches the smoke and guest navigation causes no D1 delta.
 
 ## Migration and Rollback

@@ -21,7 +21,7 @@ The existing account video record stores the Continue Watching item in D1, but r
 - Keep `/`, `/practice`, `/videos`, and `/trainer` usable without login; keep `/integrations` protected.
 - Make every public page derive Sign in/Sign out and guest/account mode from a verified current session, never a client hint alone.
 - Make Sign in return to the public page where it started through a same-origin allowlisted `returnTo` value.
-- Make Sign out use the official Cloudflare Access application-domain logout endpoint and immediately discard client-only account-session hints.
+- Make Sign out use the official Cloudflare Access application-domain logout endpoint in the background, then return to the public Library without exposing Cloudflare's service page.
 - Protect `/api/videos` with the same account Access policy as `/login`, `/api/me`, `/api/phrases`, `/api/examples`, and `/api/translate`.
 - Persist signed-in Continue Watching records, resume seconds, last observed caption ID/text, and progress timestamp in user-scoped D1 rows.
 - Keep guest video history and resume progress bounded in `localStorage`.
@@ -77,7 +77,7 @@ The existing account video record stores the Continue Watching item in D1, but r
 - Runtime remains Cloudflare Worker + Vinext + D1 + Cloudflare Access Free; no new paid service is introduced.
 - Access identity remains the verified JWT `sub`; email is display/legacy-migration data, not a mutable primary key.
 - Cloudflare documents that Access adds `Cf-Access-Jwt-Assertion` to protected origin requests and that the browser application token is a signed `CF_Authorization` cookie. The Worker may accept that cookie only after the same issuer/audience/signature verification used for the header.
-- Cloudflare application-domain `/cdn-cgi/access/logout` is the supported logout target. Token revocation may take 20–30 seconds globally, so the UI also clears local account mode immediately and protected APIs remain authoritative.
+- Cloudflare application-domain `/cdn-cgi/access/logout` is the supported logout target and does not document an application return URL. The public `/logout` page therefore requests it in the background with manual redirect handling, returns home only after the request resolves, and keeps a branded retry state on failure. Token revocation may take 20–30 seconds globally; protected APIs remain authoritative.
 - Automatic guest-to-account merge stays explicitly deferred to avoid silently combining unrelated local and personal histories.
 - Learning/domain data is in scope for D1; presentation preferences remain browser-local by design.
 

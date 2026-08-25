@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { SiteNavigation } from "@/app/components/site-navigation";
+import { SIGN_OUT_HREF } from "@/lib/client-session";
 
 type Integration = {
   provider: "deepl";
@@ -90,7 +91,7 @@ export default function IntegrationsPage() {
     <>
       <SiteNavigation
         active="settings"
-        account={<a className="site-account-link" href="/cdn-cgi/access/logout">Sign out</a>}
+        account={<a className="site-account-link" href={SIGN_OUT_HREF}>Sign out</a>}
       />
       <main className="integrations-shell">
       <p className="eyebrow">Connected speech trainer</p>

@@ -48,6 +48,19 @@ test("React learning surfaces use optional session discovery instead of a local 
   }
 });
 
+test("every account surface routes sign out through the branded app flow", async () => {
+  const sources = await Promise.all([
+    readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/videos/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/integrations/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../public/trainer.html", import.meta.url), "utf8"),
+  ]);
+
+  for (const source of sources) assert.doesNotMatch(source, /href\s*=\s*["']\/cdn-cgi\/access\/logout/);
+  assert.match(sources[2], /SIGN_OUT_HREF/);
+  assert.match(sources[3], /loginLink\.href = "\/logout"/);
+});
+
 test("worker sanitizes identity headers before allowing a guest request", async () => {
   const worker = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
   const guestBranch = worker.indexOf("if (!identity)");

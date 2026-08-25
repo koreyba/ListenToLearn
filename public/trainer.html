@@ -4476,7 +4476,7 @@
       if (!el.loginLink) return;
       if (isAuthenticated) {
         el.loginLink.textContent = "Sign out";
-        el.loginLink.href = "/cdn-cgi/access/logout";
+        el.loginLink.href = "/logout";
         el.loginLink.onclick = null;
       } else {
         el.loginLink.textContent = "Sign in with Google";

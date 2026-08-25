@@ -9,8 +9,29 @@ type SessionFetcher = (
   init?: RequestInit,
 ) => Promise<Response>;
 
-export const SIGN_OUT_HREF = "/cdn-cgi/access/logout";
+export const SIGN_OUT_HREF = "/logout";
+export const ACCESS_LOGOUT_HREF = "/cdn-cgi/access/logout";
 const YOUTUBE_PROGRESS_STORAGE_PREFIX = "listen-to-learn-youtube-progress-v1:";
+
+type SignOutNavigator = (target: string) => void;
+
+export async function completeSignOut(
+  fetcher: SessionFetcher = fetch,
+  navigate: SignOutNavigator = (target) => window.location.replace(target),
+) {
+  try {
+    const response = await fetcher(ACCESS_LOGOUT_HREF, {
+      cache: "no-store",
+      credentials: "same-origin",
+      redirect: "manual",
+    });
+    if (!response.ok && response.type !== "opaqueredirect") return false;
+    navigate("/");
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function signInHref(returnTo: string) {
   return `/login?returnTo=${encodeURIComponent(returnTo)}`;

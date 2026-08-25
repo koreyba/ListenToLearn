@@ -50,4 +50,4 @@ During the first smoke and observation window:
 - Protected: unauthenticated `/api/videos` enters Access.
 - Authenticated synthetic journey: create/update/read/delete one video and verify resume timestamp advances.
 - Cross-device: a second authenticated browser restores the server caption anchor.
-- Logout: official Access logout followed by a public page shows guest mode and does not request former-account data.
+- Logout: branded `/logout` completes the official Access request, returns to Library, shows guest mode, and does not request former-account data.

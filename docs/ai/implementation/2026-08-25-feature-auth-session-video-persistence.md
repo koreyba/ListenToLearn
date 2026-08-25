@@ -16,8 +16,9 @@ description: Implemented trust boundary, D1 resume model, client mode selection,
 ## Code Structure
 
 - `lib/access-session.ts`: bounded header/cookie token extraction, cryptographic Access JWT verification, and minimal optional-session response.
-- `lib/guest-access.ts`: public route matrix plus bounded allowlisted `returnTo` normalization.
-- `lib/client-session.ts`: browser session probe, consistent login/logout links, and subject-namespaced progress keys.
+- `lib/guest-access.ts`: public route matrix including `/logout`, plus bounded allowlisted `returnTo` normalization.
+- `lib/client-session.ts`: browser session probe, consistent login/logout links, background Access logout controller, and subject-namespaced progress keys.
+- `app/logout/page.tsx`: branded sign-out transition that returns to Library and exposes a retry state instead of Cloudflare service HTML.
 - `worker/index.ts`: public `GET/HEAD /api/session` before generic guest routing; protected APIs still require verified identity.
 - `lib/video-history.ts`: progress payload and stored-row normalization.
 - `db/schema.ts`, `drizzle/0011_tranquil_siren.sql`: additive resume columns.

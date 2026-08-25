@@ -96,13 +96,14 @@ Unchanged ownership rule: delete only `(id, current subject)`; local retry progr
 ### Login/logout
 
 - `/login?returnTo=/videos` remains protected. After verified Access authentication, the Worker redirects only to an allowlisted public app path (`/`, `/practice`, `/videos`, `/trainer` with safe bounded query where required) and appends `signedIn=1`.
-- Sign out uses `/<application>/cdn-cgi/access/logout`. Client account state is cleared before navigation; subsequent API access still requires a verified Access token.
+- Sign out navigates to the public `/logout` page. That page requests `/<application>/cdn-cgi/access/logout` with same-origin credentials and manual redirect handling, then replaces the location with `/`; Cloudflare's service HTML never becomes the top-level page. A failed request remains on a branded retry state, and subsequent API access still requires a verified Access token.
 
 ## Component Breakdown
 
 - `worker/index.ts`: token extraction/verification, optional session response, protected request propagation, safe login return target.
 - `lib/guest-access.ts`: public route classification and safe `returnTo` normalization.
-- `lib/client-session.ts`: shared browser session response types/probe and account progress key construction for React clients.
+- `lib/client-session.ts`: shared browser session response types/probe, branded logout controller, and account progress key construction for React clients.
+- `app/logout/page.tsx`: public branded logout transition and retry state.
 - `app/components/phrase-workspace.tsx`: Library/Practice session bootstrap and consistent account action.
 - `app/videos/page.tsx`: session bootstrap, D1 history/resume in account mode, local history/resume in guest mode.
 - `app/integrations/page.tsx`: protected Settings action with consistent Sign out wording.

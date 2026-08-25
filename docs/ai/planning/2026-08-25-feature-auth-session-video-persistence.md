@@ -27,7 +27,7 @@ description: Dependency-ordered TDD delivery plan for authoritative auth state a
   - Dependencies: Task 1.1.
   - Validation: Task 1.1 tests green, typecheck, security/source regression checks.
 - [x] **Task 1.3 — Replace public-client auth hints with authoritative bootstrap.**
-  - Outcome: Library/Practice, Videos, and Trainer probe `/api/session`; all headers use consistent Sign in/Sign out; Settings Sign out is consistent; stale `listen-to-learn-authenticated-v1` is not an authority.
+  - Outcome: Library/Practice, Videos, and Trainer probe `/api/session`; all headers use consistent Sign in/Sign out through the branded public `/logout` flow; Settings is consistent; stale `listen-to-learn-authenticated-v1` is not an authority.
   - Dependencies: Task 1.2.
   - Validation: rendered/JSDOM behavior tests, guest route smoke, existing page tests.
   - Testing links: all public-client auth integration and sign-out consistency scenarios.

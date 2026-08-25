@@ -568,18 +568,44 @@
     .example-message:empty { display: none; }
     .example-message.error { color: var(--danger); }
 
-    .speed-active {
+    .slow-playback-btn[aria-pressed="true"] {
       border-color: rgba(125, 211, 252, .34) !important;
       background: #253d4d !important;
-      color: #dff6ff;
+      color: #7dd3fc;
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
     }
 
-    .player-controls .speed-btn {
-      font-size: 12px;
-      font-variant-numeric: tabular-nums;
-      letter-spacing: -.02em;
+    .control-select {
+      position: relative;
+      display: flex;
+      flex: 1 1 0;
+      min-width: 0;
     }
+
+    .control-select select {
+      appearance: none;
+      width: 100%;
+      min-width: 0;
+      min-height: 44px;
+      padding: 8px 5px;
+      border: 1px solid transparent;
+      border-radius: 11px;
+      background: transparent;
+      color: #b9c5d0;
+      font-size: 12px;
+      font-weight: 700;
+      text-align: center;
+      text-align-last: center;
+      cursor: pointer;
+    }
+
+    .control-select:hover select {
+      border-color: rgba(125, 211, 252, .16);
+      background: rgba(125, 211, 252, .06);
+      color: #eef7fb;
+    }
+
+    .control-select[hidden] { display: none; }
 
     .status {
       margin-top: 8px;
@@ -1083,7 +1109,7 @@
       .player-controls .button-label { display: none; }
       .player-controls button { padding-left: 3px; padding-right: 3px; }
       .player-controls .button-icon { width: 18px; height: 18px; }
-      .player-controls .speed-btn { font-size: 10.5px; letter-spacing: -.05em; }
+      .control-select select { padding: 8px 3px; font-size: 10.5px; }
       .example-tools {
         grid-template-columns: minmax(0, 1fr);
         gap: 6px;
@@ -1282,9 +1308,20 @@
               <span class="button-label">Repeat</span>
             </button>
           </div>
-          <div class="control-group speed-navigation" aria-label="Playback speed">
-            <button class="speed-btn" data-speed="0.75" aria-label="Playback speed 0.75×" title="Playback speed 0.75×" type="button">0.75×</button>
-            <button class="speed-btn speed-active" data-speed="1" aria-label="Playback speed 1×" title="Playback speed 1×" type="button">1×</button>
+          <div class="control-group playback-settings" aria-label="Playback settings">
+            <label id="accentControl" class="control-select" title="Accent">
+              <span class="visually-hidden">Accent</span>
+              <select id="accentSelect" aria-label="Accent">
+                <option value="">All</option>
+                <option value="us">US</option>
+                <option value="uk">UK</option>
+                <option value="aus">AUS</option>
+              </select>
+            </label>
+            <button id="slowPlaybackBtn" class="slow-playback-btn" type="button" aria-label="Slow playback" title="Slow playback" aria-pressed="false">
+              <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M9.5 7.5c-3.2 0-5.8 2.4-5.8 5.5s2.6 5.5 5.8 5.5 5.8-2.4 5.8-5.5-2.6-5.5-5.8-5.5Z"/><path d="M15.1 11.1c.8-1.4 2.1-2.1 3.6-1.8 1.6.3 2.5 1.7 2.1 3.1-.4 1.3-1.6 2.1-3 1.8l-2.5-.5M7 18.2 5.7 21M12 18.2l1.2 2.3M4 12.2 1.8 11M7.3 10.3l4.3 5.4M11.6 10.3l-4.3 5.4"/></svg></span>
+              <span class="button-label">Slow</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1337,13 +1374,6 @@
       </div>
 
       <div class="row">
-        <span style="color:var(--muted); font-size:13px;">Accent</span>
-        <fieldset class="segmented" id="accentSwitch" aria-label="Accent">
-          <button type="button" data-accent="us">US</button>
-          <button type="button" data-accent="uk">UK</button>
-          <button type="button" data-accent="">Any</button>
-        </fieldset>
-
         <label class="toggle">
           <input id="blindMode" type="checkbox" />
           Blind mode
@@ -1578,7 +1608,8 @@
       tagFilter: document.getElementById("tagFilter"),
       hideDone: document.getElementById("hideDone"),
       blindMode: document.getElementById("blindMode"),
-      accentSwitch: document.getElementById("accentSwitch"),
+      accentControl: document.getElementById("accentControl"),
+      accentSelect: document.getElementById("accentSelect"),
       randomBtn: document.getElementById("randomBtn"),
       phraseList: document.getElementById("phraseList"),
       progressText: document.getElementById("progressText"),
@@ -1600,7 +1631,8 @@
       nextVideoBtn: document.getElementById("nextVideoBtn"),
       playPauseBtn: document.getElementById("playPauseBtn"),
       replayBtn: document.getElementById("replayBtn"),
-      repeatCaptionBtn: document.getElementById("repeatCaptionBtn")
+      repeatCaptionBtn: document.getElementById("repeatCaptionBtn"),
+      slowPlaybackBtn: document.getElementById("slowPlaybackBtn")
     };
 
     const captionTraceEnabled = ["localhost", "127.0.0.1"].includes(window.location.hostname)
@@ -1722,13 +1754,13 @@
       const s = { ...cloneDefaultState(), ...(input || {}) };
       s.version = 2;
       s.done = Array.isArray(s.done) ? [...new Set(s.done.filter(x => typeof x === "string"))] : [];
-      s.accent = ["us", "uk", ""].includes(s.accent) ? s.accent : "us";
+      s.accent = ["us", "uk", "aus", ""].includes(s.accent) ? s.accent : "us";
       s.blind = Boolean(s.blind);
       s.hideDone = Boolean(s.hideDone);
       s.tag = typeof s.tag === "string" ? s.tag : "all";
       s.selectedId = typeof s.selectedId === "string" ? s.selectedId : "base-0";
       s.source = ["tatoeba", "youglish"].includes(s.source) ? s.source : "tatoeba";
-      s.speed = Number.isFinite(Number(s.speed)) ? Number(s.speed) : 1;
+      s.speed = [0.75, 1].includes(Number(s.speed)) ? Number(s.speed) : 1;
       s.exampleMode = ["all", "saved"].includes(s.exampleMode) ? s.exampleMode : "all";
       delete s.exampleOrder;
       delete s.translationCache;
@@ -2113,13 +2145,8 @@
       el.hideDone.checked = state.hideDone;
       el.blindMode.checked = state.blind;
 
-      for (const btn of el.accentSwitch.querySelectorAll("button")) {
-        btn.classList.toggle("active", btn.dataset.accent === state.accent);
-      }
-
-      for (const btn of document.querySelectorAll(".speed-btn")) {
-        btn.classList.toggle("speed-active", Number(btn.dataset.speed) === Number(state.speed));
-      }
+      el.accentSelect.value = state.accent;
+      el.slowPlaybackBtn.setAttribute("aria-pressed", Number(state.speed) === 0.75 ? "true" : "false");
     }
 
     function visiblePhrases() {
@@ -2233,7 +2260,8 @@
     function accentLabel() {
       if (state.accent === "us") return "US";
       if (state.accent === "uk") return "UK";
-      return "any";
+      if (state.accent === "aus") return "AUS";
+      return "all";
     }
 
     function sourceLabel() {
@@ -2406,6 +2434,7 @@
       const tatoeba = state.source === "tatoeba";
       el.youglishPlayer.hidden = tatoeba;
       el.tatoebaPlayer.hidden = !tatoeba;
+      el.accentControl.hidden = tatoeba || fullVideoMode;
       el.sourceSwitch.querySelectorAll("button[data-source]").forEach(btn => {
         const active = btn.dataset.source === state.source;
         btn.classList.toggle("active", active);
@@ -4003,9 +4032,10 @@
 
     window.onYouglishAPIReady = function onYouglishAPIReady() {
       try {
-        // Title + controls, without the built-in Caption component.
+        // Dictionary support requires Caption, so 128 is a nonzero mask with no
+        // visible widget chrome. Zero is treated as the default full component set.
         widget = new YG.Widget("yg-widget", {
-          components: 68,
+          components: 128,
           autoStart: fullVideoMode ? 0 : 1,
           backgroundColor: "#000000",
           textColor: "#d9e2ec",
@@ -4301,8 +4331,8 @@
       el.tatoebaAudio.currentTime = duration * Number(el.tatoebaTimeline.value) / 100;
     });
 
-    document.querySelectorAll(".speed-btn").forEach(btn => {
-      btn.addEventListener("click", () => setSpeed(Number(btn.dataset.speed)));
+    el.slowPlaybackBtn.addEventListener("click", () => {
+      setSpeed(Number(state.speed) === 0.75 ? 1 : 0.75);
     });
 
     el.revealBtn.addEventListener("click", () => {
@@ -4329,10 +4359,8 @@
       renderCurrent();
     });
 
-    el.accentSwitch.addEventListener("click", event => {
-      const btn = event.target.closest("button[data-accent]");
-      if (!btn) return;
-      state.accent = btn.dataset.accent;
+    el.accentSelect.addEventListener("change", () => {
+      state.accent = el.accentSelect.value;
       saveState();
       renderFilters();
       fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));

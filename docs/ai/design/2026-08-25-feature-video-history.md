@@ -52,7 +52,14 @@ language, accent, createdAt, updatedAt
   accent differ. When Continue is hidden, including Tatoeba, `Save clip` spans
   both columns instead of leaving an empty cell.
 - **Media panel:** render the full-width provider directly, without an
-  Expand/Collapse control or a separate action header.
+  Expand/Collapse control or a separate action header. Configure the YouGlish
+  widget with `components: 128`, the nonzero Dictionary-support bit whose
+  documented Caption dependency is intentionally absent. The surrounding trainer
+  supplies the title, captions and playback controls while the widget retains the video surface.
+- **Playback settings:** place a native accent select followed by a turtle-icon
+  Slow toggle in the final toolbar slots. Accent uses no overlaid chevron and
+  disappears for Tatoeba and Full Video Mode; Slow maps pressed to `0.75×` and
+  released to `1×`.
 - **Videos page:** rename page/section/copy from saved/bookmark terminology to `Videos` and `Continue watching`; retain thumbnail, resume, remove and empty states.
 
 ## Design Decisions

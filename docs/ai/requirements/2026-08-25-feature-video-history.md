@@ -18,6 +18,11 @@ must not consume a separate row above a full-width player.
 - Label the source chooser `Phrase example` and the transition `Continue in video`.
 - Place `Continue in video` beside `Save clip` in the example-action group.
 - Remove Expand/Collapse now that the provider media already uses the full width.
+- Remove the built-in YouGlish title and control panel because the trainer owns
+  the equivalent context and playback controls.
+- Put accent selection in the trainer toolbar for YouGlish (`All`, `US`, `UK`,
+  `AUS`). Replace numeric speed buttons with one turtle-icon Slow toggle that
+  switches between `1×` and `0.75×`.
 - Keep the example filters and actions aligned at supported desktop and mobile widths.
 - Automatically add or refresh a video in history only when the learner chooses `Continue in video`.
 - Repurpose `/videos` as a first-class `Videos` / `Continue watching` section.
@@ -51,6 +56,10 @@ must not consume a separate row above a full-width player.
 - For Tatoeba, `Save clip` spans the complete action row; no empty CTA column remains.
 - A saved example names the available action as `Remove clip` or `Remove track`,
   rather than showing the ambiguous state label `Saved`.
+- The embedded YouGlish surface contains neither its title component nor its
+  duplicate control-button panel.
+- The accent selector is hidden for Tatoeba and Full Video Mode; the Slow toggle
+  remains available and exposes its pressed state accessibly.
 - Clicking `Continue in video` first upserts the current video and then enters Full Video Mode using the existing warm transition.
 - Guest and account history use the existing bounded video persistence and remain deduplicated by `videoId`.
 - `/videos` is titled `Videos`, its main section is `Continue watching`, and cards remain ordered by most recent `updatedAt`.

@@ -24,10 +24,19 @@ description: Implementation record for the aligned CTA and Continue watching flo
   `Continue in video` and sits after `Save clip` inside `.example-actions`.
 - Removed the separate media action row, `expandMediaBtn`, expanded-state CSS,
   state mutation, and its event listener. The provider frame is always full width.
+- Set the YouGlish widget to `components: 128`, a nonzero dependency-only mask.
+  Zero cannot be used because widget v4.3 treats it as absent and falls back to
+  the full `255` mask. With Caption excluded, the Dictionary-support bit renders
+  no additional UI, removing the title and duplicate control-button panel while
+  retaining the existing event/API wiring.
 - Reworked the all/saved filter, example actions, Repeat/speed states, and the
   player toolbar into one flat squircle-based visual system. `Continue in video`
   is the primary gradient action; random traversal is fixed internally and the
   redundant Random/In order controls are absent. No runtime style dependency was added.
+- Moved YouGlish accent selection into a compact native toolbar select with
+  `All`, `US`, `UK`, and `AUS`; it is hidden for Tatoeba and Full Video Mode,
+  and omits the cramped custom chevron. Replaced the numeric speed buttons with
+  a turtle-icon Slow toggle (`1×`/`0.75×`).
 - At <=560px, the nested example-toolbar border/background is removed.
   `All`/`Saved` and `Save clip`/`Continue in video` use the same two-column grid,
   44px height, 11px radius and centred content. Continue receives only a subtle

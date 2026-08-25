@@ -25,6 +25,9 @@ description: TDD tasks for CTA alignment, automatic history and Continue watchin
 
 - [x] Move the CTA into `.example-actions`, rename the source/CTA, remove
   Expand/Collapse, and update responsive styling.
+- [x] Remove the duplicate YouGlish title and built-in control-button panel.
+- [x] Move accent selection into the player toolbar and consolidate playback
+  speed into one accessible Slow toggle.
 - [x] Consolidate the existing save and warm-transition flow into one non-blocking history action.
 - [x] Remove `Watch later` state/listeners and update `/videos` terminology.
 

@@ -22,6 +22,12 @@ description: Contracts and smoke coverage for media CTA placement and deliberate
 - [x] The example toolbar is one visual panel with only `All`/`Saved` and the
   two actions; Random/In order controls and their setter/listener are absent.
 - [x] Expand/Collapse markup, state, CSS, and listeners are absent.
+- [x] The YouGlish widget uses the nonzero dependency-only mask `components: 128`,
+  without its built-in title or duplicate control-button panel; zero is rejected
+  because the widget expands it to the default full UI.
+- [x] Rendered HTML verifies `All`/`US`/`UK`/`AUS`, Tatoeba/Full Video accent
+  hiding, no overlaid chevron, and the accessible Slow pressed state without
+  legacy accent or numeric speed buttons.
 - [x] `Watch later` markup/state/listeners are absent.
 - [x] Clicking Full Video invokes guest/account upsert and then the existing warm transition.
 - [x] Persistence failure does not prevent warm transition.
@@ -65,14 +71,14 @@ description: Contracts and smoke coverage for media CTA placement and deliberate
 
 ## Verification Record — 2026-08-25
 
-- `npm test`: build completed and `128/128` configured tests passed.
-- `node --test tests/*.test.mjs`: `142/142` repository tests passed.
+- `npm test`: build completed and `131/131` configured tests passed.
+- `node --test tests/*.test.mjs`: `145/145` repository tests passed.
 - `npx tsc --noEmit`, scoped ESLint, lifecycle feature lint and `git diff --check`: passed.
 - Local responsive smoke: `Phrase example`, `All`/`Saved`, `Save clip`, and
   `Continue in video` remain in the learning workspace; Random/In order and
   Expand/Collapse controls are absent. Mobile removes the nested example card,
   aligns filters/actions to one equal-column 2×2 grid, and hides Continue while
   no valid video exists. Actions retain 44px targets, the lower toolbar does not
-  overflow, and speed labels remain legible.
+  overflow, and the accent/Slow controls remain aligned and legible.
 - Cloudflare branch preview: deliberate Full Video entry created exactly one `Continue watching` card; `Continue` reopened Full Video Mode with the stored origin/caption metadata.
 - The removal path remains covered by existing guest/API contracts; destructive UI removal was not repeated during preview smoke.

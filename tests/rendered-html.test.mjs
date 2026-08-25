@@ -291,6 +291,7 @@ test("Full Video Mode keeps learning controls and removes result-only controls",
   assert.match(trainer, /body\.full-video-mode[^}]*#replayBtn/s);
   assert.match(trainer, /body\.full-video-mode[^}]*\.video-navigation/s);
   assert.match(trainer, /body\.full-video-mode[^}]*#exampleTools/s);
+  assert.match(trainer, /el\.accentControl\.hidden = tatoeba \|\| fullVideoMode;/);
   const warmTransition = trainer.match(/function watchCurrentFullVideo\(\) \{([\s\S]*?)\n    \}\n\n    function setExampleMode/)?.[1] || "";
   assert.match(warmTransition, /widget\.pause\(\)/);
   assert.match(warmTransition, /history\.pushState\(\{ fullVideo: true \}/);
@@ -492,8 +493,7 @@ test("trainer uses one unbroken toolbar and one stateful play pause control", as
   assert.doesNotMatch(trainer, /class="control-group-label"/);
   assert.match(trainer, /id="playPauseBtn"[^>]*aria-label="Pause playback"[^>]*title="Pause playback"/);
   assert.doesNotMatch(trainer, /id="pauseBtn"/);
-  assert.match(trainer, /data-speed="0\.75"[^>]*aria-label="Playback speed 0\.75×"[^>]*title="Playback speed 0\.75×"/);
-  assert.match(trainer, /data-speed="1"[^>]*aria-label="Playback speed 1×"[^>]*title="Playback speed 1×"/);
+  assert.match(trainer, /id="slowPlaybackBtn"[^>]*aria-label="Slow playback"/);
   assert.match(trainer, /function renderPlaybackControl\(\)/);
   assert.match(trainer, /const wantsPlayback = playerState !== 1;[\s\S]*?requestedYouglishPlayback = wantsPlayback;[\s\S]*?callWidget\(wantsPlayback \? "play" : "pause"\)/);
   assert.match(trainer, /playerState = nextState;\s*renderPlaybackControl\(\);/);
@@ -550,14 +550,16 @@ test("trainer controls use one polished visual system", async () => {
     trainer,
     /\.segmented button\.active \{[\s\S]*?background: linear-gradient\(180deg, #2d3947, #26313d\);[\s\S]*?box-shadow:/,
   );
-  assert.match(trainer, /\.speed-active \{[\s\S]*?background: #253d4d !important;/);
+  assert.match(trainer, /\.control-select \{[\s\S]*?position: relative;/);
+  assert.doesNotMatch(trainer, /\.control-select::after/);
+  assert.match(trainer, /\.slow-playback-btn\[aria-pressed="true"\] \{[\s\S]*?background:/);
   assert.match(
     trainer,
     /\.example-actions \{[\s\S]*?align-items: center;[\s\S]*?border-left: 1px solid rgba\(86, 102, 119, \.28\);/,
   );
   assert.match(
     trainer,
-    /@media \(max-width: 560px\)[\s\S]*?\.player-controls \.speed-btn \{ font-size: 10\.5px;/,
+    /@media \(max-width: 560px\)[\s\S]*?\.control-select select \{[\s\S]*?font-size: 10\.5px;/,
   );
 });
 
@@ -681,6 +683,42 @@ test("saved example button names the remove action", async () => {
     /setButtonLabel\(el\.saveExampleBtn, saved \? `Remove \$\{itemLabel\}` : `Save \$\{itemLabel\}`\)/,
   );
   assert.doesNotMatch(trainer, /setButtonLabel\(el\.saveExampleBtn, saved \? "Saved"/);
+});
+
+test("YouGlish widget uses a nonzero dependency-only mask to hide its built-in chrome", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(trainer, /new YG\.Widget\("yg-widget", \{\s*components: 128,/);
+  assert.doesNotMatch(trainer, /components: 0/);
+  assert.doesNotMatch(trainer, /components: 68/);
+});
+
+test("trainer owns a compact YouGlish accent selector and slow toggle", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  const controls = trainer.indexOf('id="playerControls"');
+  const accent = trainer.indexOf('id="accentControl"');
+  const slow = trainer.indexOf('id="slowPlaybackBtn"');
+  assert.ok(controls < accent && accent < slow);
+  assert.match(trainer, /id="accentSelect"[^>]*aria-label="Accent"/);
+  assert.match(trainer, /<option value="">All<\/option>/);
+  assert.match(trainer, /<option value="us">US<\/option>/);
+  assert.match(trainer, /<option value="uk">UK<\/option>/);
+  assert.match(trainer, /<option value="aus">AUS<\/option>/);
+  assert.match(trainer, /\["us", "uk", "aus", ""\]\.includes\(s\.accent\)/);
+  assert.match(trainer, /el\.accentControl\.hidden = tatoeba \|\| fullVideoMode;/);
+  assert.match(trainer, /el\.accentSelect\.addEventListener\("change"/);
+  assert.match(trainer, /id="slowPlaybackBtn"[^>]*aria-label="Slow playback"[^>]*aria-pressed="false"/);
+  assert.match(trainer, /el\.slowPlaybackBtn\.addEventListener\("click"/);
+  assert.match(trainer, /setSpeed\(Number\(state\.speed\) === 0\.75 \? 1 : 0\.75\)/);
+  assert.doesNotMatch(trainer, /id="accentSwitch"/);
+  assert.doesNotMatch(trainer, /id="speedSelect"/);
 });
 
 test("library and integration surfaces use English UI labels", async () => {

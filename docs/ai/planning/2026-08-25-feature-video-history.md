@@ -10,7 +10,7 @@ description: TDD tasks for CTA alignment, automatic history and Continue watchin
 
 - [x] Contract tests fail for the approved UI and history semantics.
 - [x] Trainer and `/videos` implement the approved flow.
-- [ ] Full regression, responsive smoke and lifecycle review pass.
+- [x] Full regression, responsive smoke and lifecycle review pass.
 
 ## Task Breakdown
 
@@ -29,8 +29,8 @@ description: TDD tasks for CTA alignment, automatic history and Continue watchin
 ### Phase 3: Verification
 
 - [x] Run targeted tests, full suite/build, lint, TypeScript and diff checks.
-- [ ] Inspect desktop/mobile layout and interaction in the browser preview.
-- [ ] Review implementation against requirements/design and publish a PR.
+- [x] Inspect desktop/mobile layout and interaction in the browser preview.
+- [x] Review implementation against requirements/design and publish a PR.
 
 ## Dependencies
 

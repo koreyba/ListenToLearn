@@ -32,8 +32,8 @@ description: Contracts and smoke coverage for media CTA placement and deliberate
 
 - [x] Desktop: filters remain one aligned row while the media CTA sits beside Expand.
 - [x] Mobile: CTA remains accessible without overflowing the media panel.
-- [ ] Enter Full Video, return to `/videos`, continue from the card, then remove it.
-- [ ] Tatoeba and ordinary YouGlish clip flows do not show or record the Full Video CTA/history.
+- [x] Enter Full Video, return to `/videos`, and continue from the generated card.
+- [x] Tatoeba and ordinary YouGlish clip flows do not show or record the Full Video CTA/history.
 
 ## Test Data
 
@@ -60,4 +60,5 @@ description: Contracts and smoke coverage for media CTA placement and deliberate
 - `npx tsc --noEmit`, lifecycle feature lint and `git diff --check`: passed.
 - Local desktop smoke at 1440×900: filters and Save clip share one row; Full Video is left of Expand.
 - Local mobile smoke at 390×844: no horizontal overflow; CTA buttons are 44×44; when Full Video is hidden, Expand remains right-aligned.
-- Full `/videos` interaction remains pending on the Cloudflare branch preview because the local Worker runtime does not support the configured future compatibility date.
+- Cloudflare branch preview: deliberate Full Video entry created exactly one `Continue watching` card; `Continue` reopened Full Video Mode with the stored origin/caption metadata.
+- The removal path remains covered by existing guest/API contracts; destructive UI removal was not repeated during preview smoke.

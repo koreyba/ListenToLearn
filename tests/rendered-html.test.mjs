@@ -107,7 +107,7 @@ test("YouGlish videos and Tatoeba tracks can be randomized and saved per phrase"
   assert.doesNotThrow(() => new Function(inlineScript));
 });
 
-test("Watch Later stores account videos independently from phrase examples", async () => {
+test("video history stores account videos independently from phrase examples", async () => {
   const schema = await readFile(
     new URL("../db/schema.ts", import.meta.url),
     "utf8",
@@ -121,7 +121,7 @@ test("Watch Later stores account videos independently from phrase examples", asy
   assert.match(schema, /index\("idx_saved_videos_user_updated"\)/);
 });
 
-test("Watch Later account API validates ids and scopes every mutation to the current user", async () => {
+test("video history API validates ids and scopes every mutation to the current user", async () => {
   const route = await readFile(
     new URL("../app/api/videos/route.ts", import.meta.url),
     "utf8",
@@ -161,14 +161,16 @@ test("legacy owner migration carries saved videos into the authenticated account
   assert.match(auth, /DELETE FROM saved_videos WHERE user_id = \?/);
 });
 
-test("Videos view opens saved videos in the shared YouGlish trainer", async () => {
+test("Continue watching opens viewed videos in the shared YouGlish trainer", async () => {
   const page = await readFile(
     new URL("../app/videos/page.tsx", import.meta.url),
     "utf8",
   );
 
-  assert.match(page, /Saved videos/);
-  assert.match(page, /No videos saved yet/);
+  assert.match(page, /<h1>Videos<\/h1>/);
+  assert.match(page, /Continue watching/);
+  assert.match(page, /No videos watched yet/);
+  assert.doesNotMatch(page, /Saved videos|Watch later|No videos saved yet/i);
   assert.match(page, /fetch\("\/api\/videos"/);
   assert.match(page, /GUEST_LIBRARY_STORAGE_KEY/);
   assert.match(page, /removeGuestSavedVideo/);
@@ -213,7 +215,7 @@ test("Full Video Mode keeps learning controls and removes result-only controls",
   assert.match(trainer, /event\.state && event\.state\.listenFromFullVideo[\s\S]*?fetchPhrase\(VIEWER_PHRASE, true\)/);
 });
 
-test("YouGlish results expose separate clip and full-video actions", async () => {
+test("YouGlish results keep clip filters aligned and record history on Full Video entry", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),
     "utf8",
@@ -223,8 +225,18 @@ test("YouGlish results expose separate clip and full-video actions", async () =>
     "utf8",
   );
 
-  assert.match(trainer, /id="watchLaterBtn"/);
-  assert.match(trainer, /id="watchFullVideoBtn"/);
+  const mediaHeading = trainer.match(/<div class="media-heading">([\s\S]*?)<\/div>\s*<div id="mediaFrameSlot"/)?.[1] || "";
+  assert.match(mediaHeading, /id="watchFullVideoBtn"/);
+  assert.ok(
+    mediaHeading.indexOf("watchFullVideoBtn") < mediaHeading.indexOf("expandMediaBtn"),
+    "the Full Video action must sit left of Expand",
+  );
+  assert.match(
+    trainer,
+    /\.media-expand-btn\s*\{[^}]*margin-left:\s*auto/s,
+    "Expand must stay right-aligned when the Full Video action is hidden",
+  );
+  assert.doesNotMatch(trainer, /watchLaterBtn|Watch later/i);
   assert.match(trainer, /Save clip/);
   assert.match(trainer, /fetch\("\/api\/videos"/);
   assert.match(trainer, /savedVideos/);
@@ -232,7 +244,19 @@ test("YouGlish results expose separate clip and full-video actions", async () =>
   assert.match(trainer, /currentYouglishVideoId/);
   assert.match(trainer, /\^\[A-Za-z0-9_-\]\{11\}\$/);
   assert.match(trainer, /const itemLabel = state\.source === "tatoeba" \? "track" : "clip"/);
-  assert.match(trainer, /watchLaterBtn\.hidden = !isYouGlish/);
+  assert.match(trainer, /function recordCurrentVideoHistory\(origin\)/);
+  assert.match(trainer, /saveGuestVideo\(origin\)/);
+  assert.equal(
+    [...trainer.matchAll(/recordCurrentVideoHistory\(/g)].length,
+    2,
+    "history must be written only by the Full Video action",
+  );
+  const warmTransition = trainer.match(/function watchCurrentFullVideo\(\) \{([\s\S]*?)\n    \}/)?.[1] || "";
+  assert.match(warmTransition, /void recordCurrentVideoHistory\(origin\)/);
+  assert.ok(
+    warmTransition.indexOf("recordCurrentVideoHistory(origin)") < warmTransition.indexOf("widget.pause()"),
+    "history upsert must start before entering Full Video Mode",
+  );
   assert.match(page, /href="\/videos"/);
 });
 

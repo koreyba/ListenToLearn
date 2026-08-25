@@ -168,22 +168,9 @@
     .media-heading {
       display: flex;
       align-items: center;
-      justify-content: space-between;
+      justify-content: flex-end;
       gap: 8px;
       margin-bottom: 7px;
-    }
-
-    .media-label {
-      margin: 0;
-      color: var(--muted);
-      font-size: 11px;
-      font-weight: 750;
-      letter-spacing: .09em;
-      text-transform: uppercase;
-    }
-
-    .media-subtitle {
-      display: none;
     }
 
     .media-expand-btn {
@@ -507,6 +494,7 @@
       font-size: 12px;
     }
 
+    .example-message:empty { display: none; }
     .example-message.error { color: var(--danger); }
 
     .speed-active {
@@ -521,6 +509,8 @@
       color: var(--muted);
     }
     .status.error { color: var(--danger); }
+    .status:not(.error),
+    .caption-navigation-status { display: none; }
 
     .caption-box {
       margin-top: 8px;
@@ -980,22 +970,44 @@
       .learning-workspace {
         display: flex;
         flex-direction: column;
-        padding: 10px;
+        padding: 8px;
       }
-      .source-row { order: 1; }
+      .source-row {
+        order: 1;
+        margin-bottom: 6px;
+        padding-bottom: 6px;
+      }
       .example-tools {
         order: 2;
+        margin-top: 0;
+        padding-top: 0;
+        border-top: 0;
       }
       .example-message { order: 3; }
-      .caption-box { order: 4; }
+      .caption-box {
+        order: 4;
+        margin-top: 6px;
+        padding: 10px;
+      }
+      .caption-label { margin-bottom: 5px; }
       .status { order: 5; }
       .no-results { order: 6; }
       .caption-navigation-status { order: 7; }
       .player-controls {
         order: 8;
-        margin-top: 8px;
+        margin-top: 6px;
       }
-      .media-panel { padding: 9px; margin-top: 10px; }
+      .media-panel {
+        display: flex;
+        flex-direction: column;
+        margin-top: 4px;
+        padding: 6px;
+      }
+      .media-frame-slot { order: 1; }
+      .media-heading {
+        order: 2;
+        margin: 4px 0 0;
+      }
       #sourceSwitch button,
       .example-settings .segmented button {
         min-height: 44px;
@@ -1170,10 +1182,6 @@
 
       <aside class="media-panel" aria-label="Media example">
         <div class="media-heading">
-          <div>
-            <div class="media-label">Media</div>
-            <div class="media-subtitle">Current video or audio</div>
-          </div>
           <button id="expandMediaBtn" class="media-expand-btn" type="button" aria-label="Expand player" aria-controls="widgetFrame" aria-expanded="false" title="Expand player">
             <span class="button-icon expand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M8 4H4v4M16 4h4v4M20 16v4h-4M4 16v4h4" /></svg></span>
             <span class="button-label">Expand</span>

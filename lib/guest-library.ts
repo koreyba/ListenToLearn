@@ -28,11 +28,22 @@ export type GuestSavedExample = {
   createdAt: string;
 };
 
+export type GuestSavedVideo = {
+  id: string;
+  videoId: string;
+  originPhraseId: string;
+  originQuery: string;
+  originCaption: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type GuestLibraryState = {
-  version: 1;
+  version: 2;
   statuses: Record<string, GuestPhraseStatus>;
   customPhrases: GuestCustomPhrase[];
   savedExamples: GuestSavedExample[];
+  savedVideos: GuestSavedVideo[];
 };
 
 export type GuestPhraseInput = {
@@ -51,9 +62,17 @@ export type GuestExampleInput = {
   metadata?: unknown;
 };
 
+export type GuestVideoInput = {
+  videoId?: unknown;
+  originPhraseId?: unknown;
+  originQuery?: unknown;
+  originCaption?: unknown;
+};
+
 const MAX_STATUSES = 500;
 const MAX_CUSTOM_PHRASES = 200;
 const MAX_SAVED_EXAMPLES = 500;
+const MAX_SAVED_VIDEOS = 200;
 
 function text(value: unknown, limit: number) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, limit) : "";
@@ -69,6 +88,10 @@ function isStatus(value: unknown): value is GuestPhraseStatus {
 
 function isProvider(value: unknown): value is GuestExampleProvider {
   return value === "youglish" || value === "tatoeba";
+}
+
+function isYouTubeVideoId(value: string) {
+  return /^[A-Za-z0-9_-]{11}$/.test(value);
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -92,10 +115,11 @@ function id(prefix: string) {
 
 export function createGuestLibrary(): GuestLibraryState {
   return {
-    version: 1,
+    version: 2,
     statuses: {},
     customPhrases: [],
     savedExamples: [],
+    savedVideos: [],
   };
 }
 
@@ -151,7 +175,25 @@ export function normalizeGuestLibrary(value: unknown): GuestLibraryState {
     });
   }
 
-  return { version: 1, statuses, customPhrases, savedExamples };
+  const savedVideos: GuestSavedVideo[] = [];
+  const rawVideos = Array.isArray(input.savedVideos) ? input.savedVideos : [];
+  for (const candidate of rawVideos.slice(0, MAX_SAVED_VIDEOS)) {
+    const item = object(candidate);
+    const videoId = text(item.videoId, 20);
+    const savedVideoId = text(item.id, 160);
+    if (!savedVideoId || !isYouTubeVideoId(videoId)) continue;
+    savedVideos.push({
+      id: savedVideoId,
+      videoId,
+      originPhraseId: text(item.originPhraseId, 120),
+      originQuery: text(item.originQuery, 240),
+      originCaption: text(item.originCaption, 1_000),
+      createdAt: nowIso(typeof item.createdAt === "string" ? item.createdAt : undefined),
+      updatedAt: nowIso(typeof item.updatedAt === "string" ? item.updatedAt : undefined),
+    });
+  }
+
+  return { version: 2, statuses, customPhrases, savedExamples, savedVideos };
 }
 
 export function setGuestPhraseStatus(
@@ -260,4 +302,47 @@ export function removeGuestSavedExample(state: GuestLibraryState, exampleId: str
 export function guestSavedExamplesForPhrase(state: GuestLibraryState, phraseId: string) {
   const normalized = text(phraseId, 120);
   return normalizeGuestLibrary(state).savedExamples.filter((example) => example.phraseId === normalized);
+}
+
+export function saveGuestVideo(
+  state: GuestLibraryState,
+  input: GuestVideoInput,
+  updatedAt = new Date().toISOString(),
+) {
+  const next = normalizeGuestLibrary(state);
+  const videoId = text(input.videoId, 20);
+  if (!isYouTubeVideoId(videoId)) return { state: next, video: null, created: false };
+
+  const timestamp = nowIso(updatedAt);
+  const existing = next.savedVideos.find((video) => video.videoId === videoId);
+  const video: GuestSavedVideo = existing
+    ? {
+        ...existing,
+        originPhraseId: text(input.originPhraseId, 120) || existing.originPhraseId,
+        originQuery: text(input.originQuery, 240) || existing.originQuery,
+        originCaption: text(input.originCaption, 1_000) || existing.originCaption,
+        updatedAt: timestamp,
+      }
+    : {
+        id: id("guest-video"),
+        videoId,
+        originPhraseId: text(input.originPhraseId, 120),
+        originQuery: text(input.originQuery, 240),
+        originCaption: text(input.originCaption, 1_000),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+
+  next.savedVideos = [
+    video,
+    ...next.savedVideos.filter((item) => item.videoId !== videoId),
+  ].slice(0, MAX_SAVED_VIDEOS);
+  return { state: next, video, created: !existing };
+}
+
+export function removeGuestSavedVideo(state: GuestLibraryState, videoRecordId: string) {
+  const next = normalizeGuestLibrary(state);
+  const idToRemove = text(videoRecordId, 160);
+  next.savedVideos = next.savedVideos.filter((video) => video.id !== idToRemove);
+  return next;
 }

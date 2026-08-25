@@ -390,6 +390,7 @@ export default function Home() {
           <h1>Listen to real speech.<br />Choose what to learn.</h1>
         </div>
         <div className="header-tools">
+          <a className="integrations-link" href="/videos">Videos</a>
           <a className="integrations-link" href="/integrations">Integrations</a>
           {viewer && <span className="header-account" title={viewer.email}>{viewer.name || viewer.email}</span>}
           {mode === "guest" ? (

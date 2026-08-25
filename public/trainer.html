@@ -464,6 +464,18 @@
       min-width: 138px;
     }
 
+    .example-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+      max-width: 430px;
+    }
+
+    .example-actions button {
+      min-width: 128px;
+    }
+
     .example-count {
       display: inline-grid;
       min-width: 20px;
@@ -482,6 +494,7 @@
     }
 
     .save-example-btn:disabled,
+    .example-actions button:disabled,
     .example-mode button:disabled {
       cursor: not-allowed;
       opacity: 0.5;
@@ -1021,6 +1034,7 @@
       .example-settings { display: grid; grid-template-columns: 1fr 1fr; }
       .example-settings .segmented { display: grid; grid-template-columns: 1fr 1fr; }
       .save-example-btn { width: auto; }
+      .example-actions { max-width: none; }
     }
 
     @media (max-width: 560px) {
@@ -1040,10 +1054,10 @@
       .player-controls button { padding-left: 3px; padding-right: 3px; }
       .player-controls .button-icon { width: 18px; height: 18px; }
       .media-expand-btn .button-label,
-      .save-example-btn .button-label { display: none; }
+      .example-actions .button-label { display: none; }
       .example-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .example-settings .button-label { display: none; }
-      .save-example-btn { width: 44px; min-width: 44px; padding: 8px; }
+      .example-actions button { width: 44px; min-width: 44px; padding: 8px; }
       .phrase-card {
         grid-template-columns: minmax(0, 1fr);
       }
@@ -1140,10 +1154,20 @@
               </button>
             </fieldset>
           </div>
-          <button id="saveExampleBtn" class="save-example-btn" type="button" aria-label="Save current example" title="Save current example" disabled>
-            <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3z" /></svg></span>
-            <span class="button-label">Save example</span>
-          </button>
+          <div class="example-actions">
+            <button id="saveExampleBtn" class="save-example-btn" type="button" aria-label="Save current example" title="Save current example" disabled>
+              <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3z" /></svg></span>
+              <span class="button-label">Save clip</span>
+            </button>
+            <button id="watchLaterBtn" type="button" aria-label="Save full video to Watch Later" title="Save full video to Watch Later" disabled hidden>
+              <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M6 4h12v16l-6-3-6 3V4z" /></svg></span>
+              <span class="button-label">Watch later</span>
+            </button>
+            <button id="watchFullVideoBtn" type="button" aria-label="Watch full video" title="Watch full video" disabled hidden>
+              <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m9 7 8 5-8 5V7zM4 4h16v16H4z" /></svg></span>
+              <span class="button-label">Watch full video</span>
+            </button>
+          </div>
         </div>
 
         <div id="exampleMessage" class="example-message" role="status"></div>
@@ -1421,6 +1445,8 @@
       exampleOrder: document.getElementById("exampleOrder"),
       savedExampleCount: document.getElementById("savedExampleCount"),
       saveExampleBtn: document.getElementById("saveExampleBtn"),
+      watchLaterBtn: document.getElementById("watchLaterBtn"),
+      watchFullVideoBtn: document.getElementById("watchFullVideoBtn"),
       exampleMessage: document.getElementById("exampleMessage"),
       sourceSwitch: document.getElementById("sourceSwitch"),
       youglishPlayer: document.getElementById("youglishPlayer"),
@@ -1552,7 +1578,7 @@
     const GUEST_PROVIDERS = new Set(["youglish", "tatoeba"]);
 
     function createGuestLibrary() {
-      return { version: 1, statuses: {}, customPhrases: [], savedExamples: [] };
+      return { version: 2, statuses: {}, customPhrases: [], savedExamples: [], savedVideos: [] };
     }
 
     function guestText(value, limit) {
@@ -1632,7 +1658,24 @@
               }];
             })
           : [];
-        return { version: 1, statuses, customPhrases, savedExamples };
+        const savedVideos = Array.isArray(parsed.savedVideos)
+          ? parsed.savedVideos.slice(0, 200).flatMap((item) => {
+              if (!item || typeof item !== "object") return [];
+              const id = guestText(item.id, 160);
+              const videoId = guestText(item.videoId, 20);
+              if (!id || !/^[A-Za-z0-9_-]{11}$/.test(videoId)) return [];
+              return [{
+                id,
+                videoId,
+                originPhraseId: guestText(item.originPhraseId, 120),
+                originQuery: guestText(item.originQuery, 240),
+                originCaption: guestText(item.originCaption, 1_000),
+                createdAt: guestTimestamp(item.createdAt),
+                updatedAt: guestTimestamp(item.updatedAt)
+              }];
+            })
+          : [];
+        return { version: 2, statuses, customPhrases, savedExamples, savedVideos };
       } catch (error) {
         console.warn("Could not read guest library:", error);
         if (el.stateMessage) el.stateMessage.textContent = "Could not read guest library; starting with a clean state.";
@@ -1774,6 +1817,27 @@
       };
       guestLibrary.savedExamples = [example, ...guestLibrary.savedExamples].slice(0, 500);
       return { saved: true, example };
+    }
+
+    function saveGuestVideo(input) {
+      const videoId = guestText(input.videoId, 20);
+      if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return null;
+      const timestamp = new Date().toISOString();
+      const existing = guestLibrary.savedVideos.find((video) => video.videoId === videoId);
+      const video = {
+        id: existing ? existing.id : guestId("guest-video"),
+        videoId,
+        originPhraseId: guestText(input.originPhraseId, 120) || (existing ? existing.originPhraseId : ""),
+        originQuery: guestText(input.originQuery, 240) || (existing ? existing.originQuery : ""),
+        originCaption: guestText(input.originCaption, 1_000) || (existing ? existing.originCaption : ""),
+        createdAt: existing ? existing.createdAt : timestamp,
+        updatedAt: timestamp
+      };
+      guestLibrary.savedVideos = [
+        video,
+        ...guestLibrary.savedVideos.filter((item) => item.videoId !== videoId)
+      ].slice(0, 200);
+      return video;
     }
 
     let state = safeLoad();
@@ -2056,12 +2120,19 @@
 
       const saved = currentSavedExample();
       const learningPhrase = Boolean(VIEWER_PHRASE_ID && VIEWER_PHRASE_STATUS);
-      const itemLabel = state.source === "tatoeba" ? "track" : "video";
+      const itemLabel = state.source === "tatoeba" ? "track" : "clip";
       el.saveExampleBtn.classList.toggle("saved", Boolean(saved));
       setButtonLabel(el.saveExampleBtn, saved ? "Saved" : `Save ${itemLabel}`);
       el.saveExampleBtn.setAttribute("aria-label", saved ? "Remove current example from saved" : "Save current example");
       el.saveExampleBtn.title = saved ? "Remove current example from saved" : "Save current example";
       el.saveExampleBtn.disabled = !learningPhrase || !currentExternalId;
+
+      const isYouGlish = state.source === "youglish";
+      const validYouTubeVideo = isYouGlish && /^[A-Za-z0-9_-]{11}$/.test(currentYouglishVideoId);
+      el.watchLaterBtn.hidden = !isYouGlish;
+      el.watchFullVideoBtn.hidden = !isYouGlish;
+      el.watchLaterBtn.disabled = !validYouTubeVideo;
+      el.watchFullVideoBtn.disabled = !validYouTubeVideo;
 
       if (!learningPhrase && !el.exampleMessage.textContent) {
         showExampleMessage("To save examples, first add the phrase to To Learn.");
@@ -3082,6 +3153,56 @@
       }
     }
 
+    function currentVideoOrigin() {
+      return {
+        videoId: currentYouglishVideoId,
+        originPhraseId: VIEWER_PHRASE_ID || "",
+        originQuery: currentQueryOverride || VIEWER_PHRASE,
+        originCaption: currentCaptionText
+      };
+    }
+
+    async function saveCurrentVideoForLater() {
+      const origin = currentVideoOrigin();
+      if (state.source !== "youglish" || !/^[A-Za-z0-9_-]{11}$/.test(origin.videoId)) return;
+      el.watchLaterBtn.disabled = true;
+      el.watchLaterBtn.setAttribute("aria-busy", "true");
+      showExampleMessage("Saving full video to Watch Later…");
+      try {
+        if (!isAuthenticated) {
+          saveGuestVideo(origin);
+          saveGuestLibrary();
+        } else {
+          const response = await fetch("/api/videos", {
+            method: "POST",
+            headers: { "Content-Type": "application/json; charset=utf-8" },
+            body: JSON.stringify(origin)
+          });
+          const data = await response.json().catch(() => null);
+          if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
+        }
+        showExampleMessage("Full video saved to Watch Later.");
+      } catch (error) {
+        showExampleMessage(error.message || "Could not save the full video.", "error");
+        console.error(error);
+      } finally {
+        el.watchLaterBtn.removeAttribute("aria-busy");
+        renderExampleTools();
+      }
+    }
+
+    function watchCurrentFullVideo() {
+      const origin = currentVideoOrigin();
+      if (state.source !== "youglish" || !/^[A-Za-z0-9_-]{11}$/.test(origin.videoId)) return;
+      const query = new URLSearchParams({
+        video: origin.videoId,
+        query: origin.originQuery,
+        caption: origin.originCaption
+      });
+      if (origin.originPhraseId) query.set("phraseId", origin.originPhraseId);
+      window.location.href = `/videos?${query.toString()}`;
+    }
+
     function setExampleMode(mode) {
       if (mode !== "all" && mode !== "saved") return;
       if (mode === "saved" && !examplesForCurrentSource().length) return;
@@ -3433,6 +3554,8 @@
       }
     });
     el.saveExampleBtn.addEventListener("click", toggleSavedExample);
+    el.watchLaterBtn.addEventListener("click", saveCurrentVideoForLater);
+    el.watchFullVideoBtn.addEventListener("click", watchCurrentFullVideo);
     el.exampleMode.addEventListener("click", event => {
       const btn = event.target.closest("button[data-example-mode]");
       if (btn) setExampleMode(btn.dataset.exampleMode);

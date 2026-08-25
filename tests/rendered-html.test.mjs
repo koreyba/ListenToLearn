@@ -107,6 +107,104 @@ test("YouGlish videos and Tatoeba tracks can be randomized and saved per phrase"
   assert.doesNotThrow(() => new Function(inlineScript));
 });
 
+test("Watch Later stores account videos independently from phrase examples", async () => {
+  const schema = await readFile(
+    new URL("../db/schema.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(schema, /export const savedVideos/);
+  assert.match(schema, /youtubeVideoId: text\("youtube_video_id"\)/);
+  assert.match(schema, /uniqueIndex\("idx_saved_videos_user_youtube"\)/);
+  assert.match(schema, /index\("idx_saved_videos_user_updated"\)/);
+});
+
+test("Watch Later account API validates ids and scopes every mutation to the current user", async () => {
+  const route = await readFile(
+    new URL("../app/api/videos/route.ts", import.meta.url),
+    "utf8",
+  );
+  const migration = await readFile(
+    new URL("../drizzle/0009_absurd_blob.sql", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(route, /getCurrentUser\(request\)/);
+  assert.match(route, /isYouTubeVideoId\(videoId\)/);
+  assert.match(route, /ON CONFLICT\(user_id, youtube_video_id\) DO UPDATE/);
+  assert.match(route, /WHERE user_id = \?/);
+  assert.match(route, /p\.source_type = 'preset' OR p\.owner_id = \?/);
+  assert.match(route, /export async function GET/);
+  assert.match(route, /export async function POST/);
+  assert.match(route, /export async function DELETE/);
+  assert.match(route, /request\.text\(\)/);
+  assert.match(route, /Request body is too large/);
+  assert.match(route, /Invalid JSON body/);
+  assert.match(migration, /CREATE TABLE [`]saved_videos[`]/);
+  assert.match(migration, /CREATE UNIQUE INDEX [`]idx_saved_videos_user_youtube[`]/);
+});
+
+test("legacy owner migration carries saved videos into the authenticated account", async () => {
+  const auth = await readFile(
+    new URL("../lib/auth.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(auth, /INSERT OR IGNORE INTO saved_videos/);
+  assert.match(auth, /current\.youtube_video_id = legacy\.youtube_video_id/);
+  assert.match(auth, /DELETE FROM saved_videos WHERE user_id = \?/);
+});
+
+test("Videos view separates direct YouTube playback from YouGlish discovery", async () => {
+  const page = await readFile(
+    new URL("../app/videos/page.tsx", import.meta.url),
+    "utf8",
+  );
+  const player = await readFile(
+    new URL("../app/videos/youtube-player.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(page, /Saved videos/);
+  assert.match(page, /No videos saved yet/);
+  assert.match(page, /fetch\("\/api\/videos"/);
+  assert.match(page, /GUEST_LIBRARY_STORAGE_KEY/);
+  assert.match(page, /removeGuestSavedVideo/);
+  assert.match(page, /searchParams\.get\("video"\)/);
+  assert.match(page, /addEventListener\("popstate"/);
+  assert.match(page, /Open on YouTube/);
+  assert.doesNotMatch(page, /method:\s*"POST"/);
+  assert.match(player, /https:\/\/www\.youtube\.com\/iframe_api/);
+  assert.match(player, /new window\.YT\.Player/);
+  assert.match(player, /youtubePlayerVars\(window\.location\.origin\)/);
+  assert.match(player, /getCurrentTime\(\)/);
+  assert.match(player, /window\.setInterval/);
+  assert.doesNotMatch(page + player, /youglish\.com|YG\.Widget|widget\.fetch/i);
+});
+
+test("YouGlish results expose separate clip and full-video actions", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+  const page = await readFile(
+    new URL("../app/page.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(trainer, /id="watchLaterBtn"/);
+  assert.match(trainer, /id="watchFullVideoBtn"/);
+  assert.match(trainer, /Save clip/);
+  assert.match(trainer, /fetch\("\/api\/videos"/);
+  assert.match(trainer, /savedVideos/);
+  assert.match(trainer, /\/videos\?\$\{query\.toString\(\)\}/);
+  assert.match(trainer, /currentYouglishVideoId/);
+  assert.match(trainer, /\^\[A-Za-z0-9_-\]\{11\}\$/);
+  assert.match(trainer, /const itemLabel = state\.source === "tatoeba" \? "track" : "clip"/);
+  assert.match(trainer, /watchLaterBtn\.hidden = !isYouGlish/);
+  assert.match(page, /href="\/videos"/);
+});
+
 test("DeepL credentials stay in the shared server helper", async () => {
   const helper = await readFile(
     new URL("../lib/deepl.ts", import.meta.url),

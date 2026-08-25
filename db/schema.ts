@@ -57,6 +57,22 @@ export const phraseExamples = sqliteTable("phrase_examples", {
     .on(table.userId, table.phraseId, table.createdAt),
 ]);
 
+export const savedVideos = sqliteTable("saved_videos", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  youtubeVideoId: text("youtube_video_id").notNull(),
+  originPhraseId: text("origin_phrase_id").references(() => phrases.id, { onDelete: "set null" }),
+  originQuery: text("origin_query").notNull().default(""),
+  originCaption: text("origin_caption").notNull().default(""),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_saved_videos_user_youtube")
+    .on(table.userId, table.youtubeVideoId),
+  index("idx_saved_videos_user_updated")
+    .on(table.userId, table.updatedAt),
+]);
+
 export const integrationSecrets = sqliteTable("integration_secrets", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),

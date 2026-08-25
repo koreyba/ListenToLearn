@@ -656,16 +656,33 @@ test("phrase navigation uses cached neighbors without waiting for a new caption 
 
   assert.equal(neighbors.previous.id, "opaque-a");
   assert.equal(neighbors.next, null);
-  assert.match(trainer, /captionNavigation\.neighbors\(captionHistory, captionHistoryIndex, currentYouglishVideoId\)/);
-  assert.match(trainer, /captionTargetAvailable\(previousTarget\)/);
-  assert.match(trainer, /captionTargetAvailable\(nextTarget\)/);
+  assert.match(
+    trainer,
+    /captionNavigation\.neighbors\([\s\S]*?captionHistory,[\s\S]*?captionHistoryIndex,[\s\S]*?currentYouglishVideoId,[\s\S]*?activeCaptionSegmentId[\s\S]*?\)/,
+  );
+  assert.match(trainer, /captionTargetAvailable\(previousTarget, current\)/);
+  assert.match(trainer, /captionTargetAvailable\(nextTarget, current\)/);
   const knownSeek = trainer.match(/function seekToKnownCaption\([\s\S]*?\n    function navigateCaption/)?.[0];
   assert.ok(knownSeek);
   assert.doesNotMatch(knownSeek, /waitForCaption/);
   assert.match(knownSeek, /renderCaption\(targetEntry\.raw\)/);
   assert.match(knownSeek, /captionNavigation\.isReplayTarget\(target\)/);
   assert.match(knownSeek, /widget\.replay\(\)/);
-  assert.match(trainer, /currentTime === null \? "replay" : "seek"/);
+  assert.match(trainer, /resolvedTime === null \? "replay" : "seek"/);
+});
+
+test("saved YouGlish playback waits for onVideoChange before switching caption history", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+  const savedPlayback = trainer.match(
+    /function playSavedExample\([\s\S]*?\n    function fetchPhrase/,
+  )?.[0];
+
+  assert.ok(savedPlayback);
+  assert.doesNotMatch(savedPlayback, /currentYouglishVideoId = example\.external_id/);
+  assert.match(savedPlayback, /#\$\{example\.external_id\}/);
 });
 
 test("integrations keep provider keys server-side and expose only status", async () => {

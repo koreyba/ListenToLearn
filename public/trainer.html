@@ -1434,8 +1434,15 @@
     const captionNavigation = window.ListenToLearnCaptionNavigation || null;
     let captionHistory = [];
     let captionHistoryIndex = -1;
+    const captionVideoStates = new Map();
+    let activeCaptionSegmentId = "";
+    let captionSegmentSequence = 0;
     let captionNavigationBlocked = { previous: false, next: false };
     let captionNavigationBusy = false;
+    let controlledCaptionTargetId = "";
+    let controlledCaptionRestorePaused = false;
+    let replayPendingTargetId = "";
+    let replayRestorePaused = false;
     let repeatCaptionEnabled = false;
     let repeatTargetId = "";
     let repeatPending = false;
@@ -2380,13 +2387,18 @@
         && widget
         && typeof widget.move === "function"
         && sameCaptionVideo(current)
-        && finiteCaptionTime(current.startTime) !== null;
+        && (finiteCaptionTime(current.startTime) !== null
+          || captionNavigation.isReplayTarget(current));
     }
 
-    function captionTargetAvailable(target) {
+    function captionTargetAvailable(target, current = currentCaptionEntry()) {
       if (!target || !captionNavigation) return false;
       if (captionNavigation.isReplayTarget(target)) {
         return typeof widget?.replay === "function";
+      }
+      if (captionNavigation.isReplayTarget(current)
+          && finiteCaptionTime(current.startTime) === null) {
+        return typeof widget?.play === "function";
       }
       return finiteCaptionTime(target.startTime) !== null
         && typeof widget?.move === "function";
@@ -2410,8 +2422,40 @@
       if (repeatCaptionEnabled || repeatPending) disableRepeatCaption(message);
     }
 
+    function storeActiveCaptionVideoState() {
+      if (!currentYouglishVideoId) return;
+      captionVideoStates.set(currentYouglishVideoId, {
+        history: captionHistory,
+        index: captionHistoryIndex,
+        activeSegmentId: activeCaptionSegmentId,
+        nextEntrySequence: captionEntrySequence,
+        nextSegmentSequence: captionSegmentSequence
+      });
+    }
+
+    function activateCaptionVideo(videoId) {
+      storeActiveCaptionVideoState();
+      currentYouglishVideoId = videoId;
+      const saved = captionVideoStates.get(videoId);
+      captionHistory = saved ? saved.history : [];
+      captionHistoryIndex = saved ? saved.index : -1;
+      activeCaptionSegmentId = saved ? saved.activeSegmentId : "";
+      captionEntrySequence = saved ? saved.nextEntrySequence : 0;
+      captionSegmentSequence = saved ? saved.nextSegmentSequence : 0;
+      captionNavigationBlocked = { previous: false, next: false };
+      cancelCaptionNavigation();
+    }
+
     function upsertCaptionEntry(raw, text, id, startTime, navigationMode = "seek") {
       if (!captionNavigation) return null;
+      const segment = captionNavigation.resolveSegment(
+        captionHistory,
+        { videoId: currentYouglishVideoId, id, startTime },
+        activeCaptionSegmentId,
+        captionSegmentSequence
+      );
+      activeCaptionSegmentId = segment.segmentId;
+      captionSegmentSequence = segment.nextSegmentSequence;
       const result = captionNavigation.upsert(
         captionHistory,
         {
@@ -2420,7 +2464,8 @@
           raw,
           text,
           startTime,
-          navigationMode
+          navigationMode,
+          segmentId: activeCaptionSegmentId
         },
         captionEntrySequence,
         performance.now()
@@ -2440,6 +2485,7 @@
       }
       captionEntrySequence = result.nextSequence;
       captionNavigationBlocked = { previous: false, next: false };
+      storeActiveCaptionVideoState();
       return result.entry;
     }
 
@@ -2447,8 +2493,15 @@
       cancelCaptionNavigation();
       captionHistory = [];
       captionHistoryIndex = -1;
+      captionVideoStates.clear();
+      activeCaptionSegmentId = "";
+      captionSegmentSequence = 0;
       captionNavigationBlocked = { previous: false, next: false };
       captionEntrySequence = 0;
+      controlledCaptionTargetId = "";
+      controlledCaptionRestorePaused = false;
+      replayPendingTargetId = "";
+      replayRestorePaused = false;
       repeatCaptionEnabled = false;
       repeatTargetId = "";
       repeatPending = false;
@@ -2465,22 +2518,29 @@
       const timingAvailable = captionTimingAvailable();
       const current = currentCaptionEntry();
       const { previous: previousTarget, next: nextTarget } = captionNavigation
-        ? captionNavigation.neighbors(captionHistory, captionHistoryIndex, currentYouglishVideoId)
+        ? captionNavigation.neighbors(
+            captionHistory,
+            captionHistoryIndex,
+            currentYouglishVideoId,
+            activeCaptionSegmentId
+          )
         : { previous: null, next: null };
       const previousAvailable = timingAvailable
-        && captionTargetAvailable(previousTarget)
+        && captionTargetAvailable(previousTarget, current)
         && !captionNavigationBlocked.previous;
       const nextAvailable = timingAvailable
-        && captionTargetAvailable(nextTarget)
+        && captionTargetAvailable(nextTarget, current)
         && !captionNavigationBlocked.next;
       const unavailable = state.source !== "youglish"
         ? "This source has no timestamped captions."
         : (!current || !timingAvailable
           ? "Exact navigation is waiting for the current caption timestamp."
           : "The neighboring caption has not been observed in this video yet.");
-      el.prevCaptionBtn.disabled = captionNavigationBusy || !previousAvailable;
-      el.nextCaptionBtn.disabled = captionNavigationBusy || !nextAvailable;
-      el.repeatCaptionBtn.disabled = captionNavigationBusy || !timingAvailable;
+      const navigationPending = captionNavigationBusy || Boolean(controlledCaptionTargetId);
+      el.prevCaptionBtn.disabled = navigationPending || !previousAvailable;
+      el.nextCaptionBtn.disabled = navigationPending || !nextAvailable;
+      el.repeatCaptionBtn.disabled = navigationPending
+        || finiteCaptionTime(current && current.startTime) === null;
       el.repeatCaptionBtn.setAttribute("aria-pressed", String(repeatCaptionEnabled));
       setButtonLabel(el.repeatCaptionBtn, `Repeat caption: ${repeatCaptionEnabled ? "on" : "off"}`);
       el.captionNavigationHint.textContent = state.source !== "youglish"
@@ -2516,6 +2576,20 @@
           if (typeof widget.replay !== "function") return null;
           widget.replay();
         } else {
+          if (captionNavigation.isReplayTarget(current)
+              && finiteCaptionTime(current.startTime) === null) {
+            if (typeof widget.play !== "function") return null;
+            controlledCaptionTargetId = target.id;
+            controlledCaptionRestorePaused = !wasPlaying;
+            try {
+              widget.play();
+            } catch (error) {
+              controlledCaptionTargetId = "";
+              controlledCaptionRestorePaused = false;
+              throw error;
+            }
+            return { pending: true };
+          }
           const currentTime = estimatedCaptionTime(current) ?? current.startTime;
           const delta = captionNavigation.relativeSeekDelta(currentTime, target.startTime);
           widget.move(delta);
@@ -2526,12 +2600,14 @@
         if (targetIndex < 0) return null;
         const targetEntry = captionHistory[targetIndex];
         captionHistoryIndex = targetIndex;
+        activeCaptionSegmentId = targetEntry.segmentId || activeCaptionSegmentId;
         targetEntry.lastKnownTime = targetEntry.startTime;
         targetEntry.observedAt = performance.now();
         currentCaptionRaw = targetEntry.raw;
         currentCaptionText = targetEntry.text;
         renderCaption(targetEntry.raw);
         hideTranslation();
+        storeActiveCaptionVideoState();
         return targetEntry;
       } finally {
         if (wasPlaying && typeof widget.play === "function") widget.play();
@@ -2544,7 +2620,8 @@
         captionHistory,
         captionHistoryIndex,
         direction === "previous" ? -1 : 1,
-        currentYouglishVideoId
+        currentYouglishVideoId,
+        activeCaptionSegmentId
       );
       if (!target) return;
       captionNavigationBusy = true;
@@ -2552,6 +2629,10 @@
       const wasPlaying = playerState === 1;
       try {
         const reached = seekToKnownCaption(target, wasPlaying);
+        if (reached && reached.pending) {
+          repeatPending = false;
+          return;
+        }
         if (!reached) {
           captionNavigationBlocked[direction] = true;
           if (repeatCaptionEnabled) disableRepeatCaption("Phrase repeat disabled: the next caption could not be confirmed.");
@@ -2590,7 +2671,8 @@
         captionHistory,
         captionHistoryIndex,
         1,
-        currentYouglishVideoId
+        currentYouglishVideoId,
+        activeCaptionSegmentId
       );
       const delta = captionNavigation.repeatSeekDelta(
         current.startTime,
@@ -2753,7 +2835,6 @@
         return;
       }
 
-      currentYouglishVideoId = example.external_id;
       renderExampleTools();
       const query = example.query || VIEWER_PHRASE;
       fetchYouglish(
@@ -3404,17 +3485,33 @@
       const knownCaption = captionNavigation && captionHistory.find(entry =>
         entry.videoId === currentYouglishVideoId && entry.id === captionId
       );
+      const knownTime = finiteCaptionTime(knownCaption && knownCaption.startTime);
+      const resolvedTime = currentTime ?? knownTime;
       const firstCaptionForVideo = Boolean(currentYouglishVideoId) && captionHistory.length === 0;
       const replayTarget = Boolean(knownCaption && captionNavigation.isReplayTarget(knownCaption));
-      if (captionNavigation && (currentTime !== null || firstCaptionForVideo || replayTarget)) {
+      if (captionNavigation && (resolvedTime !== null || firstCaptionForVideo || replayTarget)) {
         const entry = upsertCaptionEntry(
           currentCaptionRaw,
           currentCaptionText,
           captionId,
-          currentTime,
-          currentTime === null ? "replay" : "seek"
+          resolvedTime,
+          resolvedTime === null ? "replay" : "seek"
         );
-        entry.lastKnownTime = currentTime;
+        entry.lastKnownTime = resolvedTime;
+        const controlledTargetReached = controlledCaptionTargetId === entry.id;
+        if (controlledTargetReached) {
+          const restorePaused = controlledCaptionRestorePaused;
+          controlledCaptionTargetId = "";
+          controlledCaptionRestorePaused = false;
+          if (restorePaused && typeof widget?.pause === "function") widget.pause();
+        }
+        const replayTargetReached = replayPendingTargetId === entry.id;
+        if (replayTargetReached) {
+          const restorePaused = replayRestorePaused;
+          replayPendingTargetId = "";
+          replayRestorePaused = false;
+          if (restorePaused && typeof widget?.pause === "function") widget.pause();
+        }
         if (repeatCaptionEnabled && entry.id !== repeatTargetId && !captionNavigationBusy) {
           disableRepeatCaption("Phrase repeat disabled: playback moved to another caption.");
         }
@@ -3492,12 +3589,23 @@
 
     function onVideoChange(event) {
       if (state.source !== "youglish") return;
-      currentYouglishVideoId = String(event && event.video || "").trim();
-      if (fullVideoMode && currentYouglishVideoId !== fullVideoOrigin.videoId) {
+      const previousVideoId = currentYouglishVideoId;
+      const nextVideoId = String(event && event.video || "").trim();
+      if (!nextVideoId) return;
+      if (fullVideoMode && nextVideoId !== fullVideoOrigin.videoId) {
         showWidgetError("YouGlish could not restore the saved video.");
         return;
       }
-      resetCaptionHistory();
+      activateCaptionVideo(nextVideoId);
+      if (previousVideoId && previousVideoId !== nextVideoId) {
+        controlledCaptionTargetId = "";
+        controlledCaptionRestorePaused = false;
+        replayPendingTargetId = "";
+        replayRestorePaused = false;
+        if (repeatCaptionEnabled || repeatPending) {
+          disableRepeatCaption("Phrase repeat disabled: playback moved to another video.");
+        }
+      }
       currentCaptionRaw = "";
       currentCaptionText = "";
       renderCaption("");
@@ -3581,13 +3689,15 @@
     function callWidget(method, ...args) {
       if (!widgetReady || !widget || typeof widget[method] !== "function") {
         el.status.textContent = "Player is not ready yet.";
-        return;
+        return false;
       }
       try {
         widget[method](...args);
+        return true;
       } catch (err) {
         showWidgetError(`Command “${method}” failed.`);
         console.error(err);
+        return false;
       }
     }
 
@@ -3767,7 +3877,14 @@
         el.tatoebaAudio.currentTime = 0;
         playTatoeba();
       } else {
-        callWidget("replay");
+        const replayTarget = [...captionHistory]
+          .sort((left, right) => left.firstSeen - right.firstSeen)[0];
+        replayPendingTargetId = replayTarget ? replayTarget.id : "";
+        replayRestorePaused = playerState !== 1;
+        if (!callWidget("replay")) {
+          replayPendingTargetId = "";
+          replayRestorePaused = false;
+        }
       }
     });
     el.nextVideoBtn.addEventListener("click", () => {

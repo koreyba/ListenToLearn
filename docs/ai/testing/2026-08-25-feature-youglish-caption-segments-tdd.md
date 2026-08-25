@@ -151,7 +151,7 @@ Evidence command:
 Final local verification:
 
 - `npm test`: production build plus configured tests passed 75/75;
-- `node --test tests/*.test.mjs`: repository tests passed 90/90;
+- `node --test tests/*.test.mjs`: repository tests passed 93/93;
 - `npm run lint`: 0 errors and two pre-existing generated warnings;
 - `npx tsc --noEmit` and `git diff --check`: passed.
 

@@ -25,3 +25,11 @@ Cloudflare Access authenticates the owner for `/integrations` and `/api/integrat
 ## Local verification
 
 Use `npx tsc --noEmit`, `npm run lint`, `node --test`, `./node_modules/.bin/vinext build`, and `./node_modules/.bin/wrangler deploy --dry-run` before deployment. Do not put real provider keys in source files, browser storage, logs, or chat.
+
+## Deployment tooling
+
+`scripts/deploy-worker.mjs` owns three explicit targets. `branch-preview` uses
+`wrangler versions upload` with `wrangler.preview.jsonc`; `preview` promotes an
+active shared-preview deployment; `production` promotes production only when
+`ALLOW_PRODUCTION_DEPLOY=1` is present. All targets reject config, environment,
+and Worker-name overrides and require the built server and trainer artifacts.

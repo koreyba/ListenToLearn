@@ -8,18 +8,39 @@ description: Define deployment process, infrastructure, and release procedures
 
 ## Infrastructure
 
-Production runs as the `listen-to-learn` Cloudflare Worker with Workers Assets and the existing D1 database `listen-to-learn-db`. Cloudflare Access protects the owner-only Integrations paths. The current deployment uses the account's free Worker/D1/Zero Trust resources.
+Production runs as the `listen-to-learn` Cloudflare Worker with Workers Assets
+and D1 database `listen-to-learn-db`. Non-production branches upload versions
+of the single `listen-to-learn-preview` Worker. Every branch receives a stable
+branch alias and every commit receives an immutable version URL; all of those
+versions bind the shared `listen-to-learn-preview-db`. No per-branch Worker or
+D1 database is created. Cloudflare Access protects Worker preview URLs.
 
 ## Release steps
 
 1. Run tests, type-check, lint, `vinext build`, and Wrangler dry-run.
-2. Apply pending D1 migrations remotely.
-3. Confirm `INTEGRATIONS_ENCRYPTION_KEY` exists as a Worker Secret; never print its value.
-4. Deploy with Wrangler.
-5. Smoke-test public 200 routes and protected 302 routes.
+2. For a non-production branch, run `npm run deploy:branch-preview`. It uses
+   `wrangler versions upload`, so the branch alias advances without replacing
+   the active shared preview deployment.
+3. Do not apply D1 migrations automatically from feature branches. Coordinate
+   an explicit shared-preview migration only when a branch requires a new,
+   backward-compatible schema.
+4. On `main`, apply pending production D1 migrations and run the guarded
+   production deploy.
+5. Smoke-test public production routes and the Access-protected branch preview.
+
+Workers Builds must have exactly one non-production trigger for this repository:
+the trigger belongs to `listen-to-learn-preview` and runs
+`npm run deploy:branch-preview`. The `listen-to-learn` trigger includes only
+`main` and performs the production deployment. Do not add a second
+non-production trigger; it could publish the wrong Worker URL or promote a
+feature branch to the active shared preview deployment.
 
 The current migration `0004_clever_blonde_phantom.sql` is applied remotely. The current verified deployment version is `299a4d43-b7e4-42d6-b5c7-6fa88e928bd5`.
 
 ## Secrets and rollback
 
-Provider keys belong in the protected Integrations page and encrypted D1, not Git. The encryption master key is a Worker Secret. A Worker rollback can use a previously verified deployment; D1 migrations are forward-only in this change, so schema rollback requires an explicit reviewed migration.
+Provider keys belong in the protected Integrations page and encrypted D1, not
+Git. The encryption master key is a Worker Secret. A production rollback can
+use a previously verified deployment. Branch aliases move only when a new
+version from the same branch uploads successfully; a failed build leaves the
+previous alias intact.

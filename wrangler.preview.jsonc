@@ -4,6 +4,7 @@
   "main": "./dist/server/index.js",
   "compatibility_date": "2026-08-23",
   "compatibility_flags": ["nodejs_compat"],
+  "preview_urls": true,
   "vars": {
     "ACCESS_TEAM_DOMAIN": "listen-to-learn-koreyba.cloudflareaccess.com",
     "ACCESS_AUD": "315a0118e28bc19c5d5cc5298a8fb4704ad351ebe58774f9966cd678458d8ff0,a68b687d83c86b363a5c14f609b7026721dc8c6c77b7293c4337390d5dc45341"

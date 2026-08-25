@@ -38,12 +38,18 @@ the expected Worker name and build artifacts, rejects target overrides, and
 blocks production unless `ALLOW_PRODUCTION_DEPLOY=1` is present. Verify the
 reported Worker name and version after every deployment.
 
-Workers Builds uses the same guarded path. The preview trigger's deploy command
-is:
+The original Workers Builds trigger promoted every feature branch to the active
+shared preview deployment. The current branch-preview workflow supersedes that
+behavior. Its non-production deploy command is:
 
 ```sh
-npx wrangler d1 migrations apply listen-to-learn-preview-db --remote --config wrangler.preview.jsonc && npm run deploy:preview
+npm run deploy:branch-preview
 ```
+
+This uploads a version of `listen-to-learn-preview`, advances Cloudflare's
+stable branch alias, and leaves both the active shared preview deployment and
+the shared preview D1 schema unchanged. `npm run deploy:preview` remains an
+explicit manual operation for replacing the active shared preview deployment.
 
 The production trigger's deploy command is:
 
@@ -51,9 +57,9 @@ The production trigger's deploy command is:
 npx wrangler d1 migrations apply listen-to-learn-db --remote --config wrangler.production.jsonc && ALLOW_PRODUCTION_DEPLOY=1 npm run deploy:production
 ```
 
-`wrangler versions upload` alone is not a deploy: it creates a version without
-moving traffic. The Workers Builds triggers must keep the full deploy commands
-above.
+`wrangler versions upload` intentionally does not move active deployment
+traffic. Cloudflare routes the branch alias and immutable version URL directly
+to the uploaded version.
 
 ## Deployment Status
 

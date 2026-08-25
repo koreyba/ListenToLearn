@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   GUEST_LIBRARY_STORAGE_KEY,
@@ -11,18 +11,18 @@ import {
 } from "@/lib/guest-library";
 import {
   normalizeYouTubeProgress,
+  readYouTubeResume,
+  type YouTubeProgressEntry,
   YOUTUBE_PROGRESS_STORAGE_KEY,
 } from "@/lib/youtube-progress";
+import { buildFullVideoTrainerUrl } from "@/lib/youglish-full-video";
 import {
   isYouTubeVideoId,
   youtubeThumbnailUrl,
-  youtubeWatchUrl,
 } from "@/lib/youtube-player";
-import { YouTubePlayer } from "./youtube-player";
 
 type SavedVideo = GuestSavedVideo;
 type VideosResponse = { videos?: SavedVideo[]; error?: string };
-type DirectOrigin = Pick<SavedVideo, "originPhraseId" | "originQuery" | "originCaption">;
 
 const AUTH_HINT_STORAGE_KEY = "listen-to-learn-authenticated-v1";
 
@@ -54,24 +54,11 @@ function formatProgress(secondsValue: number) {
     : `${minutes}:${String(remainder).padStart(2, "0")}`;
 }
 
-function originPhraseUrl(video: SavedVideo | DirectOrigin) {
-  if (!video.originQuery) return "";
-  const query = new URLSearchParams({ phrase: video.originQuery });
-  if (video.originPhraseId) query.set("phraseId", video.originPhraseId);
-  return `/trainer?${query.toString()}`;
-}
-
 export default function VideosPage() {
   const [mode, setMode] = useState<"guest" | "account">("guest");
   const [guestLibrary, setGuestLibrary] = useState<GuestLibraryState>(() => normalizeGuestLibrary(null));
   const [videos, setVideos] = useState<SavedVideo[]>([]);
-  const [selectedVideoId, setSelectedVideoId] = useState("");
-  const [directOrigin, setDirectOrigin] = useState<DirectOrigin>({
-    originPhraseId: "",
-    originQuery: "",
-    originCaption: "",
-  });
-  const [progress, setProgress] = useState<Record<string, { seconds: number; updatedAt: string }>>({});
+  const [progress, setProgress] = useState<Record<string, YouTubeProgressEntry>>({});
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
   const [notice, setNotice] = useState("");
@@ -102,19 +89,24 @@ export default function VideosPage() {
   }, [loadGuest]);
 
   useEffect(() => {
-    const readLocation = () => {
+    const openLegacyDirectLink = () => {
       const searchParams = new URLSearchParams(window.location.search);
       const requestedVideo = searchParams.get("video") || "";
-      setSelectedVideoId(isYouTubeVideoId(requestedVideo) ? requestedVideo : "");
-      setDirectOrigin({
+      const directOrigin = {
+        videoId: requestedVideo,
         originPhraseId: (searchParams.get("phraseId") || "").slice(0, 120),
         originQuery: (searchParams.get("query") || "").slice(0, 240),
         originCaption: (searchParams.get("caption") || "").slice(0, 1_000),
-      });
+        language: "english",
+        accent: (searchParams.get("accent") || "").slice(0, 20),
+      };
+      if (!isYouTubeVideoId(requestedVideo) || !directOrigin.originQuery) return;
+      const resume = readYouTubeResume({ version: 1, videos: readProgressMap() }, requestedVideo);
+      const fullVideoUrl = buildFullVideoTrainerUrl(directOrigin, resume);
+      if (fullVideoUrl) window.location.replace(fullVideoUrl);
     };
-    window.addEventListener("popstate", readLocation);
     const initializationTimer = window.setTimeout(() => {
-      readLocation();
+      openLegacyDirectLink();
       setProgress(readProgressMap());
       let authHint = false;
       try { authHint = window.localStorage.getItem(AUTH_HINT_STORAGE_KEY) === "1"; } catch { /* optional hint */ }
@@ -123,7 +115,6 @@ export default function VideosPage() {
     }, 0);
     return () => {
       window.clearTimeout(initializationTimer);
-      window.removeEventListener("popstate", readLocation);
     };
   }, [loadAccount, loadGuest]);
 
@@ -136,12 +127,6 @@ export default function VideosPage() {
     return () => window.removeEventListener("storage", onStorage);
   }, [loadGuest, mode]);
 
-  const selectedSavedVideo = useMemo(
-    () => videos.find((video) => video.videoId === selectedVideoId) || null,
-    [selectedVideoId, videos],
-  );
-  const selectedOrigin = selectedSavedVideo || directOrigin;
-
   function persistGuest(next: GuestLibraryState) {
     const normalized = normalizeGuestLibrary(next);
     setGuestLibrary(normalized);
@@ -153,13 +138,10 @@ export default function VideosPage() {
     }
   }
 
-  function selectVideo(videoId: string) {
-    if (!isYouTubeVideoId(videoId)) return;
-    setSelectedVideoId(videoId);
-    const url = new URL(window.location.href);
-    url.searchParams.set("video", videoId);
-    window.history.pushState(null, "", url);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  function selectVideo(video: SavedVideo) {
+    const resume = readYouTubeResume({ version: 1, videos: progress }, video.videoId);
+    const fullVideoUrl = buildFullVideoTrainerUrl(video, resume);
+    if (fullVideoUrl) window.location.assign(fullVideoUrl);
   }
 
   async function removeVideo(video: SavedVideo) {
@@ -187,45 +169,22 @@ export default function VideosPage() {
     }
   }
 
-  const handleProgressChange = useCallback((seconds: number) => {
-    setProgress(readProgressMap());
-    if (seconds === 0) setNotice("Video completed; resume position reset.");
-  }, []);
-
-  const watchUrl = youtubeWatchUrl(selectedVideoId);
-  const phraseUrl = originPhraseUrl(selectedOrigin);
-
   return (
     <main className="videos-shell">
       <header className="videos-header">
         <div>
           <p className="eyebrow">Long-form listening</p>
           <h1>Saved videos</h1>
-          <p>Watch the full YouTube video without another YouGlish search. Resume stays in this browser.</p>
+          <p>Continue a YouGlish video with the trainer&apos;s captions and learning controls. Resume stays in this browser.</p>
         </div>
         <nav className="videos-nav" aria-label="Videos navigation">
           <Link className="back-link" href="/">Phrase library</Link>
-          {phraseUrl && <Link className="back-link" href={phraseUrl}>Source phrase</Link>}
         </nav>
       </header>
 
       {mode === "guest" && <div className="notice" role="status">Guest mode: saved videos and resume position stay only in this browser.</div>}
       {error && <div className="notice error" role="alert">{error}</div>}
       {notice && <div className="notice success" role="status">{notice}</div>}
-
-      {selectedVideoId && (
-        <section className="video-stage" aria-labelledby="video-stage-heading">
-          <div className="video-stage-heading">
-            <div>
-              <p className="eyebrow">Now watching</p>
-              <h2 id="video-stage-heading">{selectedOrigin.originQuery || "YouTube video"}</h2>
-              {selectedOrigin.originCaption && <p>{selectedOrigin.originCaption}</p>}
-            </div>
-            {watchUrl && <a className="video-external-link" href={watchUrl} rel="noopener noreferrer" target="_blank">Open on YouTube</a>}
-          </div>
-          <YouTubePlayer onProgressChange={handleProgressChange} videoId={selectedVideoId} />
-        </section>
-      )}
 
       <section className="saved-videos-section" aria-labelledby="saved-videos-heading">
         <div className="section-heading">
@@ -249,7 +208,7 @@ export default function VideosPage() {
                   <button
                     aria-label={`Watch ${video.originQuery || "saved YouTube video"}`}
                     className="video-thumbnail"
-                    onClick={() => selectVideo(video.videoId)}
+                    onClick={() => selectVideo(video)}
                     style={{ backgroundImage: `url(${youtubeThumbnailUrl(video.videoId)})` }}
                     type="button"
                   >
@@ -263,7 +222,7 @@ export default function VideosPage() {
                       <span>Saved {new Date(video.updatedAt).toLocaleDateString()}</span>
                     </div>
                     <div className="video-card-actions">
-                      <button onClick={() => selectVideo(video.videoId)} type="button">Watch</button>
+                      <button onClick={() => selectVideo(video)} type="button">Watch</button>
                       <button className="secondary" disabled={busyId === video.id} onClick={() => void removeVideo(video)} type="button">Remove</button>
                     </div>
                   </div>

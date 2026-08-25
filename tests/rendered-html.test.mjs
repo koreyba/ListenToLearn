@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
@@ -115,6 +115,8 @@ test("Watch Later stores account videos independently from phrase examples", asy
 
   assert.match(schema, /export const savedVideos/);
   assert.match(schema, /youtubeVideoId: text\("youtube_video_id"\)/);
+  assert.match(schema, /language: text\("language"\)/);
+  assert.match(schema, /accent: text\("accent"\)/);
   assert.match(schema, /uniqueIndex\("idx_saved_videos_user_youtube"\)/);
   assert.match(schema, /index\("idx_saved_videos_user_updated"\)/);
 });
@@ -124,13 +126,17 @@ test("Watch Later account API validates ids and scopes every mutation to the cur
     new URL("../app/api/videos/route.ts", import.meta.url),
     "utf8",
   );
-  const migration = await readFile(
-    new URL("../drizzle/0009_absurd_blob.sql", import.meta.url),
-    "utf8",
-  );
+  const migrationNames = await readdir(new URL("../drizzle/", import.meta.url));
+  const migrationName = migrationNames.find((name) => name.startsWith("0010_"));
+  const migration = migrationName
+    ? await readFile(new URL(`../drizzle/${migrationName}`, import.meta.url), "utf8")
+    : "";
 
   assert.match(route, /getCurrentUser\(request\)/);
   assert.match(route, /isYouTubeVideoId\(videoId\)/);
+  assert.match(route, /!originQuery/);
+  assert.match(route, /language === "english"/);
+  assert.match(route, /accent === "us" \|\| accent === "uk"/);
   assert.match(route, /ON CONFLICT\(user_id, youtube_video_id\) DO UPDATE/);
   assert.match(route, /WHERE user_id = \?/);
   assert.match(route, /p\.source_type = 'preset' OR p\.owner_id = \?/);
@@ -140,8 +146,8 @@ test("Watch Later account API validates ids and scopes every mutation to the cur
   assert.match(route, /request\.text\(\)/);
   assert.match(route, /Request body is too large/);
   assert.match(route, /Invalid JSON body/);
-  assert.match(migration, /CREATE TABLE [`]saved_videos[`]/);
-  assert.match(migration, /CREATE UNIQUE INDEX [`]idx_saved_videos_user_youtube[`]/);
+  assert.match(migration, /ALTER TABLE [`]saved_videos[`] ADD [`]language[`]/);
+  assert.match(migration, /ALTER TABLE [`]saved_videos[`] ADD [`]accent[`]/);
 });
 
 test("legacy owner migration carries saved videos into the authenticated account", async () => {
@@ -155,13 +161,9 @@ test("legacy owner migration carries saved videos into the authenticated account
   assert.match(auth, /DELETE FROM saved_videos WHERE user_id = \?/);
 });
 
-test("Videos view separates direct YouTube playback from YouGlish discovery", async () => {
+test("Videos view opens saved videos in the shared YouGlish trainer", async () => {
   const page = await readFile(
     new URL("../app/videos/page.tsx", import.meta.url),
-    "utf8",
-  );
-  const player = await readFile(
-    new URL("../app/videos/youtube-player.tsx", import.meta.url),
     "utf8",
   );
 
@@ -170,16 +172,45 @@ test("Videos view separates direct YouTube playback from YouGlish discovery", as
   assert.match(page, /fetch\("\/api\/videos"/);
   assert.match(page, /GUEST_LIBRARY_STORAGE_KEY/);
   assert.match(page, /removeGuestSavedVideo/);
-  assert.match(page, /searchParams\.get\("video"\)/);
-  assert.match(page, /addEventListener\("popstate"/);
-  assert.match(page, /Open on YouTube/);
+  assert.match(page, /buildFullVideoTrainerUrl/);
+  assert.match(page, /readYouTubeResume/);
+  assert.match(page, /window\.location\.assign\(fullVideoUrl\)/);
   assert.doesNotMatch(page, /method:\s*"POST"/);
-  assert.match(player, /https:\/\/www\.youtube\.com\/iframe_api/);
-  assert.match(player, /new window\.YT\.Player/);
-  assert.match(player, /youtubePlayerVars\(window\.location\.origin\)/);
-  assert.match(player, /getCurrentTime\(\)/);
-  assert.match(player, /window\.setInterval/);
-  assert.doesNotMatch(page + player, /youglish\.com|YG\.Widget|widget\.fetch/i);
+  assert.doesNotMatch(page, /YouTubePlayer/);
+  assert.doesNotMatch(page, /youtube\.com\/iframe_api|new window\.YT\.Player/);
+});
+
+test("Full Video Mode keeps learning controls and removes result-only controls", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(trainer, /full-video-mode/);
+  assert.match(trainer, /fullVideoMode/);
+  assert.match(trainer, /resumeCaption/);
+  assert.match(trainer, /MAX_OBSERVED_CAPTIONS = 200/);
+  assert.match(trainer, /result\.history\.slice\(-MAX_OBSERVED_CAPTIONS\)/);
+  assert.match(trainer, /#\$\{fullVideoOrigin\.videoId\}/);
+  assert.match(trainer, /autoStart:\s*fullVideoMode \? 0 : 1/);
+  assert.match(trainer, /window\.addEventListener\("popstate"/);
+  assert.match(trainer, /id="repeatCaptionBtn"/);
+  assert.match(trainer, /id="translateSelectionBtn"/);
+  assert.match(trainer, /id="listenSelectionBtn"/);
+  assert.match(trainer, /id="addSelectionBtn"/);
+  assert.match(trainer, /body\.full-video-mode[^}]*#replayBtn/s);
+  assert.match(trainer, /body\.full-video-mode[^}]*\.video-navigation/s);
+  assert.match(trainer, /body\.full-video-mode[^}]*#exampleTools/s);
+  const warmTransition = trainer.match(/function watchCurrentFullVideo\(\) \{([\s\S]*?)\n    \}\n\n    function setExampleMode/)?.[1] || "";
+  assert.match(warmTransition, /widget\.pause\(\)/);
+  assert.match(warmTransition, /history\.pushState\(\{ fullVideo: true \}/);
+  assert.doesNotMatch(warmTransition, /fetchPhrase|fetchYouglish|widget\.fetch|window\.location/);
+
+  const listenTransition = trainer.match(/function listenToText\(text\) \{([\s\S]*?)\n    \}\n\n    async function addTextToLearn/)?.[1] || "";
+  assert.match(listenTransition, /persistFullVideoProgress\(\)/);
+  assert.match(listenTransition, /history\.pushState\(\{ listenFromFullVideo: true \}/);
+  assert.match(trainer, /window\.addEventListener\("popstate"[\s\S]*?fetchPhrase\(fullVideoOrigin\.resumeCaption/);
+  assert.match(trainer, /event\.state && event\.state\.listenFromFullVideo[\s\S]*?fetchPhrase\(VIEWER_PHRASE, true\)/);
 });
 
 test("YouGlish results expose separate clip and full-video actions", async () => {
@@ -197,7 +228,7 @@ test("YouGlish results expose separate clip and full-video actions", async () =>
   assert.match(trainer, /Save clip/);
   assert.match(trainer, /fetch\("\/api\/videos"/);
   assert.match(trainer, /savedVideos/);
-  assert.match(trainer, /\/videos\?\$\{query\.toString\(\)\}/);
+  assert.match(trainer, /history\.pushState\([^;]+fullVideo/s);
   assert.match(trainer, /currentYouglishVideoId/);
   assert.match(trainer, /\^\[A-Za-z0-9_-\]\{11\}\$/);
   assert.match(trainer, /const itemLabel = state\.source === "tatoeba" \? "track" : "clip"/);

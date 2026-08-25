@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>YouGlish full-video provider spike</title>
+  <style>
+    body { margin: 0; padding: 24px; color: #e6edf3; background: #0d1117; font: 14px/1.45 system-ui, sans-serif; }
+    main { max-width: 960px; margin: auto; }
+    fieldset, #widget-shell, pre { margin: 16px 0; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
+    label { display: block; margin: 8px 0; }
+    input { width: min(100%, 680px); padding: 8px; }
+    button { margin: 4px; padding: 8px 12px; }
+    output { display: inline-block; min-width: 4ch; font-weight: 700; }
+    #widget-shell { min-height: 360px; background: #000; }
+    pre { min-height: 180px; max-height: 420px; overflow: auto; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>YouGlish full-video provider spike</h1>
+    <p>This harness records bounded callback samples only. It does not persist a transcript.</p>
+    <fieldset>
+      <legend>Request</legend>
+      <label>Query <input id="query" value="I don't know if it's #w66ecIT-Xkk"></label>
+      <button id="fetch" type="button">Fetch once</button>
+      <button id="pause" type="button">Pause</button>
+      <button id="play" type="button">Play</button>
+      <button id="moveZero" type="button">Move 0 blindly</button>
+      <button id="target60" type="button">Move to 60s</button>
+      <button id="target600" type="button">Move to 600s</button>
+      <button id="target2400" type="button">Move to 2400s</button>
+      <label>Stored anchor <input id="storedAnchor" type="number" step="0.001" value="1025.974"></label>
+      <label>Restore target <input id="restoreTarget" type="number" step="0.001" value="2400"></label>
+      <button id="restoreFromAnchor" type="button">Restore from stored anchor</button>
+      <button id="clear" type="button">Clear samples</button>
+    </fieldset>
+    <p>
+      Ready: <output id="ready">no</output>
+      Fetches: <output id="fetch-count">0</output>
+      Video: <output id="video">—</output>
+      Captions: <output id="caption-count">0</output>
+      Current time: <output id="current-time">—</output>
+      State: <output id="player-state">—</output>
+    </p>
+    <div id="widget-shell"><div id="yg-widget"></div></div>
+    <pre id="samples" aria-label="Bounded callback samples"></pre>
+  </main>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const autoMode = params.get("auto") === "1";
+    const autoRestoreTarget = Number(params.get("target"));
+    const state = {
+      widget: null,
+      fetches: 0,
+      captions: 0,
+      currentTime: null,
+      pendingTarget: null,
+      pauseOnPlaying: false,
+      autoRestoreStarted: false,
+      samples: [],
+    };
+
+    const byId = (id) => document.getElementById(id);
+    const render = () => {
+      byId("fetch-count").textContent = String(state.fetches);
+      byId("caption-count").textContent = String(state.captions);
+      byId("current-time").textContent = Number.isFinite(state.currentTime)
+        ? state.currentTime.toFixed(3)
+        : "—";
+      byId("samples").textContent = state.samples.join("\n");
+    };
+    const record = (type, detail = {}) => {
+      const line = JSON.stringify({
+        at: new Date().toISOString(),
+        type,
+        ...detail,
+      });
+      state.samples = [...state.samples, line].slice(-60);
+      render();
+    };
+    const finiteTime = (value) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+    };
+    const moveTo = (target) => {
+      if (!state.widget || !Number.isFinite(state.currentTime)) {
+        record("move-skipped", { target, reason: "missing-current-time" });
+        return;
+      }
+      state.widget.pause();
+      const from = state.currentTime;
+      const delta = target - from;
+      state.pendingTarget = target;
+      record("move-request", { from, target, delta });
+      state.widget.move(delta);
+    };
+
+    window.onYouglishAPIReady = () => {
+      state.widget = new YG.Widget("yg-widget", {
+        components: 68,
+        autoStart: autoMode ? 1 : 0,
+        backgroundColor: "#000000",
+        events: {
+          onPlayerReady() {
+            byId("ready").textContent = "yes";
+            record("player-ready");
+          },
+          onFetchDone(event) {
+            record("fetch-done", { totalResult: Number(event && event.totalResult) });
+          },
+          onVideoChange(event) {
+            const video = String(event && event.video || "");
+            byId("video").textContent = video || "—";
+            record("video-change", { video, trackNumber: Number(event && event.trackNumber) });
+          },
+          onCaptionChange(event) {
+            state.captions += 1;
+            state.currentTime = finiteTime(event && event.current_time);
+            record("caption-change", {
+              id: event && event.id != null ? String(event.id) : "",
+              currentTime: state.currentTime,
+              captionSample: String(event && event.caption || "").slice(0, 100),
+            });
+            if (
+              autoMode
+              && !state.autoRestoreStarted
+              && Number.isFinite(autoRestoreTarget)
+              && Number.isFinite(state.currentTime)
+            ) {
+              state.autoRestoreStarted = true;
+              state.pendingTarget = autoRestoreTarget;
+              const delta = autoRestoreTarget - state.currentTime;
+              record("automatic-restore-move", {
+                from: state.currentTime,
+                target: autoRestoreTarget,
+                delta,
+              });
+              state.widget.move(delta);
+            }
+            if (
+              Number.isFinite(state.pendingTarget)
+              && Number.isFinite(state.currentTime)
+              && Math.abs(state.currentTime - state.pendingTarget) <= 2
+            ) {
+              const target = state.pendingTarget;
+              state.pendingTarget = null;
+              state.widget.pause();
+              record("move-confirmed-paused", {
+                target,
+                actual: state.currentTime,
+                error: state.currentTime - target,
+              });
+            }
+          },
+          onPlayerStateChange(event) {
+            const playerState = Number(event && event.state);
+            byId("player-state").textContent = Number.isFinite(playerState) ? String(playerState) : "—";
+            record("player-state", { playerState });
+            if (playerState === 1 && state.pauseOnPlaying) {
+              state.pauseOnPlaying = false;
+              state.widget.pause();
+              record("paused-on-first-playing-state");
+            }
+          },
+          onError(event) {
+            record("error", { code: event && event.code });
+          },
+        },
+      });
+      record("widget-methods", {
+        own: Object.keys(state.widget).filter((key) => typeof state.widget[key] === "function"),
+        prototype: Object.getOwnPropertyNames(Object.getPrototypeOf(state.widget))
+          .filter((key) => typeof state.widget[key] === "function"),
+      });
+      record("api-ready");
+      if (autoMode) {
+        state.fetches += 1;
+        record("automatic-fetch-request");
+        state.widget.fetch(byId("query").value, "english");
+      }
+    };
+
+    byId("fetch").addEventListener("click", () => {
+      state.fetches += 1;
+      record("fetch-request");
+      state.widget.fetch(byId("query").value, "english");
+    });
+    byId("pause").addEventListener("click", () => state.widget && state.widget.pause());
+    byId("play").addEventListener("click", () => state.widget && state.widget.play());
+    byId("moveZero").addEventListener("click", () => {
+      if (!state.widget) return;
+      state.widget.pause();
+      record("blind-move-zero-request");
+      state.widget.move(0);
+    });
+    byId("target60").addEventListener("click", () => moveTo(60));
+    byId("target600").addEventListener("click", () => moveTo(600));
+    byId("target2400").addEventListener("click", () => moveTo(2400));
+    byId("restoreFromAnchor").addEventListener("click", () => {
+      if (!state.widget) return;
+      const anchor = Number(byId("storedAnchor").value);
+      const target = Number(byId("restoreTarget").value);
+      if (!Number.isFinite(anchor) || !Number.isFinite(target)) return;
+      state.pendingTarget = target;
+      state.pauseOnPlaying = true;
+      record("stored-anchor-restore-request", {
+        anchor,
+        target,
+        delta: target - anchor,
+      });
+      state.widget.move(target - anchor);
+    });
+    byId("clear").addEventListener("click", () => {
+      state.samples = [];
+      render();
+    });
+    render();
+  </script>
+  <script src="https://youglish.com/public/emb/widget.js" async></script>
+</body>
+</html>

@@ -51,6 +51,8 @@ test("guest saved-video normalization keeps only bounded valid YouTube records",
         originPhraseId: " preset-0 ",
         originQuery: "  courage  ",
         originCaption: "  have courage  ",
+        language: " English ",
+        accent: " us ",
         createdAt: "2026-08-25T09:00:00.000Z",
         updatedAt: "2026-08-25T10:00:00.000Z",
       },
@@ -64,6 +66,8 @@ test("guest saved-video normalization keeps only bounded valid YouTube records",
     originPhraseId: "preset-0",
     originQuery: "courage",
     originCaption: "have courage",
+    language: "english",
+    accent: "us",
     createdAt: "2026-08-25T09:00:00.000Z",
     updatedAt: "2026-08-25T10:00:00.000Z",
   }]);
@@ -75,12 +79,16 @@ test("guest video save deduplicates by video id and refreshes origin context", (
     originPhraseId: "preset-0",
     originQuery: "courage",
     originCaption: "have courage",
+    language: "english",
+    accent: "us",
   }, "2026-08-25T09:00:00.000Z");
   const second = saveGuestVideo(first.state, {
     videoId: "M7lc1UVf-VE",
     originPhraseId: "preset-1",
     originQuery: "real courage",
     originCaption: "that takes real courage",
+    language: "english",
+    accent: "uk",
   }, "2026-08-25T10:00:00.000Z");
 
   assert.equal(first.created, true);
@@ -91,6 +99,26 @@ test("guest video save deduplicates by video id and refreshes origin context", (
   assert.equal(second.video.updatedAt, "2026-08-25T10:00:00.000Z");
   assert.equal(second.video.originPhraseId, "preset-1");
   assert.equal(second.video.originCaption, "that takes real courage");
+  assert.equal(second.video.language, "english");
+  assert.equal(second.video.accent, "uk");
+});
+
+test("new guest video saves require the original query and normalize supported locale metadata", () => {
+  const missingQuery = saveGuestVideo(createGuestLibrary(), {
+    videoId: "M7lc1UVf-VE",
+    language: "english",
+  });
+  const saved = saveGuestVideo(createGuestLibrary(), {
+    videoId: "M7lc1UVf-VE",
+    originQuery: "courage",
+    language: "ENGLISH",
+    accent: "invalid",
+  }, "2026-08-25T09:00:00.000Z");
+
+  assert.equal(missingQuery.created, false);
+  assert.equal(missingQuery.video, null);
+  assert.equal(saved.video.language, "english");
+  assert.equal(saved.video.accent, "");
 });
 
 test("guest video removal does not affect phrase examples", () => {

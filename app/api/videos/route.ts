@@ -11,6 +11,8 @@ type SavedVideoRow = {
   origin_phrase_id: string | null;
   origin_query: string;
   origin_caption: string;
+  language: string;
+  accent: string;
   created_at: string;
   updated_at: string;
 };
@@ -26,6 +28,8 @@ function publicVideo(row: SavedVideoRow) {
     originPhraseId: row.origin_phrase_id || "",
     originQuery: row.origin_query,
     originCaption: row.origin_caption,
+    language: row.language,
+    accent: row.accent,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -43,7 +47,7 @@ export async function GET(request: Request) {
 
   try {
     const result = await getD1().prepare(`
-      SELECT id, youtube_video_id, origin_phrase_id, origin_query, origin_caption, created_at, updated_at
+      SELECT id, youtube_video_id, origin_phrase_id, origin_query, origin_caption, language, accent, created_at, updated_at
       FROM saved_videos
       WHERE user_id = ?
       ORDER BY updated_at DESC, id ASC
@@ -81,8 +85,15 @@ export async function POST(request: Request) {
     const originPhraseId = cleanText(payload.originPhraseId, 120);
     const originQuery = cleanText(payload.originQuery, 240);
     const originCaption = cleanText(payload.originCaption, 1_000);
-    if (!isYouTubeVideoId(videoId)) {
-      return json({ error: "A valid YouTube video is required." }, { status: 400 });
+    const language = cleanText(payload.language, 20).toLocaleLowerCase("en") || "english";
+    const accent = cleanText(payload.accent, 20).toLocaleLowerCase("en");
+    const validLanguage = language === "english";
+    const validAccent = !accent || accent === "us" || accent === "uk";
+    if (!isYouTubeVideoId(videoId) || !originQuery) {
+      return json({ error: "A valid YouTube video and its original query are required." }, { status: 400 });
+    }
+    if (!validLanguage || !validAccent) {
+      return json({ error: "Unsupported YouGlish language or accent." }, { status: 400 });
     }
 
     const db = getD1();
@@ -106,8 +117,8 @@ export async function POST(request: Request) {
     const id = existing?.id || "video-" + crypto.randomUUID();
     await db.prepare(`
       INSERT INTO saved_videos
-        (id, user_id, youtube_video_id, origin_phrase_id, origin_query, origin_caption, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (id, user_id, youtube_video_id, origin_phrase_id, origin_query, origin_caption, language, accent, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, youtube_video_id) DO UPDATE SET
         origin_phrase_id = CASE
           WHEN excluded.origin_phrase_id IS NOT NULL THEN excluded.origin_phrase_id
@@ -121,6 +132,8 @@ export async function POST(request: Request) {
           WHEN excluded.origin_caption <> '' THEN excluded.origin_caption
           ELSE saved_videos.origin_caption
         END,
+        language = excluded.language,
+        accent = excluded.accent,
         updated_at = excluded.updated_at
     `).bind(
       id,
@@ -129,12 +142,14 @@ export async function POST(request: Request) {
       visiblePhraseId,
       originQuery,
       originCaption,
+      language,
+      accent,
       now,
       now,
     ).run();
 
     const row = await db.prepare(`
-      SELECT id, youtube_video_id, origin_phrase_id, origin_query, origin_caption, created_at, updated_at
+      SELECT id, youtube_video_id, origin_phrase_id, origin_query, origin_caption, language, accent, created_at, updated_at
       FROM saved_videos
       WHERE user_id = ? AND youtube_video_id = ?
     `).bind(user.subject, videoId).first<SavedVideoRow>();

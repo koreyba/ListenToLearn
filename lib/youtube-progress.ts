@@ -5,6 +5,8 @@ const MAX_PROGRESS_VIDEOS = 200;
 
 export type YouTubeProgressEntry = {
   seconds: number;
+  captionId: string;
+  captionText: string;
   updatedAt: string;
 };
 
@@ -23,6 +25,10 @@ function isYouTubeVideoId(value: string) {
   return /^[A-Za-z0-9_-]{11}$/.test(value);
 }
 
+function text(value: unknown, limit: number) {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, limit) : "";
+}
+
 export function normalizeYouTubeProgress(value: unknown): YouTubeProgressState {
   const input = object(value);
   const rawVideos = object(input.videos);
@@ -33,7 +39,12 @@ export function normalizeYouTubeProgress(value: unknown): YouTubeProgressState {
     const seconds = Number(item.seconds);
     const updatedAt = typeof item.updatedAt === "string" ? item.updatedAt : "";
     if (!isYouTubeVideoId(videoId) || !Number.isFinite(seconds) || seconds < 0 || seconds > MAX_PROGRESS_SECONDS || Number.isNaN(Date.parse(updatedAt))) continue;
-    validEntries.push([videoId, { seconds, updatedAt }]);
+    validEntries.push([videoId, {
+      seconds,
+      captionId: text(item.captionId, 160),
+      captionText: text(item.captionText, 1_000),
+      updatedAt,
+    }]);
   }
 
   validEntries.sort((left, right) => Date.parse(right[1].updatedAt) - Date.parse(left[1].updatedAt));
@@ -52,17 +63,29 @@ export function readYouTubeProgress(state: unknown, videoId: string, durationVal
     : seconds;
 }
 
+export function readYouTubeResume(state: unknown, videoId: string) {
+  if (!isYouTubeVideoId(videoId)) return null;
+  return normalizeYouTubeProgress(state).videos[videoId] || null;
+}
+
 export function updateYouTubeProgress(
   state: unknown,
   videoId: string,
   secondsValue: number,
   updatedAtValue = new Date().toISOString(),
+  captionValue: { captionId?: unknown; captionText?: unknown } = {},
 ) {
   const next = normalizeYouTubeProgress(state);
   const seconds = Number(secondsValue);
   if (!isYouTubeVideoId(videoId) || !Number.isFinite(seconds) || seconds < 0 || seconds > MAX_PROGRESS_SECONDS) return next;
   const updatedAt = Number.isNaN(Date.parse(updatedAtValue)) ? new Date().toISOString() : updatedAtValue;
-  next.videos[videoId] = { seconds, updatedAt };
+  const existing = next.videos[videoId];
+  next.videos[videoId] = {
+    seconds,
+    captionId: text(captionValue.captionId, 160) || existing?.captionId || "",
+    captionText: text(captionValue.captionText, 1_000) || existing?.captionText || "",
+    updatedAt,
+  };
   return normalizeYouTubeProgress(next);
 }
 

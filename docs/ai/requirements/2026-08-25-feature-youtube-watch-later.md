@@ -1,84 +1,172 @@
 ---
 phase: requirements
-title: YouTube Watch Later Requirements
-description: Save a YouGlish-discovered YouTube video for direct long-form viewing with local resume
+title: YouGlish Full Video Mode Requirements
+description: Save a YouGlish-discovered video and continue long-form caption-aware viewing with resume
 ---
 
-# YouTube Watch Later Requirements
+# YouGlish Full Video Mode Requirements
+
+## Revision Status
+
+This document supersedes the original direct-YouTube-player requirements. The native YouTube IFrame implementation in PR #15 does not satisfy the product requirement because it removes ListenToLearn captions, caption-level controls, translation, `To learn`, and `Listen`.
 
 ## Problem Statement
 
-ListenToLearn currently saves a YouGlish result as a phrase-bound example and replays it through another YouGlish search for `query #videoId`. This is useful for pronunciation practice, but it does not support the distinct intent “this is a good video; save it and watch the whole thing later.” Replay consumes another YouGlish request, starts near the matched phrase, and does not restore long-form viewing progress after reload.
+A learner can discover a useful YouTube video through YouGlish and practise the matched phrase, but cannot save that video as a long-form listening item and later continue watching it in the ListenToLearn learning interface. Reopening must return near the last watched place—at the last observed caption boundary after a cold load—while retaining current-caption learning actions.
 
-The first target user is the existing learner using YouGlish inside the trainer. Directly importing arbitrary YouTube URLs is a later scenario, not part of this increment.
+The feature must not download or scrape the full transcript. It reuses the YouGlish widget as the caption and playback provider, stores only origin/restore metadata plus captions actually observed during the current browser session, and minimizes YouGlish searches.
 
 ## Goals & Objectives
 
-- Keep the existing YouGlish phrase-example workflow intact while naming it clearly as a saved clip.
-- Add a separate `Watch later` action for the current YouGlish video. It saves without navigating.
-- Add a separate `Watch full video` action that opens the current video immediately without requiring it to be saved.
-- Provide a public `/videos` view that lists saved videos and plays a selected video directly through the official YouTube IFrame Player.
-- Restore the selected video's latest position after page reload in the same browser.
-- Use native YouTube controls and native YouTube closed captions when the video supplies them.
-- Keep guest data local and account-owned saved-video data isolated in D1.
-- Deduplicate saved videos by YouTube video ID, independently of the phrase examples that led to them.
+- Add a distinct `Full video` experience for a video discovered in YouGlish.
+- Save the source `videoId` and the exact `originalQuery` required to find that video again, together with language, accent and origin context.
+- Preserve the live YouGlish widget when entering Full Video Mode from an active result, so the warm transition makes no new `widget.fetch` call.
+- On a cold saved-video load, perform at most one YouGlish fetch using the last observed caption (or original query) constrained to the saved video, paused at that caption boundary.
+- Preserve exact playback position for warm in-document navigation and return paused at the beginning of the last observed caption after a cold reload.
+- Keep caption-aware learning actions for the currently observed caption: repeat, selection, translation, `To learn`, and `Listen`.
+- Keep saved-video identity independent from phrase-bound saved clips and deduplicate by YouTube video ID.
+- Preserve correct browser/app Back and Forward behavior between ordinary trainer mode and Full Video Mode.
 
 ### Non-goals
 
-- Importing or searching arbitrary YouTube URLs directly in ListenToLearn.
-- Downloading video, audio, transcripts, caption tracks, or other YouTube content.
-- Recreating YouGlish caption text, translation, previous/next-caption, or repeat-caption controls in the direct YouTube view.
-- Cross-device synchronization of playback position in this increment.
-- Replacing the YouGlish or Tatoeba provider tabs with YouTube.
-- Automatically saving a video merely because the learner opens the full-video view.
+- Importing an arbitrary YouTube URL that was not discovered through a usable YouGlish query.
+- Downloading video, audio, a full transcript, caption tracks, or other YouTube content.
+- Using unofficial YouTube caption endpoints or a free third-party transcript service.
+- Guaranteeing a zero-request cold restore; one YouGlish fetch is accepted.
+- Using the native YouTube IFrame player as the primary Full Video Mode.
+- Cross-device playback-position synchronization in this increment.
+- `Save clip` inside Full Video Mode.
+- Replaying the original matched phrase as a special anchor after entering Full Video Mode.
+- Switching provider, result video, saved-example filters, or random/ordered result modes inside Full Video Mode.
 
 ## User Stories & Use Cases
 
 - As a learner, I can save the current YouGlish video to `Watch later` without leaving the trainer.
-- As a learner, I can open the current YouGlish video in the full-video view without saving it.
-- As a learner, I can distinguish `Save clip` from `Watch later`; one remains phrase-bound, while the other is video-level.
-- As a learner, I can open `Videos` from the app and see every video saved for later only once.
-- As a learner, I can see the phrase/caption that led me to a saved video, even when a YouTube title is unavailable.
-- As a learner, I can watch the whole video, use YouTube's timeline, speed, fullscreen, keyboard controls and native CC.
-- As a learner, I can reload or close and reopen the page in the same browser and continue near my last saved position.
-- As a learner, I can remove a saved video without deleting its phrase or saved YouGlish clips.
-- As a guest, I can use the same flow with bounded local browser storage.
-- As a signed-in user, my saved-video list belongs only to my account; playback position remains local to each browser in this increment.
+- As a learner, I can enter Full Video Mode immediately from the current result without implicitly saving it.
+- As a learner, I see the same ListenToLearn caption area and relevant learning controls while watching the whole video.
+- As a learner, I can pause, resume, change speed, expand/fullscreen, repeat the current caption, and navigate through captions already observed in this session.
+- As a learner, I can select text in the current caption, translate it, and add it to `To learn`.
+- As a learner, I can press `Listen` for the current caption, open the ordinary trainer with my last selected provider, then press Back and return to the same saved video at the saved caption boundary, paused.
+- As a learner, I can reload a saved video and accept one YouGlish search while the app restores my last observed caption paused.
+- As a learner, I can remove a saved video without deleting phrases or saved clips created from it.
+- As a guest, my saved videos and progress remain bounded in this browser.
+- As a signed-in user, my saved-video list is account-owned; playback progress remains browser-local in this increment.
 
-### Edge cases
+## Full Video Control Contract
 
-- No current YouGlish `videoId`: both full-video actions remain disabled.
-- Duplicate save from another phrase: keep one video record and refresh its latest origin context instead of adding another card.
-- Missing/blocked/private/non-embeddable YouTube video: show the YouTube player error and retain remove/back actions.
-- Missing captions: the video remains playable; the app does not promise captions.
-- Browser storage unavailable or malformed: start at zero, keep playback usable, and show a non-blocking message.
-- Stored position is negative, non-finite, beyond a bounded maximum, or within the final seconds of a completed video: ignore/reset it.
-- Guest local data exceeds its cap: retain the newest bounded records.
-- Account API returns unauthorized: follow the existing authentication hint/session contract and never merge account and guest libraries silently.
+### Retained
+
+- Play/pause.
+- Repeat current caption.
+- Previous/next caption within the bounded observed-caption history.
+- Playback speed.
+- Expand/fullscreen.
+- Current caption text and text selection.
+- Translate selected/current text.
+- `To learn`.
+- `Listen`.
+
+### Removed
+
+- Replay/return to the original matched phrase.
+- Previous/next YouGlish result video.
+- `Save clip` and saved-example browsing.
+- Random/ordered result controls.
+- Provider switch inside Full Video Mode.
+
+The native YouGlish/YouTube controls may remain where the widget itself owns them, but the ListenToLearn toolbar must follow this contract.
+
+## Saved Data Contract
+
+Each saved video must retain enough information for a deterministic restore attempt:
+
+```text
+videoId             canonical YouTube video ID
+originalQuery       exact query that produced the saved YouGlish result
+language            YouGlish language used for the result
+accent              YouGlish accent/filter value when present
+originPhraseId      optional ListenToLearn phrase reference
+originCaption       caption visible when the video was saved
+resumeTime          browser-local playback position in seconds for warm resume/display
+resumeCaptionId     last observed YouGlish caption identifier
+resumeCaptionText   last observed caption text used as the cold restore query
+createdAt/updatedAt persistence metadata
+```
+
+`videoId` is the uniqueness key. Saving the same video again refreshes non-empty restore/origin metadata, including `originalQuery`, rather than creating a duplicate. A full transcript is never persisted.
+
+## Restore Contract
+
+### Warm transition
+
+- Keep the existing YouGlish widget and loaded video alive.
+- Pause and persist its current position before changing modes.
+- Enter Full Video Mode using in-document history state; do not call `widget.fetch`.
+
+### Cold load
+
+- Start the widget with autoplay disabled.
+- Fetch once with `resumeCaptionText #videoId`; fall back to `originalQuery #videoId` only when no observed resume caption exists.
+- Verify that the loaded video ID matches the saved video.
+- Keep playback paused; the real-provider spike confirms that the caption-constrained fetch opens at that caption.
+- Cold resume is caption-level, not exact to the saved second.
+
+If the video is not returned or the provider reports an error/quota limit, keep Back/removal available and do not claim an exact-second restore.
+
+## Edge Cases
+
+- Missing current `videoId` or `originalQuery`: disable save/full-video actions and explain why.
+- Saved query no longer returns the video: keep the saved card and offer fallback/remove actions.
+- Wrong video returned by the constrained fetch: do not reveal it as a successful restore.
+- Missing resume-caption metadata: fall back to the original query and label the result as the original discovery point.
+- Resume position is negative, non-finite, implausibly large, or at completion: normalize to zero.
+- Duplicate save from a different phrase/query: retain one video and refresh latest valid restore context.
+- Browser storage unavailable or malformed: keep viewing usable, start from zero, and show a non-blocking message.
+- Caption history contains only the current caption: disable Previous/Next until another caption is observed.
+- Caption callbacks stop during continuous playback: retain basic playback and show that learning controls are temporarily unavailable.
+- Browser Back during restore: cancel/ignore stale callbacks and return to the prior history entry.
 
 ## Success Criteria
 
-- The trainer exposes separate `Save clip`, `Watch later`, and `Watch full video` meanings for YouGlish without changing Tatoeba save behavior.
-- `Watch later` stores one video per `videoId` and does not navigate; `Watch full video` navigates without implicitly saving.
-- `/videos` is guest-accessible and account-aware, supports list/open/remove, and has an explicit empty state.
-- Opening a selected video does not load the YouGlish script or call `widget.fetch`.
-- The direct player uses the official YouTube IFrame API with visible controls, `origin`, inline playback, and English CC requested by default.
-- Playback position is saved at a bounded cadence plus pause/page-hide events and restored with `startSeconds` after reload.
-- Guest normalization rejects malformed saved-video/progress input and enforces caps.
-- Account API validates video IDs and origin context, scopes every query/mutation to the authenticated user, and never accepts a user ID from the client.
-- D1 migration, targeted tests, TypeScript, lint, build, and diff checks pass.
-- Manual smoke confirms save, direct playback, native CC when available, reload resume, removal, and unchanged saved-clip replay.
+- Saving from YouGlish persists `videoId`, exact `originalQuery`, language/accent and origin caption.
+- Warm entry into Full Video Mode reuses the live widget and performs zero new YouGlish searches.
+- Cold entry performs no more than one `widget.fetch` and never refetches as captions change.
+- A successful cold restore reveals the widget paused at the beginning of the last observed caption; warm Back restores the exact live position.
+- Current captions continue updating during long-form playback and drive Repeat, selection, Translate, `To learn`, and `Listen`.
+- `Listen` persists position before navigation; Back restores the same Full Video Mode state and does not autoplay.
+- The Full Video toolbar contains the retained controls and none of the removed controls.
+- No full transcript or unofficial YouTube caption endpoint is used.
+- Guest/account ownership, deduplication, removal, storage bounds and existing saved-clip behavior remain correct.
+- Targeted tests, TypeScript, lint, build, lifecycle lint and manual provider smoke pass before merge.
 
 ## Constraints & Assumptions
 
-- Use the existing Vinext/React, static trainer, Cloudflare Worker, D1, authenticated API, and guest `localStorage` conventions.
-- `onVideoChange` supplies the current YouTube video ID; it does not supply a stable full-video title. The MVP card uses origin phrase/caption plus a YouTube thumbnail/link. External metadata enrichment is deferred.
-- The saved-video list is durable in D1 for signed-in users and in the existing bounded guest library for guests.
-- Resume progress is intentionally browser-local for both modes. This is the smallest step consistent with moving from smaller to larger scenarios.
-- A YouTube video ID is the canonical identity. Phrase/caption data is origin context, not part of uniqueness.
-- YouTube controls and captions stay inside the unobscured official player. ListenToLearn does not scrape caption text or block YouTube branding/ads.
-- Existing user changes on the original `codex/compact-player-controls` worktree are outside this isolated feature branch.
+- YouGlish remains the playback/caption provider in Full Video Mode; YouTube remains the underlying media source.
+- The same trainer document must own warm mode changes. `/videos` is a route/state representation, not a reason to destroy the active widget.
+- The documented widget API does not provide an absolute seek/load-by-video contract. The current integration's caption `current_time` field and `move(delta)` behavior are provider-dependent and must be proven before implementation is accepted.
+- Planning assumes one cold restore consumes one YouGlish search. Playback controls and caption callbacks must not create additional searches.
+- The product must tolerate YouGlish quota/provider failure and never describe this flow as offline viewing.
+- Saved-video list persistence remains D1 for signed-in users and bounded `localStorage` for guests. Resume remains browser-local.
 
-## Questions & Open Items
+## Required Provider Spike
 
-No material MVP questions remain. Deferred decisions are direct URL import, cross-device progress, richer YouTube metadata, and interactive full-video transcript controls.
+Implementation is blocked until a real-widget spike answers all three questions:
+
+1. Does the first cold-fetch `onCaptionChange` reliably expose a numeric timestamp for the loaded match?
+2. Does `widget.move(resumeTime - loadedTime)` reliably restore short and long timestamps while paused?
+3. Do caption-change callbacks continue for the whole video rather than only the original matched segment?
+
+Failure of any answer returns the feature to design; it must not be hidden by automated fakes.
+
+### Spike result — 2026-08-25
+
+- The constrained fetch returned the expected video, but its first caption callback had `current_time = null`.
+- `move(delta)` reached a 2400-second target within about 1.1 seconds and caption callbacks continued, but only after playback had started.
+- Chrome blocked programmatic cold autoplay; a move issued before active playback did not persist an exact paused seek.
+- A one-fetch query built from the last observed caption plus `#videoId` restored the expected video and exact saved caption paused, without transcript access.
+
+Exact paused second-level cold restore therefore failed the provider gate. The approved contract is cold resume at the beginning of the last observed caption. This normally differs by only the remainder of one caption.
+
+## Questions & Deferred Items
+
+No material product question remains. Direct URL import, cross-device progress, full observed-history persistence, exact-second cold restore and richer video metadata remain deferred.

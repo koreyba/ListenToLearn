@@ -13,13 +13,3 @@ export function youtubeThumbnailUrl(videoId: string) {
     ? `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`
     : "";
 }
-
-export function youtubePlayerVars(origin: string) {
-  return {
-    controls: 1,
-    playsinline: 1,
-    cc_load_policy: 1,
-    cc_lang_pref: "en",
-    origin,
-  } as const;
-}

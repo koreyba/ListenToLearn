@@ -1,124 +1,162 @@
 ---
 phase: planning
-title: YouTube Watch Later Implementation Plan
-description: Ordered tasks for video persistence, direct playback, resume and verification
+title: YouGlish Full Video Mode Implementation Plan
+description: Revised plan for provider spike, shared widget, caption controls and resumable navigation
 ---
 
-# YouTube Watch Later Implementation Plan
+# YouGlish Full Video Mode Implementation Plan
+
+## Revision Status
+
+The original T1-T15 direct-YouTube implementation is superseded. Revision 2 reuses its bookmark/ownership foundations but replaces native playback with the shared YouGlish trainer and caption-level cold resume.
 
 ## Milestones
 
-- [x] M1: Persistence contracts are test-covered for guest, account and browser progress.
-- [x] M2: `/videos` provides the saved-video library and direct YouTube playback.
-- [x] M3: Trainer actions connect YouGlish discovery to Watch Later without regressing saved clips.
-- [x] M4: Full automated verification, implementation reconciliation and code review are complete; preview provider smoke remains a deployment gate.
+- [x] R2-M0: Real YouGlish widget spike proves or rejects the timestamp, move and continuous-caption contracts.
+- [x] R2-M1: Saved-video persistence contains complete cold-restore metadata and migrates existing data safely.
+- [x] R2-M2: A shared trainer shell supports warm/cold Full Video Mode with correct history and request counts.
+- [x] R2-M3: The approved caption-learning controls work in Full Video Mode.
+- [x] R2-M4: Automated and bounded real-provider verification pass; PR documentation describes only proven behavior and records the quota-limited rerun.
 
 ## Task Breakdown
 
-### Phase 1: Foundation — data and pure helpers
+### Phase 0: Provider feasibility gate
 
-- [x] T1: Add failing guest-library tests for version-2 migration, saved-video validation, deduplication, removal and caps.
-  - Outcome: guest behavior is specified before production changes.
-  - Dependencies: none.
-  - Evidence: targeted `node --test tests/guest-library.test.mjs` fails for the missing behavior, then passes after T2.
-  - Covers: guest unit scenarios in the testing doc.
-- [x] T2: Extend `lib/guest-library.ts` with bounded `savedVideos` state and helpers.
-  - Outcome: guest Watch Later data is independent from phrases/examples and backward-compatible.
-  - Dependencies: T1.
-  - Evidence: guest-library tests pass.
-- [x] T3: Add failing tests and implement `lib/youtube-progress.ts` normalization, read/update/clear helpers.
-  - Outcome: resume state is bounded and testable without the YouTube network.
-  - Dependencies: none.
-  - Evidence: targeted progress tests demonstrate malformed, completion and cap branches.
-- [x] T4: Add `savedVideos` schema plus generated D1 migration.
-  - Outcome: account-owned video identity and ordering are enforced by the database.
-  - Dependencies: design schema.
-  - Evidence: rendered/schema contract tests and inspected migration SQL.
+- [x] R2-T1: Build a disposable real-widget spike/harness that logs fetch count, video ID, caption text and callback timestamp without storing a transcript.
+  - Outcome: provider behavior is observable before architecture implementation.
+  - Dependencies: existing YouGlish runtime.
+  - Validation: captured manual evidence for one known long video.
+  - Covers: TS-P1, TS-P4.
+- [x] R2-T2: Verify constrained cold fetch and paused relative movement at zero, short, mid-video and 40+ minute resume targets.
+  - Outcome: exact paused cold restore rejected; active move reached 2401.069 for target 2400.
+  - Dependencies: R2-T1.
+  - Validation: actual callback timestamps before/after `move(delta)`; exactly one fetch per cold attempt.
+  - Covers: TS-P1, TS-P2.
+- [x] R2-T3: Verify caption callbacks continue beyond the original match during sustained playback and that warm mode changes require no fetch.
+  - Outcome: prove current-caption controls can work for the whole viewing session.
+  - Dependencies: R2-T1.
+  - Validation: bounded timestamped callback sample plus fetch counter.
+  - Covers: TS-P3, TS-P4.
+- [x] R2-T4: Record the spike decision in requirements/design/testing. Stop and redesign if any cornerstone contract fails.
+  - Outcome: no implementation proceeds on fake-only assumptions.
+  - Dependencies: R2-T2-R2-T3.
+  - Validation: explicit go/no-go result and measured tolerance.
+  - Result: caption-level cold resume approved; exact-second cold resume deferred.
 
-### Phase 2: Account API and public route boundary
+### Phase 1: Persistence reconciliation
 
-- [x] T5: Add failing rendered/API contract tests for `/api/videos` validation, ownership and upsert SQL.
-  - Outcome: the route contract is executable before implementation.
-  - Dependencies: T4.
-  - Evidence: targeted rendered tests fail, then pass after T6.
-- [x] T6: Implement authenticated `GET`/`POST`/`DELETE /api/videos`.
-  - Outcome: account video lists are isolated and duplicate saves refresh context.
-  - Dependencies: T4-T5.
-  - Evidence: targeted route contracts, TypeScript and lint.
-- [x] T7: Expose `/videos` through the guest allowlist while keeping `/api/videos` protected.
-  - Outcome: both guest UI and authenticated persistence respect the existing Worker boundary.
-  - Dependencies: none.
-  - Evidence: `tests/guest-access.test.mjs`.
+- [x] R2-T5: Add failing guest/account contract tests for required `originalQuery`, language/accent normalization, duplicate refresh and legacy rows.
+  - Outcome: restore metadata and migration policy are executable.
+  - Dependencies: R2-T4 go decision.
+  - Validation: targeted red tests.
+  - Covers: TS-D1-TS-D4.
+- [x] R2-T6: Reconcile guest schema, API and additive D1 migration with the R2 saved-data contract.
+  - Outcome: every newly saved video is cold-restorable; legacy incomplete rows fail explicitly.
+  - Dependencies: R2-T5.
+  - Validation: targeted green tests, schema inspection and ownership checks.
+- [x] R2-T7: Retain/refactor browser-local progress helpers for YouGlish timestamps and synchronous navigation flush.
+  - Outcome: normalized resume state is provider-agnostic and bounded.
+  - Dependencies: R2-T5.
+  - Validation: progress unit tests including completion and malformed state.
 
-### Phase 3: Videos view and direct player
+### Phase 2: Shared shell and navigation
 
-- [x] T8: Add failing rendered contracts for empty/list/player/remove states and absence of YouGlish code.
-  - Outcome: public view semantics and provider separation are locked before UI implementation.
-  - Dependencies: T2-T3, T6-T7.
-  - Evidence: targeted rendered test failure, then pass after T9-T10.
-- [x] T9: Implement reusable direct YouTube player with native controls/CC, validated IDs and progress lifecycle.
-  - Outcome: a selected video plays directly and resumes locally without autoplay or YouGlish.
-  - Dependencies: T3, T8.
-  - Evidence: helper tests, rendered contracts and manual fake/player seam.
-- [x] T10: Implement account-aware/guest-aware `/videos` library view and navigation from the home page.
-  - Outcome: list/open/remove/empty flows work with explicit saving and direct links.
-  - Dependencies: T2, T6-T9.
-  - Evidence: rendered tests, TypeScript, responsive manual inspection.
+- [x] R2-T8: Add failing state-machine/history tests for Result → Full Video → Listen → Back and direct cold `/videos` entry.
+  - Outcome: route semantics, no-autoplay and state preservation are locked first.
+  - Dependencies: R2-T4.
+  - Validation: deterministic controller tests.
+  - Covers: TS-N1-TS-N5.
+- [x] R2-T9: Refactor the trainer into one widget-owning shell with in-document mode routing and returned-video guards.
+  - Outcome: warm transitions and Back reuse one live widget.
+  - Dependencies: R2-T8.
+  - Validation: warm transition/Back tests report zero additional fetches.
+- [x] R2-T10: Replace the native YouTube player/view with the Full Video layout powered by the shared YouGlish widget.
+  - Outcome: `/videos` preserves a distinct user view without losing learning UI.
+  - Dependencies: R2-T9.
+  - Validation: rendered contracts contain approved controls and no primary `YT.Player` implementation.
 
-### Phase 4: Trainer integration
+### Phase 3: Cold restore orchestration
 
-- [x] T11: Add failing trainer contracts for `Save clip`, `Watch later`, and `Watch full video` source behavior.
-  - Outcome: the three intents are distinct and Tatoeba remains unchanged.
-  - Dependencies: T2, T6, T10.
-  - Evidence: targeted rendered test failure, then pass after T12.
-- [x] T12: Implement trainer video actions for guest/account modes.
-  - Outcome: Watch Later upserts without navigation; Watch Full Video opens `/videos?video=...`; saved clips still replay through YouGlish.
-  - Dependencies: T11.
-  - Evidence: rendered tests plus manual trainer smoke.
+- [x] R2-T11: Add failing tests for query construction, one-fetch limit and returned-video verification under the caption-level contract.
+  - Outcome: the restore protocol and failures are deterministic.
+  - Dependencies: R2-T4, R2-T6-R2-T7.
+  - Validation: red controller tests.
+  - Covers: TS-R1-TS-R8.
+- [x] R2-T12: Implement paused cold caption-anchor restore and provider error propagation.
+  - Outcome: successful reload opens the correct saved caption boundary paused.
+  - Dependencies: R2-T11.
+  - Validation: green fakes plus real-widget smoke using measured R2-T2 tolerance.
+- [x] R2-T13: Keep fetch accounting structural (zero warm, one cold) without logging query/caption content.
+  - Outcome: tests and smoke can prove warm=0, cold=1, caption progression=0.
+  - Dependencies: R2-T12.
+  - Validation: request-count scenarios.
 
-### Phase 5: Verification and reconciliation
+### Phase 4: Caption-learning controls
 
-- [x] T13: Run targeted tests, `npx tsc --noEmit`, `npm run lint`, full `npm test`, and `git diff --check`.
-  - Outcome: fresh evidence covers behavior and regressions.
-  - Dependencies: T1-T12.
-  - Evidence: exact command outputs and pass/fail counts.
-- [x] T14: Update testing checkboxes, implementation notes, plan status, deployment/monitoring evidence and run lifecycle lint.
-  - Outcome: docs match implemented scope and remaining manual/provider limits.
-  - Dependencies: T13.
-  - Evidence: `npx ai-devkit@latest lint --feature youtube-watch-later`.
-- [x] T15: Run final design-alignment and code review; fix confirmed blockers and reverify.
-  - Outcome: branch is review-ready, not deployed or merged.
-  - Dependencies: T14.
-  - Evidence: review report and repeated affected checks after fixes.
+- [x] R2-T14: Add failing tests for bounded observed-caption history and the Full Video control visibility matrix.
+  - Outcome: retained/removed controls and navigation bounds are explicit.
+  - Dependencies: R2-T9.
+  - Validation: controller/rendered red tests.
+  - Covers: TS-C1-TS-C8.
+- [x] R2-T15: Implement current caption, bounded history, repeat, previous/next observed caption, speed and expand/fullscreen integration.
+  - Outcome: long-form viewing keeps caption-level practice without a transcript.
+  - Dependencies: R2-T14.
+  - Validation: green unit/rendered tests and provider smoke.
+- [x] R2-T16: Implement selection, Translate, `To learn` and `Listen`, including pause/persist/pushState and Back restoration.
+  - Outcome: the current caption participates in the existing learning workflow.
+  - Dependencies: R2-T15.
+  - Validation: integration/state-machine tests and manual Back/Forward smoke.
 
-## Dependencies
+### Phase 5: Verification and PR reconciliation
 
-- Official YouTube IFrame API at runtime; no API key.
-- Existing YouGlish `onVideoChange` event for the source `videoId`.
-- Existing auth subject and D1 binding for account persistence.
-- Existing guest library/auth-hint conventions.
-- No deployment, migration application, push or merge is authorized by this lifecycle request.
+- [x] R2-T17: Run targeted tests, TypeScript/build, lint, full tests and lifecycle checks.
+  - Outcome: fresh automated regression evidence.
+  - Dependencies: R2-T5-R2-T16.
+- [ ] R2-T18: Repeat real-provider end-to-end smoke after the daily quota resets; current smoke verified layout/control matrix and quota failure, while the earlier spike verified caption-anchor restore/long callbacks.
+  - Outcome: cornerstone behavior is proven outside fakes.
+  - Dependencies: R2-T17 and compatible preview runtime.
+- [x] R2-T19: Reconcile implementation/testing/deployment/monitoring docs and prepare PR #15 description around R2 scope.
+  - Outcome: no direct-player completion claim remains and all known limits are visible.
+  - Dependencies: R2-T18.
+- [x] R2-T20: Run final design-alignment/code review and lifecycle lint; fix blockers and reverify.
+  - Outcome: branch is review-ready, not automatically merged.
+  - Dependencies: R2-T19.
+
+## Test Scenario Traceability
+
+- Provider feasibility: R2-T1-R2-T4 → TS-P1-TS-P4.
+- Restore data: R2-T5-R2-T7 → TS-D1-TS-D4.
+- Navigation/history: R2-T8-R2-T10, R2-T16 → TS-N1-TS-N5.
+- Cold restore: R2-T11-R2-T13 → TS-R1-TS-R8.
+- Caption controls: R2-T14-R2-T16 → TS-C1-TS-C8.
+- Regression/ownership: R2-T5-R2-T7, R2-T17-R2-T18 → TS-G1-TS-G5.
+
+## Dependencies and Blockers
+
+- **Provider gate outcome:** the exact-time path must not proceed; only the proven caption-anchor fallback can move forward after approval.
+- **Resolved provider decision:** exact-time cold restore failed; caption-level cold resume passed and is approved.
+- A provider-accessible long video with English captions is required for the spike.
+- Preview runtime must support the configured Workers compatibility date for final smoke.
+- No new transcript provider or unofficial YouTube API is allowed.
+- Existing unmerged direct-player code must be carefully refactored; reusable persistence changes should not be discarded blindly.
 
 ## Sequencing Notes
 
-- Use TDD for each new behavior: observe the targeted failure before production code.
-- Reconcile this plan after every completed implementation task or cohesive task batch.
-- Keep provider-network behavior behind deterministic contracts; only manual smoke exercises real YouTube/YouGlish.
-- Do not copy the unrelated dirty mobile-layout changes from the original worktree into this branch.
+- Use TDD after the provider gate: observe each relevant failure before production changes.
+- Keep the native-player behavior available in git history, but remove it from the accepted runtime path.
+- Do not infer provider behavior from mocks. Fakes validate our state machine only.
+- Reconcile this plan after every completed task or cohesive task batch.
 
 ## Risks & Mitigation
 
-- **Static trainer complexity:** isolate guest video helpers in `lib/guest-library.ts`; keep inline integration small and contract-tested.
-- **YouTube script lifecycle:** use one loader promise/global callback and destroy the old player on selection changes.
-- **Auth fallback leakage:** mirror current explicit auth hint; never merge guest/account saved videos.
-- **D1 ownership:** bind user subject in every query and validate optional origin phrase visibility.
-- **Resume churn:** five-second cadence plus lifecycle flushes; no server writes.
-- **Provider policy:** visible native player, origin/referrer preserved, no downloads/scraping/overlays.
-
-## Resources Needed
-
-Existing Node/Vinext/Cloudflare toolchain, D1 migration generator, official YouTube IFrame documentation, and current automated test suite. No new package or external credential is required.
+- **Undocumented timestamp contract:** block implementation on real evidence and expose failure instead of guessing.
+- **Relative move precision:** exact cold movement was rejected; preserve exact seconds only while the live widget survives.
+- **Unexpected search usage:** centralize fetch, count every call in tests/smoke, and require explicit user retry.
+- **Widget loss on navigation:** use one document and `pushState`; test `popstate` and page reload separately.
+- **Caption history mistaken for transcript:** bound session history and never promise unseen captions.
+- **Legacy bookmark without query:** retain/delete/fallback UX; never invent a query silently.
+- **PR drift:** mark R1 as superseded now and update implementation/testing evidence only when R2 is proven.
 
 ## Progress Summary
 
-T1-T15 are complete. The additive `0009` migration, bounded guest/account persistence, `/videos` library, direct IFrame player, local resume and three trainer actions are implemented. Red/green contracts covered guest state, route boundary, API shape, browser history and rendered UI. Final automated verification and review have no blocking findings. Runtime D1/provider and visual smoke remain an explicit preview deployment gate because the local Workers runtime is incompatible with the configured compatibility date.
+R2 is review-ready under the approved caption-level contract. The latest provider rerun hit the YouGlish daily quota; the earlier bounded spike supplies successful caption-anchor/long-callback evidence. Commit, branch synchronization and PR publication remain.

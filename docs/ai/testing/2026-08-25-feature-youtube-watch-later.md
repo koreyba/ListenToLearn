@@ -1,96 +1,128 @@
 ---
 phase: testing
-title: YouTube Watch Later Testing Strategy
-description: Tests for saved-video ownership, guest storage, direct playback and resume
+title: YouGlish Full Video Mode Testing Strategy
+description: Provider spike and tests for saved restore metadata, shared-widget navigation, captions and resume
 ---
 
-# YouTube Watch Later Testing Strategy
+# YouGlish Full Video Mode Testing Strategy
+
+## Revision Status
+
+The native-YouTube-player checks are superseded. R2 automated checks and the bounded provider spike are recorded below; unchecked items need a fresh provider run after quota reset.
 
 ## Test Coverage Goals
 
-Cover every new pure helper branch, authenticated API validation/ownership branch that can be exercised locally, rendered UI contract, and player/resume state transition. External YouTube and YouGlish behavior uses deterministic fakes plus a bounded manual smoke; tests never scrape provider content.
+- Prove cornerstone YouGlish behavior with the real widget before relying on fakes.
+- Make fetch counts, history transitions and paused resume deterministic in controller tests.
+- Cover guest/account restore metadata, ownership and migration.
+- Cover the complete retained/removed Full Video control matrix.
+- Preserve existing Tatoeba, YouGlish result and phrase/saved-clip behavior.
+- Never download or store a full transcript in tests or runtime.
 
-## Unit Tests
+## Real Provider Feasibility Gate
 
-### Guest saved videos
+- [x] **TS-P1 — FAILED EXACT-TIME GATE:** A constrained cold fetch returned the expected video, but the first caption callback exposed no finite timestamp.
+- [x] **TS-P2 — FAILED EXACT-TIME GATE:** Active movement reached 2401.069 for a 2400-second target; movement before active playback did not retain the seek.
+- [x] **TS-P3:** Caption callbacks continued after the original segment and after the long active move.
+- [x] **TS-P4:** Source contract confirms warm transition = 0 fetch, cold restore = 1 fetch and caption progression = 0 fetch.
+- [x] **TS-P5 — FALLBACK:** One fetch for the last observed caption plus video ID restored the expected video and caption paused.
 
-- [x] Version-1 guest state normalizes to version 2 without losing phrases/examples.
-- [x] Valid video save deduplicates by video ID and refreshes origin context.
-- [x] Invalid IDs and malformed records are rejected.
-- [x] Remove affects only the selected video and not phrase examples.
-- [x] Saved-video cap keeps the newest records.
+Capture bounded callback samples and counts, not a full transcript. Any failed cornerstone scenario is a design blocker.
 
-### YouTube progress helper
+The exact-time design is rejected. TS-P5 is the approved cold-resume contract.
 
-- [x] Missing/malformed storage normalizes to an empty state.
-- [x] Valid seconds save and load by video ID.
-- [x] Negative, non-finite, oversized and near-completion positions reset safely.
-- [x] Progress cap and explicit clear work.
+## Saved Data and Ownership
 
-### Player controller seam
+- [x] **TS-D1:** Guest/account save requires valid `videoId`, non-empty bounded `originalQuery`, language and valid optional accent/context.
+- [x] **TS-D2:** Duplicate `videoId` keeps one bookmark and refreshes latest valid query/context.
+- [x] **TS-D3:** Existing records migrate additively; legacy records without a query are retained but cannot start a cold restore.
+- [x] **TS-D4:** Account GET/POST/DELETE remain subject-scoped; guest normalization/caps remain bounded.
 
-- [x] Player options include visible controls, inline playback, English CC and origin.
-- [x] Resume uses `startSeconds` and does not autoplay.
-- [x] Playing starts a bounded save cadence; pause/page-hide/cleanup flush once.
-- [x] Ended clears progress; player errors retain direct YouTube fallback.
+## Navigation and State
 
-## Integration Tests
+- [x] **TS-N1:** Result → Full Video uses `pushState`, reuses the widget, pauses it and preserves current time without a fetch.
+- [x] **TS-N2:** Full Video → Listen persists immediately, opens the selected caption in the last ordinary provider, and pushes history.
+- [x] **TS-N3:** Browser Back from Listen restores the same video at the saved caption boundary paused with one cold fetch; Back from a warm Full Video transition reuses the paused widget with no fetch.
+- [x] **TS-N4:** Forward restores the corresponding trainer/listen URL state without deleting video progress.
+- [x] **TS-N5:** Direct `/videos` links redirect to the trainer cold path; reload uses the saved caption anchor.
 
-- [x] `saved_videos` schema and migration enforce `(user_id, youtube_video_id)` uniqueness.
-- [ ] `GET /api/videos` returns only current-user rows in updated order.
-- [ ] `POST /api/videos` rejects invalid IDs/body/origin phrase and upserts a valid owned record.
-- [ ] `DELETE /api/videos` cannot delete another user's row.
-- [x] Guest allowlist exposes `/videos` but keeps `/api/videos` authenticated.
-- [x] Trainer `Watch later` selects guest storage or account API without changing saved-example behavior.
+## Cold Restore Controller
 
-## End-to-End / Rendered Contract Tests
+- [x] **TS-R1:** Query builder preserves `originalQuery` and appends exactly one canonical video constraint.
+- [x] **TS-R2:** Restore performs at most one automatic `widget.fetch`.
+- [x] **TS-R3:** Wrong returned video ID reports restore failure.
+- [ ] **TS-R4:** First finite callback timestamp produces `delta = resumeTime - loadedTime`.
+- [x] **TS-R5:** The real provider spike restored the saved caption text/ID paused.
+- [x] **TS-R6:** Missing query is rejected, wrong video reports failure and provider/quota errors remain visible in the widget.
+- [x] **TS-R7:** There is no silent automatic retry; another navigation/reload is an explicit potentially billable fetch.
+- [x] **TS-R8:** Cold `autoStart: 0` prevents playback/autoplay before the restored caption is presented.
 
-- [x] Trainer renders distinct `Save clip`, `Watch later`, and `Watch full video` actions for YouGlish.
-- [x] Tatoeba retains `Save track` and does not show YouTube-only actions.
-- [x] Videos page renders empty/list/player/remove states and links to library/source phrase.
-- [x] Direct player loads YouTube IFrame API and does not load YouGlish widget code.
-- [x] URL `?video=<valid-id>` opens the player without automatically saving the video.
-- [x] Existing phrase, Tatoeba, YouGlish clip, guest-mode, auth and compact-layout tests remain green.
+TS-R4 is retained only for active/warm relative movement and is not part of the approved cold path.
+
+## Caption and Control Contract
+
+- [x] **TS-C1:** Caption callbacks update current text/time and append a deduplicated memory history capped at 200.
+- [x] **TS-C2:** Previous/Next traverses only observed captions and disables at known boundaries.
+- [x] **TS-C3:** Repeat loops the current caption and never returns to the original saved match.
+- [x] **TS-C4:** Play/pause, speed and expand/fullscreen remain available.
+- [x] **TS-C5:** Text selection and Translate retain the existing selection flow.
+- [x] **TS-C6:** `To learn` retains the existing selected-text phrase flow.
+- [x] **TS-C7:** `Listen` follows TS-N2/TS-N3 and uses the provider saved before Full Video Mode forces YouGlish.
+- [x] **TS-C8:** Replay-anchor, result-video Prev/Next, Save clip, saved-example filters, random/ordered and provider switch are absent in Full Video Mode.
+
+## Regression and Failure Boundaries
+
+- [x] **TS-G1:** Ordinary YouGlish search/result navigation and saved-clip replay remain unchanged outside Full Video Mode.
+- [x] **TS-G2:** Tatoeba behavior and controls remain unchanged.
+- [x] **TS-G3:** Removing a video never deletes a phrase or saved clip.
+- [x] **TS-G4:** Malformed browser storage, unavailable provider/quota and missing captions retain safe remove/back behavior.
+- [x] **TS-G5:** No runtime/test path calls an unofficial YouTube captions endpoint or persists a full transcript.
+
+## Automated Test Layers
+
+- Pure/unit tests: data normalization, query construction, progress, observed-caption history and control selectors.
+- Pure/source contracts: query construction, zero-fetch warm transition, one-fetch cold transition and history wiring.
+- Rendered contracts: visible controls/states, history transitions and absence of the primary native YouTube player path.
+- API/schema contracts: validation, subject ownership, deduplication and additive migration.
+- Existing full suite: phrase, provider, auth, guest, responsive and build regressions.
+
+Fakes prove ListenToLearn behavior only. They cannot satisfy TS-P1-TS-P4.
 
 ## Test Data
 
-- Use fixed valid video ID `M7lc1UVf-VE` in code fixtures; no playback network request is required for automated tests.
-- Use two authenticated user subjects to prove ownership boundaries.
-- Use malformed IDs, records and progress maps as explicit negative fixtures.
-- Fake the `YT.Player` object and browser lifecycle events for controller tests.
+- Use one fixed short-caption fixture and one real 40+ minute YouGlish-indexed video for the provider gate.
+- Use distinct `originalQuery` values for duplicate-refresh tests.
+- Use two authenticated subjects for ownership tests.
+- Use malformed progress, missing queries and wrong video IDs as negative cases.
+- Provider evidence stores only the minimum caption samples necessary to establish callback continuity.
 
-The current automated player coverage is a pure configuration/progress seam plus rendered lifecycle contracts. Real IFrame callbacks and D1 ownership execution remain in the manual preview smoke because the repository has no browser/D1 integration harness for route modules.
+## Verification Commands
 
-## Test Reporting & Coverage
-
-- Targeted Node tests for new helpers/routes/rendered contracts.
+- Targeted Node/controller/rendered tests during TDD.
 - `npx tsc --noEmit`.
 - `npm run lint`.
-- `npm test` (includes a fresh production build).
+- `npm test`.
 - `git diff --check`.
-- Record exact pass/fail counts and any intentionally manual provider boundary.
+- `npx ai-devkit@latest lint`.
+- `npx ai-devkit@latest lint --feature youtube-watch-later`.
 
-Fresh final results after syncing `origin/main`: 17 helper tests passed, 3 guest-boundary tests passed, and full `npm test` completed a production build plus 33 passing tests. TypeScript, ESLint, diff-check, base docs lint and feature docs lint all exited 0. ESLint reports two existing warnings in generated `worker-configuration.d.ts` and no errors.
+Exact fresh counts and provider observations are recorded only after R2 implementation. Previous R1 pass counts are not evidence of R2 completion.
 
-## Manual Testing
+## Manual Desktop and Mobile Smoke
 
-- [ ] In YouGlish, verify `Save clip` still replays through saved examples.
-- [ ] Save the current video with `Watch later`; confirm no navigation and one Videos card.
-- [ ] Open the same video with `Watch full video`; confirm it is not implicitly duplicated/saved.
-- [ ] Play, seek, pause, reload and confirm resume near the saved point.
-- [ ] Confirm native CC appears when the selected video supplies English captions.
-- [ ] Remove the video and confirm phrase/clip data remains.
-- [ ] Repeat guest and signed-in list flows.
-- [ ] Test mobile and desktop layout, keyboard focus, screen-reader labels and a blocked/private video fallback.
+- [ ] Save a current YouGlish result and verify the persisted exact query/provider options.
+- [ ] Enter Full Video Mode warm; verify UI/control matrix, paused time and zero fetch.
+- [ ] Play across many captions; verify current caption, history, Repeat, selection, Translate and `To learn`.
+- [ ] Use `Listen`, then Back and Forward; verify state/time, pause and fetch counts.
+- [ ] Reload after short and long viewing sessions; verify one-fetch restore at the last observed caption boundary.
+- [ ] Exercise missing-query, mismatch, missing-time, timeout, quota and explicit Retry states.
+- [ ] Verify guest/account list, deduplication and removal.
+- [ ] Verify keyboard focus, screen-reader labels, fullscreen and responsive layout.
 
-## Performance Testing
+## Release Blockers
 
-No load test is required for the bounded personal library. Verify progress writes occur no more frequently than the five-second cadence plus lifecycle flushes, list view makes no YouTube player request until a video is selected, and account list uses the `(user_id, updated_at)` index.
-
-## Bug Tracking
-
-Treat cross-user data exposure, arbitrary embed injection, or destructive phrase/example deletion as release-blocking. Treat provider unavailability as a recoverable error when the direct YouTube link remains available.
-
-## Current Environment Limit
-
-Local visual smoke could not start on 2026-08-25: the installed Workers runtime supports compatibility dates only through `2026-05-22`, while the project requires `2026-08-23`. This is an environment/toolchain mismatch, not evidence for or against runtime behavior. Preview D1 and real YouTube/YouGlish smoke therefore remain unchecked.
+- Any failed TS-P1-TS-P4 provider contract.
+- Additional automatic fetches beyond the documented warm/cold contract.
+- Incorrect video or exact-second precision presented as a successful restore.
+- Loss of required caption-learning controls.
+- Cross-user data exposure, transcript scraping/storage, or phrase/clip deletion caused by video removal.

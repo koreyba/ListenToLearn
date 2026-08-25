@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   clearYouTubeProgress,
   normalizeYouTubeProgress,
+  readYouTubeResume,
   readYouTubeProgress,
   updateYouTubeProgress,
 } from "../lib/youtube-progress.ts";
@@ -25,10 +26,33 @@ test("YouTube progress saves, reads and clears a video position", () => {
     "M7lc1UVf-VE",
     42.75,
     "2026-08-25T10:00:00.000Z",
+    { captionId: "caption-42", captionText: "That takes real courage." },
   );
 
   assert.equal(readYouTubeProgress(saved, "M7lc1UVf-VE"), 42.75);
+  assert.deepEqual(readYouTubeResume(saved, "M7lc1UVf-VE"), {
+    seconds: 42.75,
+    captionId: "caption-42",
+    captionText: "That takes real courage.",
+    updatedAt: "2026-08-25T10:00:00.000Z",
+  });
   assert.equal(readYouTubeProgress(clearYouTubeProgress(saved, "M7lc1UVf-VE"), "M7lc1UVf-VE"), 0);
+});
+
+test("YouTube resume metadata is bounded and malformed captions are discarded", () => {
+  const state = normalizeYouTubeProgress({
+    videos: {
+      "M7lc1UVf-VE": {
+        seconds: 15,
+        captionId: " caption-15 ",
+        captionText: `  ${"word ".repeat(250)}  `,
+        updatedAt: "2026-08-25T10:00:00.000Z",
+      },
+    },
+  });
+
+  assert.equal(state.videos["M7lc1UVf-VE"].captionId, "caption-15");
+  assert.equal(state.videos["M7lc1UVf-VE"].captionText.length, 1_000);
 });
 
 test("YouTube progress ignores invalid and effectively completed positions", () => {

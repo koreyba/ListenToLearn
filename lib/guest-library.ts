@@ -34,6 +34,8 @@ export type GuestSavedVideo = {
   originPhraseId: string;
   originQuery: string;
   originCaption: string;
+  language: string;
+  accent: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -67,6 +69,8 @@ export type GuestVideoInput = {
   originPhraseId?: unknown;
   originQuery?: unknown;
   originCaption?: unknown;
+  language?: unknown;
+  accent?: unknown;
 };
 
 const MAX_STATUSES = 500;
@@ -92,6 +96,15 @@ function isProvider(value: unknown): value is GuestExampleProvider {
 
 function isYouTubeVideoId(value: string) {
   return /^[A-Za-z0-9_-]{11}$/.test(value);
+}
+
+function videoLanguage(value: unknown) {
+  return text(value, 20).toLocaleLowerCase("en") === "english" ? "english" : "english";
+}
+
+function videoAccent(value: unknown) {
+  const valueText = text(value, 20).toLocaleLowerCase("en");
+  return valueText === "us" || valueText === "uk" ? valueText : "";
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -188,6 +201,8 @@ export function normalizeGuestLibrary(value: unknown): GuestLibraryState {
       originPhraseId: text(item.originPhraseId, 120),
       originQuery: text(item.originQuery, 240),
       originCaption: text(item.originCaption, 1_000),
+      language: videoLanguage(item.language),
+      accent: videoAccent(item.accent),
       createdAt: nowIso(typeof item.createdAt === "string" ? item.createdAt : undefined),
       updatedAt: nowIso(typeof item.updatedAt === "string" ? item.updatedAt : undefined),
     });
@@ -311,24 +326,31 @@ export function saveGuestVideo(
 ) {
   const next = normalizeGuestLibrary(state);
   const videoId = text(input.videoId, 20);
-  if (!isYouTubeVideoId(videoId)) return { state: next, video: null, created: false };
+  const originQuery = text(input.originQuery, 240);
+  const existing = next.savedVideos.find((video) => video.videoId === videoId);
+  if (!isYouTubeVideoId(videoId) || (!existing && !originQuery)) {
+    return { state: next, video: null, created: false };
+  }
 
   const timestamp = nowIso(updatedAt);
-  const existing = next.savedVideos.find((video) => video.videoId === videoId);
   const video: GuestSavedVideo = existing
     ? {
         ...existing,
         originPhraseId: text(input.originPhraseId, 120) || existing.originPhraseId,
-        originQuery: text(input.originQuery, 240) || existing.originQuery,
+        originQuery: originQuery || existing.originQuery,
         originCaption: text(input.originCaption, 1_000) || existing.originCaption,
+        language: videoLanguage(input.language || existing.language),
+        accent: input.accent === undefined ? existing.accent : videoAccent(input.accent),
         updatedAt: timestamp,
       }
     : {
         id: id("guest-video"),
         videoId,
         originPhraseId: text(input.originPhraseId, 120),
-        originQuery: text(input.originQuery, 240),
+        originQuery,
         originCaption: text(input.originCaption, 1_000),
+        language: videoLanguage(input.language),
+        accent: videoAccent(input.accent),
         createdAt: timestamp,
         updatedAt: timestamp,
       };

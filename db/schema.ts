@@ -64,6 +64,8 @@ export const savedVideos = sqliteTable("saved_videos", {
   originPhraseId: text("origin_phrase_id").references(() => phrases.id, { onDelete: "set null" }),
   originQuery: text("origin_query").notNull().default(""),
   originCaption: text("origin_caption").notNull().default(""),
+  language: text("language").notNull().default("english"),
+  accent: text("accent").notNull().default(""),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 }, (table) => [

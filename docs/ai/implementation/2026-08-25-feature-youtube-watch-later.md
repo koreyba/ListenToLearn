@@ -1,95 +1,63 @@
 ---
 phase: implementation
-title: YouTube Watch Later Implementation
-description: Implemented files, decisions, evidence and remaining tasks
+title: YouGlish Full Video Mode Implementation
+description: Superseded R1 implementation and current R2 implementation status
 ---
 
-# YouTube Watch Later Implementation
+# YouGlish Full Video Mode Implementation
+
+## Current Status
+
+R2 implementation and final lifecycle review are complete on the feature branch; publication remains. The R1 native YouTube player has been removed from the primary flow and from the codebase.
+
+R2-T1/R2-T2 spike evidence now exists. Exact paused second-level cold restore failed because the initial callback has no timestamp, browser autoplay is blocked, and a relative move does not retain its seek before playback is active. Long movement and continuous callbacks work during active playback.
+
+The tested fallback `lastObservedCaption #videoId` restored the expected caption paused in one fetch and is the implemented product contract.
 
 ## Development Setup
 
 - Active worktree: `.worktrees/feature-youtube-watch-later`.
 - Branch: `feature-youtube-watch-later`.
-- Bootstrap: `npm ci`; baseline `npm run build` passed.
-- Task tracing is unavailable because `ai-devkit` reports `unknown command 'task'`.
+- PR: #15 must be updated from the superseded R1 description before review.
+- Durable task: `7bbc67de-d366-49a2-9219-b2131de2066a` (`youtube-watch-later`).
+- AI DevKit task support was restored by installing the optional `@ai-devkit/task-manager` plugin.
 
-## Code Structure
+## Superseded R1 Work
 
-- `lib/guest-library.ts`: version-2 guest schema and bounded saved-video helpers.
-- `lib/youtube-progress.ts`: pure browser-progress normalization/read/update/clear helpers.
-- `tests/guest-library.test.mjs`: guest migration, validation, deduplication, independence and cap contracts.
-- `tests/youtube-progress.test.mjs`: resume validation, completion reset and cap contracts.
-- `db/schema.ts`, `drizzle/0009_absurd_blob.sql`: account saved-video table and indexes.
-- `app/api/videos/route.ts`: authenticated list/upsert/remove API.
-- `lib/auth.ts`: legacy-owner saved-video transfer.
-- `lib/guest-access.ts`: public Videos page with protected account API.
-- `app/videos/page.tsx`: account/guest library, direct selection, removal and browser-history synchronization.
-- `app/videos/youtube-player.tsx`: official IFrame API lifecycle and browser-local resume writes.
-- `lib/youtube-player.ts`: validated provider URLs and native player options.
-- `public/trainer.html`: distinct clip save, video bookmark and direct full-video actions.
+The following implementation exists and may contain reusable pieces, but it is not accepted R2 completion:
 
-## Implementation Notes
+- Guest/account video bookmark persistence and deduplication.
+- D1 migration and `/api/videos` ownership boundary.
+- Browser-local progress normalization.
+- `/videos` library/list/remove UI.
+- Native `YT.Player` playback and resume.
+- Trainer `Watch later` / `Watch full video` actions.
 
-### Completed T1-T3
+The native player and separate page lifecycle fail the R2 requirements because they do not expose current captions to ListenToLearn and cannot preserve a live YouGlish widget across warm navigation.
 
-- Existing guest phrases and saved examples survive v1-to-v2 normalization.
-- A saved video is keyed by its 11-character YouTube video ID and stores optional origin phrase/query/caption.
-- Duplicate guest saves keep stable identity/creation time, refresh non-empty origin context and move to the front.
-- Removing a saved video never removes a phrase example.
-- Guest videos and progress maps are capped at 200 newest records.
-- Progress accepts only finite non-negative positions up to seven days and resets within ten seconds of known completion.
+## Implemented R2
 
-### TDD evidence
+- Guest/account bookmarks require the exact original query and persist English/accent metadata; migration `0010_early_angel.sql` is additive.
+- Browser-local progress persists seconds plus only the last observed caption ID/text, never a transcript.
+- `/videos` remains the saved-video library and opens `/trainer?fullVideo=1...`; the native `YT.Player` component was deleted.
+- Warm Result → Full Video pauses the existing `YG.Widget`, persists progress and uses `pushState` with no provider fetch.
+- Cold load fetches `resumeCaption #videoId` once, falling back to `originalQuery #videoId`, with `autoStart: 0` and returned-video verification.
+- Full Video Mode keeps Play/Pause, Repeat current caption, observed-caption Previous/Next, speed, Expand, selection, Translate, Listen and To Learn.
+- It hides provider switch, result-video Previous/Next, Replay original phrase, Save clip, saved-example filters and the ordinary phrase workspace.
+- Observed-caption history is memory-only and capped at 200; persisted progress stores one caption anchor.
+- Listen pauses/persists, pushes ordinary trainer state with the previous ordinary provider, and Back restores Full Video at the caption anchor paused.
 
-- Each behavior was first observed failing for the missing contract.
-- Current targeted command: `node --experimental-strip-types --test tests/guest-library.test.mjs tests/youtube-progress.test.mjs`.
-- Result: 15 passed, 0 failed.
+## Evidence Status
 
-### Completed T4-T7
-
-- `saved_videos` is additive and unique per `(user_id, youtube_video_id)`.
-- Optional origin phrase IDs are accepted only for visible preset/user-owned phrases.
-- GET, upsert and delete bind the authenticated subject in every row operation.
-- Duplicate account saves keep stable identity and creation time while refreshing non-empty origin context.
-- Existing legacy-owner migration now carries and then removes legacy saved videos atomically with other user data.
-- `/videos` is guest-public; `/api/videos` remains outside the guest allowlist.
-- Fresh evidence: `npx tsc --noEmit` passed; 3 guest-boundary tests and 30 rendered/adjacent contracts passed.
-
-### Completed T8-T12
-
-- `/videos?video=<id>` plays a valid direct selection without a POST or YouGlish script.
-- Cards list bounded account/guest records, show local resume time, update browser history, and remove only the video bookmark.
-- The player requests native controls and English CC, cues stored `startSeconds`, saves every five seconds plus lifecycle events, and clears completed positions.
-- The trainer keeps Tatoeba `Save track`, renames the YouGlish phrase example to `Save clip`, and adds independent `Watch later` and `Watch full video` actions.
-- `Watch later` does not navigate; `Watch full video` does not save.
-- Account request parsing is bounded and returns explicit 400/413 responses for invalid or oversized JSON.
-
-## Integration Points
-
-Guest helpers are called from the static trainer and `/videos` client page. Account persistence is available through `/api/videos`. Progress remains a pure value layer; browser JSON/localStorage error handling stays in the UI boundary.
-
-## Error Handling
-
-Malformed records are discarded without throwing. Invalid mutations return normalized unchanged state. Browser-storage and provider failures leave playback/list actions available with a bounded visible message.
-
-## Security Notes
-
-Only strict YouTube video IDs enter saved-video/progress state. No arbitrary URL, embed markup, transcript or media content is stored.
+- Real Chrome spike harness: `spikes/youglish-full-video.html`.
+- Exact cold restore: failed provider gate.
+- Active long move: target 2400, first target callback 2401.069.
+- Caption-anchor cold restore: correct video `w66ecIT-Xkk`, caption `187152571`, paused, one fetch.
+- Fresh automated evidence: full `npm test` passes all 54 tests after the verified build; `npm run lint` has zero errors and two generated Cloudflare typing warnings.
+- AI DevKit base/feature lint passes.
+- Local browser smoke confirmed the Full Video class/layout and exact retained/removed controls with no console errors.
+- The final provider smoke was quota-limited by YouGlish; the earlier bounded provider spike remains the successful caption-anchor/callback evidence.
 
 ## Remaining Work
 
-No implementation task remains. Runtime D1/provider and responsive visual smoke require a preview/runtime compatible with the project's `2026-08-23` Workers compatibility date and remain required before deployment.
-
-## Final Verification
-
-- Helper suites: 17 passed, 0 failed.
-- Guest route boundary: 3 passed, 0 failed.
-- Full `npm test` after syncing `origin/main`: production build succeeded; 33 passed, 0 failed.
-- `npx tsc --noEmit`: exit 0.
-- `npm run lint`: exit 0 with two pre-existing generated-file warnings and zero errors.
-- `git diff --check`: exit 0.
-- Base and feature AI-doc lint: exit 0.
-
-## Final Review
-
-The implementation matches the approved split between phrase-bound clips and video-level bookmarks. Account queries are subject-scoped, guest/progress input is bounded, arbitrary embed URLs are rejected, the schema change is additive, browser history is synchronized, and deletion does not cascade into phrases/examples. No blocking code finding remains. Preview migration execution and real YouTube/YouGlish behavior are intentionally not claimed by automated evidence.
+Update lifecycle checklists, run final diff/review and publish the branch/PR. A fresh provider smoke can be repeated after the YouGlish daily quota resets, but no unverified exact-second claim is part of the release contract.

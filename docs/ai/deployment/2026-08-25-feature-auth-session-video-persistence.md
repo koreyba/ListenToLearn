@@ -11,7 +11,7 @@ description: Ordered D1, Worker, and Cloudflare Access rollout with exact readba
 - Cloudflare Worker/Vinext application `listen-to-learn`; preview Worker `listen-to-learn-preview`.
 - Production D1 `listen-to-learn-db`; preview D1 `listen-to-learn-preview-db`.
 - Existing Cloudflare Access account application `0d7ca644-4813-47a7-b973-bfa748141aff` and separate Settings application remain in place.
-- Code accepts both current Access audiences; no application merge or policy replacement is part of this release.
+- Production accepts the current account and Settings audiences. Preview alone additionally accepts the stable `preview_worker` Access application audience; no application merge or policy replacement is part of this release.
 
 ## Release Preconditions
 
@@ -57,4 +57,4 @@ description: Ordered D1, Worker, and Cloudflare Access rollout with exact readba
 
 ## Current Status
 
-Local implementation and local D1 migration verification are complete. Preview/production migrations, Access mutation, deploy, and authenticated live smoke have not been executed because they require separate explicit operational authorization.
+Local implementation and local D1 migration verification are complete. PR #19 has an automatically uploaded branch preview version. Remote preview/production migrations, Access mutation, preview promotion, production deploy, and the complete authenticated persistence smoke have not been executed because they require separate explicit operational authorization.

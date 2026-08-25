@@ -127,7 +127,7 @@ It would make session detection trivial but violates the explicit public-product
 
 ### Chosen: retain the two current Access applications
 
-Live API readback shows one account application for `/login` and the main account APIs and one Settings application for `/integrations` and `/api/integrations`. Both use a 24-hour session, an `allow everyone` policy constrained by the configured Google IdP, domain-scoped HttpOnly authorization cookies, and distinct audiences already accepted by the Worker. This feature adds `/api/videos` to the account application but does not merge or delete Access applications. The optional session verifier accepts either configured audience, and cross-application navigation remains a required live smoke.
+Live API readback shows one account application for `/login` and the main account APIs and one Settings application for `/integrations` and `/api/integrations`. Both use a 24-hour session, an `allow everyone` policy constrained by the configured Google IdP, domain-scoped HttpOnly authorization cookies, and distinct audiences already accepted by the production Worker. Branch preview aliases are protected by a third `preview_worker` Access application, so only the preview Worker configuration accepts that additional audience. This feature adds `/api/videos` to the account application but does not merge or delete Access applications. Cross-application navigation remains a required live smoke.
 
 Merging the applications was considered because one audience is simpler, but it would require a destructive policy/application migration unrelated to the proven defect. Keeping both preserves the current Settings boundary and rollback path.
 

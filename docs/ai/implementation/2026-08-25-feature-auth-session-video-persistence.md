@@ -11,7 +11,7 @@ description: Implemented trust boundary, D1 resume model, client mode selection,
 - Isolated worktree: `.worktrees/feature-auth-session-video-persistence` on branch `feature-auth-session-video-persistence`, based on `9683bdf`.
 - Dependencies installed with `npm ci`; baseline and final Vinext builds pass.
 - Durable AI DevKit task: `121411b4-6fa8-41f4-99c6-c7477ebe2c89`.
-- Local D1 verification uses Wrangler's local state only. No preview/production migration, Access edit, deployment, commit, or push has been performed.
+- Local D1 verification uses Wrangler's local state only. PR #19 is published and Workers Builds uploaded its isolated branch preview version; no remote D1 migration, Access edit, preview promotion, or production deployment has been performed.
 
 ## Code Structure
 
@@ -51,7 +51,7 @@ description: Implemented trust boundary, D1 resume model, client mode selection,
 
 ## Integration Points
 
-- Cloudflare Access still owns Google login. Code accepts both existing application audiences from `ACCESS_AUD`.
+- Cloudflare Access still owns Google login. Production accepts the existing account and Settings audiences; preview additionally accepts the verified `preview_worker` application audience without widening production.
 - Cloudflare Access configuration must add exact preview and production `/api/videos` destinations to the existing account application before release.
 - D1 migration `0011_tranquil_siren.sql` must precede the Worker deployment.
 - YouGlish restore behavior remains caption-boundary based; no provider fetch/seek contract was changed.
@@ -73,7 +73,8 @@ description: Implemented trust boundary, D1 resume model, client mode selection,
 ## Verification Snapshot
 
 - Red-first tests captured missing session bootstrap, D1 progress schema/API, synchronization, retry, and stored-row normalization.
-- The first full run discovered 164 tests; two obsolete expectations were updated for the intentional progress-aware signatures. The final review also caught and red/green-tested the unavailable-`localStorage` fallback before the fresh 167/167 run.
+- The first full run discovered 164 tests; two obsolete expectations were updated for the intentional progress-aware signatures. The final review also caught and red/green-tested the unavailable-`localStorage` fallback; the preview-AUD follow-up brings the fresh suite to 168/168.
+- Live PR preview diagnosis reproduced an authenticated `/login` `401`: Access issued the branch-preview application's audience while the deployed preview Worker accepted only the two production audiences. A red/green configuration test now requires the third audience in preview and rejects it in production.
 - `npx tsc --noEmit`, `npm run lint`, `npm run build`, feature lint, `git diff --check`, and local D1 migration/schema readback pass.
 - No P0/P1 code or design blocker remains in local review. The named runtime-harness and live-environment gaps remain explicit in the testing doc.
 - Remaining release evidence is operational: preview/production migration, Access edit/readback, deployed guest/authenticated smoke, and aggregate remote D1 delta.

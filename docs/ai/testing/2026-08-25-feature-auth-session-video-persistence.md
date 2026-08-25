@@ -78,9 +78,10 @@ description: Regression, ownership, persistence, and live Access verification fo
 - Red: video schema/API tests failed on missing resume columns/helper/route contract.
 - Red: synchronization tests failed on missing throttle/flush controller; later retry and stored-row normalization tests also failed before their implementations.
 - Red/green review regression: account history requests initially serialized `progress: null` when `localStorage` was unavailable; the focused Trainer contract failed before the fallback fix and passed after account payloads began omitting absent progress.
+- Red/green live-preview regression: the branch Access application audience was absent from preview Worker variables, reproducing the authenticated `/login` `401`; the deployment-config test fails when that audience is removed and also proves production is not widened.
 - Green targeted suites cover Access JWT issuer/audience/expiry, cookie/header extraction, safe redirects, all client bootstraps, progress validation/freshness, controller timing/retry, migration contract, Trainer wiring, and Videos source selection.
 - Local Wrangler applied migrations `0000` through `0011`; pragma readback proved the four expected columns, defaults, and nullability.
-- The first full wildcard run passed 162/164 and exposed two obsolete assertions for the old no-progress signatures; both were reconciled with the intentional contract. The final `npm test` build plus wildcard suite passed 167/167.
+- The first full wildcard run passed 162/164 and exposed two obsolete assertions for the old no-progress signatures; both were reconciled with the intentional contract. The latest `npm test` build plus wildcard suite passed 168/168 after the preview-AUD regression was added.
 - Regression sensitivity proof: temporarily routing the client probe to `/api/me` made `tests/client-session.test.mjs` fail 2/3 with the expected endpoint mismatch; restoring `/api/session` passed 3/3.
 
 ### Named remaining gaps

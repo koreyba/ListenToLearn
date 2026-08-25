@@ -40,9 +40,10 @@ description: Break down work into actionable tasks and estimate timeline
   previous do not start a blind step search or hold the UI in a timeout; normal
   playback enables the direction once the neighbor is observed.
 - [x] T2.3 Implement repeat on `onCaptionConsumed` using observed duration or a
-  bounded elapsed estimate; verify same-ID cycles and disable on an unexpected
-  caption. Outcome: repeat can be turned off without a stale loop. Validate
-  repeat-on, repeat-off, reset, and failure fixtures.
+  bounded elapsed estimate; keep it enabled and retarget it when the learner
+  selects another caption in the same video. Outcome: repeat persists until the
+  learner turns it off or playback context resets. Validate repeat-on,
+  next-caption, repeat-off, reset, and failure fixtures.
 
 ### Phase 3: Integration & Polish
 
@@ -84,8 +85,8 @@ refactor, then fresh verification evidence.
   controls with an honest message.
 - `move()` can throw or land across a boundary: one in-flight guard, cached
   target update, and a fail-closed direction after a movement error.
-- Repeat estimate drifts: prefer observed neighboring start times, verify the
-  same ID through the next consumed cycle, and disable on an unexpected ID.
+- Repeat estimate drifts: prefer observed neighboring start times, retarget only
+  to accepted captions in the same video, and disable on timing/movement failure.
 - Navigation changes the wrong video: assert `videoId` before accepting a
   target; never use track methods for phrase controls.
 - Live widget behavior is unavailable in CI: deterministic fake-widget tests

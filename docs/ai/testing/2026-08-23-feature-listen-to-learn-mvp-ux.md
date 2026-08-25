@@ -33,11 +33,13 @@ Cover 100% of new/changed server branches that can be checked with the repositor
 - [x] Caption history is recorded from caption-change events and resets on video changes.
 - [x] The exact-caption feature-detection path never calls `widget.move(-5)` or labels time movement as caption navigation.
 - [x] Provider video/audio navigation remains wired for all and saved modes.
-- [x] `exampleMode` and `exampleOrder` are normalized, persisted, and default to `all`/`random`.
+- [x] `exampleMode` is normalized and persisted with default `all`; legacy `exampleOrder` is discarded and no order controls are rendered.
 - [x] The save-example payload retains phrase ID, provider, external ID, caption, and attribution metadata.
 - [x] Word click translation exposes an adjacent `+ To Learn` action; selection actions remain available.
 - [x] The phrase-saving payload carries selected text, original caption context, and available translation.
-- [x] Desktop and mobile controls use one flat, non-wrapping toolbar and keep the caption explanation below it; former group wrappers add no visible boxes or headings.
+- [x] Desktop and mobile use one semantic order with example choices and captions
+  before one flat, non-wrapping toolbar, followed by media; former group wrappers
+  add no visible boxes or headings.
 - [x] Play/pause is one stateful button: paused Tatoeba and YouGlish playback renders Play and activation resumes playback; playing state renders Pause and activation pauses playback.
 - [x] Caption controls, caption status, and repeat-caption are hidden for Tatoeba and restored for YouGlish; the Tatoeba toolbar reflows without an empty caption column.
 - [x] Icon-only example settings expose explicit accessible names and mobile touch targets remain at least 44px.
@@ -46,15 +48,18 @@ Cover 100% of new/changed server branches that can be checked with the repositor
 ## Integration Tests
 
 - [x] Existing `phrase_examples` uniqueness still binds a saved provider item to one phrase (schema/static route contract).
-- [x] Tatoeba ordered mode preserves returned track order; random mode shuffles once per load (implemented and exercised against live Tatoeba response).
-- [x] Saved example ordered mode uses creation order and random mode remains reversible through previous/next (implemented and exercised with one saved Tatoeba item).
-- [x] YouGlish ordered mode uses the ordinary query; random mode preserves the existing random query behavior (static contract; provider navigation not exercised end-to-end in this run).
+- [x] Tatoeba items are shuffled once per load (implemented and exercised against a live Tatoeba response).
+- [x] Saved random sequences remain reversible through previous/next (implemented and exercised with one saved Tatoeba item).
+- [x] YouGlish always uses the existing random query behavior; rendered contracts confirm the order controls and setter are absent.
 - [x] Stale provider/example requests cannot overwrite a newer phrase/source selection (request counters retained and reviewed).
 - [x] Missing DeepL returns a pending/optional result while phrase persistence still succeeds (live local Worker returned truthful 503 for translation; phrase POST with supplied translation succeeded).
 
 ## End-to-End / Manual Tests
 
-- [x] Desktop: controls, captions, translation, save actions, and status are visible beside a compact >=200px media frame; no control overlaps the media panel. Fresh 1280x900 browser smoke rendered all nine YouGlish controls in one 56px-high row with zero toolbar/document horizontal overflow.
+- [x] Desktop: example settings, captions, translation, save actions, status,
+  and controls precede a full-width >=200px media frame; no control overlaps the
+  media panel. `Continue in video` sits beside `Save clip`, and no redundant
+  media action row remains.
 - [x] Mobile: learning workspace appears before the media panel, controls are tappable, and captions/translation remain reachable without horizontal scrolling. Fresh 390x844 browser smoke rendered all nine YouGlish controls in one 54px-high row; toolbar and document overflow were both zero, every visible control retained 44px height, and all had non-empty `title` and `aria-label` values.
 - [x] Open a phrase, use Tatoeba, pause/replay controls, speed controls, and previous/next video (live local Worker/Tatoeba smoke; audio loaded with HTTP 206).
 - [x] Verify caption controls are hidden for Tatoeba and restored for YouGlish; static contract also verifies no fake five-second behavior.

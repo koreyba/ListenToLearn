@@ -66,13 +66,16 @@ description: Technical implementation notes, patterns, and code guidelines
 
 ### Repeat current caption
 
-- `Повтор фразы` is a native toggle with `aria-pressed`.
+- `Повтор фразы` is a native toggle with `aria-pressed` and a visibly accented
+  pressed state.
 - `onCaptionConsumed` is accepted only for the active opaque caption ID. The
   seek-back delta prefers the elapsed time estimate from `observedAt` and
   playback state, then a known next-caption interval, then a minimum bounded
   fallback.
-- An unexpected caption ID, missing timing, failed movement, reset, or an
-  overlapping navigation disables repeat and leaves a visible status message.
+- A new accepted caption ID in the same video becomes the repeat target, so
+  previous/next navigation does not switch the toggle off. Missing timing,
+  failed movement, context reset, or overlapping navigation still disables
+  repeat and leaves a visible status message.
 - Repeat never schedules an unbounded timer and never changes the YouGlish video
   track.
 

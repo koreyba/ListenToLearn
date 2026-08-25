@@ -60,8 +60,7 @@ query, caption, accent, metadata, created_at
 The existing `connected-speech-trainer-v1` local state is normalized to version 2 and adds:
 
 ```ts
-exampleMode: "all" | "saved"       // default "all"
-exampleOrder: "random" | "ordered" // default "random"
+exampleMode: "all" | "saved" // default "all"
 ```
 
 The library page uses a separate local-storage key for `added_desc | added_asc | alpha_asc | alpha_desc`, defaulting to `added_desc`. Preferences are global, not keyed by phrase ID.
@@ -92,7 +91,7 @@ Status transitions remain unchanged. Existing translation/context are preserved;
 
 ### `GET/POST/DELETE /api/examples`
 
-The route contract remains phrase-bound and unique by provider/external ID. The client changes only the traversal order: ordered mode uses creation order, random mode shuffles the loaded provider list once so previous/next are reversible.
+The route contract remains phrase-bound and unique by provider/external ID. The client shuffles the loaded provider list once so previous/next remain reversible without exposing an order preference.
 
 ### `POST /api/translate`
 
@@ -109,26 +108,30 @@ The existing `{ text, context }` contract remains. A word click and a selection 
 
 ### Trainer (`public/trainer.html`)
 
-The sticky learning stage becomes a desktop split layout:
+The learning stage uses the same top-to-bottom flow on desktop and mobile:
 
 ```text
-┌──────────────────────── learning workspace ───────────────┬── media ──┐
-│ source + caption navigation + video navigation + playback │ compact  │
-│ example mode/order + save                                  │ widget   │
-│ captions + translation + selection actions                 │ >=200px  │
-└────────────────────────────────────────────────────────────┴───────────┘
+┌──────────────────────── learning workspace ────────────────────────────┐
+│ source · example mode/order/save · captions · status · controls       │
+└────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────── media ─────────────────────────────────────────┐
+│ provider widget >=200px                                                │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-On mobile the learning workspace is first and the media panel follows it. No application control is positioned over the widget; YouGlish's own ad/branding surface remains inside its widget container.
+The semantic DOM order matches the visual order and keeps the media panel last.
+`Continue in video` stays beside `Save clip` in the example actions; the media
+panel has no separate action row. No application control is positioned over the
+widget; YouGlish's own ad/branding surface remains inside its widget container.
 
 Controls are explicit:
 
 - Previous/next chevrons — caption-history controls inside the `Captions` group.
 - Previous/next track icons — provider track/example controls inside `Video & audio`.
 - Play/pause, replay, repeat, and speed controls — current media controls.
-- `All` / `Saved`, `Random` / `In order` — global example settings.
+- `All` / `Saved` — the only global example setting; traversal is always random.
 
-The primary controls form one flat, non-wrapping icon toolbar on desktop and mobile; group wrappers remain in the markup but add no visible boxes or headings. The single play/pause button reflects provider playback state and toggles both ways. The caption-navigation explanation sits below the toolbar. Every icon-only control keeps an explicit English `aria-label` and `title`, and playback targets remain at least 44px high.
+The primary controls form one flat, non-wrapping icon toolbar on desktop and mobile; group wrappers remain in the markup but add no visible boxes or headings. The single play/pause button reflects provider playback state and toggles both ways. The caption-navigation explanation precedes the toolbar. Every icon-only control keeps an explicit English `aria-label` and `title`, and playback targets remain at least 44px high.
 
 ### Caption-history navigation
 
@@ -136,9 +139,9 @@ The primary controls form one flat, non-wrapping icon toolbar on desktop and mob
 
 ### Provider navigation
 
-- YouGlish all mode: `widget.previous()` / `widget.next()`; query suffix `:r` is used only for random mode, while ordered mode uses the normal query.
+- YouGlish all mode: `widget.previous()` / `widget.next()` with the random query suffix `:r`.
 - YouGlish saved mode: the client traverses the phrase-bound saved video sequence and fetches the specific `query #external_id`.
-- Tatoeba all mode: the client traverses the fetched audio tracks, shuffled only in random mode.
+- Tatoeba all mode: the client traverses a shuffled copy of the fetched audio tracks.
 - Tatoeba saved mode: the client traverses phrase-bound saved audio IDs and retains attribution metadata.
 - Tatoeba has no caption timeline, so the caption-navigation group, its status hint, and repeat-caption control are hidden for that source; YouGlish shows them.
 
@@ -168,4 +171,5 @@ The primary controls form one flat, non-wrapping icon toolbar on desktop and mob
 - **Reliability:** stale Tatoeba/examples requests are ignored using existing request counters; missing DeepL does not block persistence; empty saved lists fall back explicitly.
 - **Performance:** no new client framework or provider request; only one translation request per visible action; local sort/order operations are bounded by the already loaded library/example list.
 - **Security:** context/translation are bounded server-side; no provider key moves to the browser; existing same-origin and server-only DeepL integration rules remain.
-- **Responsive behavior:** desktop uses two columns with media >=200px; mobile stacks learning content before media and retains usable control targets.
+- **Responsive behavior:** desktop and mobile stack learning content before media,
+  retain a >=200px provider frame, and keep usable control targets.

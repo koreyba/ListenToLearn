@@ -126,7 +126,7 @@
 
     .sticky-stage {
       position: sticky;
-      top: 0;
+      top: var(--site-navigation-offset, 0);
       z-index: 20;
       margin: 0 -12px;
       padding: max(10px, env(safe-area-inset-top)) 12px 12px;
@@ -134,15 +134,11 @@
       backdrop-filter: blur(10px);
       border-bottom: 1px solid var(--line);
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
-      grid-template-areas: "workspace media";
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "workspace" "media";
       align-items: start;
       gap: 14px;
       transition: grid-template-columns .24s ease;
-    }
-
-    .sticky-stage.media-expanded {
-      grid-template-columns: minmax(0, 1.15fr) minmax(380px, .85fr);
     }
 
     .learning-workspace {
@@ -165,37 +161,31 @@
       box-shadow: 0 14px 34px rgba(0,0,0,.18);
     }
 
-    .media-heading {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      margin-bottom: 7px;
-    }
-
-    .media-full-video-btn,
-    .media-expand-btn {
+    .media-full-video-btn {
       display: inline-flex;
       align-items: center;
       gap: 7px;
-      min-height: 34px;
-      padding: 6px 9px;
-      border-color: #3c6476;
-      background: rgba(21,51,66,.72);
-      color: var(--accent-2);
+      min-height: 44px;
+      padding: 8px 13px;
+      border: 1px solid rgba(125, 211, 252, .72);
+      border-radius: 12px;
+      background: linear-gradient(135deg, #38bdf8, #7dd3fc);
+      color: #07131a;
+      box-shadow: 0 6px 18px rgba(56, 189, 248, .18), inset 0 1px 0 rgba(255, 255, 255, .38);
       font-size: 12px;
-      font-weight: 750;
+      font-weight: 800;
       white-space: nowrap;
+      transition: transform .15s ease, filter .15s ease, box-shadow .15s ease;
     }
 
-    .media-full-video-btn:hover,
-    .media-expand-btn:hover {
-      border-color: var(--accent);
-      background: #1a465a;
+    .media-full-video-btn:hover:not(:disabled) {
+      border-color: #b6e8ff;
+      filter: brightness(1.06);
+      transform: translateY(-1px);
+      box-shadow: 0 9px 24px rgba(56, 189, 248, .24), inset 0 1px 0 rgba(255, 255, 255, .48);
     }
 
-    .media-full-video-btn svg,
-    .media-expand-btn svg {
+    .media-full-video-btn svg {
       width: 15px;
       height: 15px;
       fill: none;
@@ -206,22 +196,6 @@
     }
 
     .media-full-video-btn[hidden] { display: none; }
-
-    .media-expand-btn { margin-left: auto; }
-
-    .media-expanded .media-expand-btn {
-      border-color: var(--accent);
-      background: rgba(21,51,66,.96);
-    }
-
-    .media-expanded .media-expand-btn .expand-icon {
-      transform: rotate(180deg);
-    }
-
-    .expand-icon {
-      display: inline-flex;
-      transition: transform .2s ease;
-    }
 
     .media-frame-slot {
       min-width: 0;
@@ -369,10 +343,11 @@
       flex-wrap: nowrap;
       gap: 4px;
       margin-top: 0;
-      padding: 5px;
-      border: 1px solid rgba(69, 81, 96, .58);
-      border-radius: 14px;
-      background: rgba(12, 16, 21, .48);
+      padding: 6px;
+      border: 1px solid rgba(86, 102, 119, .42);
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(20, 27, 35, .98), rgba(13, 18, 24, .98));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035), 0 8px 22px rgba(0, 0, 0, .18);
     }
 
     .control-group {
@@ -396,7 +371,7 @@
     .control-group button:disabled,
     .caption-navigation button:disabled {
       cursor: not-allowed;
-      opacity: .5;
+      opacity: .3;
     }
 
     .player-controls button {
@@ -408,13 +383,14 @@
       min-width: 0;
       min-height: 44px;
       padding: 8px 5px;
-      border-color: #313d4a;
-      background: #1a212a;
-      color: #dce6ee;
+      border: 1px solid transparent;
+      border-radius: 11px;
+      background: transparent;
+      color: #b9c5d0;
       font-size: 13px;
       font-weight: 650;
       white-space: nowrap;
-      transition: background .15s ease, border-color .15s ease, color .15s ease, transform .15s ease;
+      transition: background .15s ease, border-color .15s ease, color .15s ease, transform .12s ease;
     }
 
     .button-icon {
@@ -446,60 +422,115 @@
     .player-controls .button-label { display: none; }
 
     .player-controls button:hover:not(:disabled) {
-      border-color: #526576;
-      background: #222c36;
+      border-color: rgba(125, 211, 252, .16);
+      background: #202a35;
       color: var(--text);
-      transform: translateY(-1px);
+    }
+
+    .player-controls button:active:not(:disabled) { transform: scale(.96); }
+
+    #repeatCaptionBtn[aria-pressed="true"] {
+      border-color: rgba(125, 211, 252, .52);
+      background: linear-gradient(135deg, #1f5a70, #17475a);
+      color: #f1fbff;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12), 0 4px 14px rgba(23, 71, 90, .35);
     }
 
     .example-tools {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
-      align-items: stretch;
-      gap: 8px;
+      align-items: center;
+      gap: 4px;
       margin-top: 9px;
-      padding-top: 9px;
-      border-top: 1px solid rgba(69, 81, 96, .52);
+      padding: 6px;
+      border: 1px solid rgba(86, 102, 119, .42);
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(20, 27, 35, .98), rgba(13, 18, 24, .98));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035), 0 8px 22px rgba(0, 0, 0, .18);
     }
 
     .example-tools[hidden] { display: none; }
 
     .example-settings {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 6px;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 4px;
       flex: 1 1 auto;
       min-width: 0;
     }
 
-    .example-mode,
-    .example-order {
+    .example-mode {
       display: flex;
       min-width: 0;
+    }
+
+    .example-settings .segmented {
+      gap: 3px;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      box-shadow: none;
     }
 
     .example-settings .segmented button {
       flex: 1 1 0;
       min-width: 0;
+      min-height: 44px;
       padding-left: 7px;
       padding-right: 7px;
+      border: 1px solid transparent;
+      border-radius: 11px;
+      background: transparent;
+      color: #aebbc7;
+      font-size: 13px;
+      font-weight: 650;
       white-space: nowrap;
     }
 
+    .example-settings .segmented button:hover:not(:disabled) {
+      border-color: rgba(125, 211, 252, .12);
+      background: rgba(125, 211, 252, .06);
+      color: #eef7fb;
+    }
+
+    .example-settings .segmented button.active {
+      border-color: rgba(125, 211, 252, .18);
+      background: rgba(125, 211, 252, .11);
+      color: #dff7ff;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .045);
+    }
+
     .save-example-btn {
-      min-width: 138px;
+      min-width: 118px;
+      border: 1px solid transparent;
+      border-radius: 11px;
+      background: transparent;
+      color: #aebbc7;
+      box-shadow: none;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .save-example-btn:hover:not(:disabled) {
+      border-color: rgba(125, 211, 252, .12);
+      background: rgba(125, 211, 252, .06);
+      color: #eef7fb;
     }
 
     .example-actions {
       display: flex;
-      flex-wrap: wrap;
+      flex-wrap: nowrap;
+      align-items: center;
       justify-content: flex-end;
-      gap: 6px;
+      gap: 4px;
       max-width: 430px;
+      padding-left: 4px;
+      border-left: 1px solid rgba(86, 102, 119, .28);
     }
 
     .example-actions button {
-      min-width: 128px;
+      min-width: 118px;
     }
 
     .example-count {
@@ -515,8 +546,9 @@
     }
 
     .save-example-btn.saved {
-      border-color: var(--accent);
-      color: var(--accent-2);
+      border-color: rgba(125, 211, 252, .18);
+      background: rgba(125, 211, 252, .11);
+      color: #dff6ff;
     }
 
     .save-example-btn:disabled,
@@ -537,8 +569,16 @@
     .example-message.error { color: var(--danger); }
 
     .speed-active {
-      border-color: var(--accent) !important;
-      color: var(--accent-2);
+      border-color: rgba(125, 211, 252, .34) !important;
+      background: #253d4d !important;
+      color: #dff6ff;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+    }
+
+    .player-controls .speed-btn {
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -.02em;
     }
 
     .status {
@@ -774,11 +814,12 @@
 
     .segmented {
       display: inline-flex;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 3px;
-      gap: 3px;
+      background: #11171e;
+      border: 1px solid rgba(82, 97, 113, .4);
+      border-radius: 14px;
+      padding: 4px;
+      gap: 4px;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .025);
     }
     fieldset.segmented {
       min-inline-size: 0;
@@ -787,12 +828,16 @@
     .segmented button {
       min-height: 34px;
       border: 0;
+      border-radius: 10px;
       background: transparent;
+      color: #b9c4cf;
       padding: 6px 11px;
+      transition: background .15s ease, color .15s ease, box-shadow .15s ease;
     }
     .segmented button.active {
-      background: #2b3440;
-      color: var(--accent-2);
+      background: linear-gradient(180deg, #2d3947, #26313d);
+      color: #e8f6fd;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .06);
     }
 
     .toggle {
@@ -971,28 +1016,6 @@
     .viewer-mode .state-box,
     .viewer-mode footer { display: none !important; }
 
-    @media (max-width: 1099px) and (min-width: 761px) {
-      .sticky-stage.media-expanded {
-        grid-template-columns: minmax(0, 1fr);
-        grid-template-areas: "workspace" "media";
-      }
-
-      .sticky-stage.media-expanded .media-panel {
-        margin-top: 2px;
-      }
-
-      .sticky-stage.media-expanded .widget-frame,
-      .sticky-stage.media-expanded .youglish-player,
-      .sticky-stage.media-expanded #yg-widget,
-      .sticky-stage.media-expanded #yg-widget > iframe {
-        min-height: clamp(300px, 58vw, 520px);
-      }
-
-      .sticky-stage.media-expanded .tatoeba-player {
-        min-height: clamp(300px, 58vw, 520px);
-      }
-    }
-
     @media (max-width: 760px) {
       .sticky-stage {
         position: static;
@@ -1019,8 +1042,6 @@
       .example-tools {
         order: 2;
         margin-top: 0;
-        padding-top: 0;
-        border-top: 0;
       }
       .example-message { order: 3; }
       .caption-box {
@@ -1042,23 +1063,12 @@
         margin-top: 4px;
         padding: 6px;
       }
-      .media-frame-slot { order: 1; }
-      .media-heading {
-        order: 2;
-        margin: 4px 0 0;
-      }
       #sourceSwitch button,
       .example-settings .segmented button {
         min-height: 44px;
       }
-      .media-full-video-btn,
-      .media-expand-btn {
-        min-width: 44px;
-        min-height: 44px;
-        padding: 8px;
-      }
       .example-tools { grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; }
-      .example-settings { display: grid; grid-template-columns: 1fr 1fr; }
+      .example-settings { display: grid; grid-template-columns: minmax(0, 1fr); }
       .example-settings .segmented { display: grid; grid-template-columns: 1fr 1fr; }
       .save-example-btn { width: auto; }
       .example-actions { max-width: none; }
@@ -1069,23 +1079,70 @@
       .widget-frame, #yg-widget { min-height: 205px; }
       #yg-widget > iframe { min-height: 205px; }
       .tatoeba-player { min-height: 205px; padding: 18px; }
-      .sticky-stage.media-expanded .widget-frame,
-      .sticky-stage.media-expanded .youglish-player,
-      .sticky-stage.media-expanded #yg-widget,
-      .sticky-stage.media-expanded #yg-widget > iframe {
-        min-height: 320px;
-      }
-      .sticky-stage.media-expanded .tatoeba-player { min-height: 320px; }
       .player-controls { gap: 3px; padding: 4px; }
       .player-controls .button-label { display: none; }
       .player-controls button { padding-left: 3px; padding-right: 3px; }
       .player-controls .button-icon { width: 18px; height: 18px; }
-      .media-full-video-btn .button-label,
-      .media-expand-btn .button-label,
-      .example-actions .button-label { display: none; }
-      .example-settings { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .example-settings .button-label { display: none; }
-      .example-actions button { width: 44px; min-width: 44px; padding: 8px; }
+      .player-controls .speed-btn { font-size: 10.5px; letter-spacing: -.05em; }
+      .example-tools {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 6px;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        box-shadow: none;
+      }
+      .example-settings {
+        display: block;
+        grid-template-columns: none;
+        width: 100%;
+      }
+      .example-settings .segmented {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        width: 100%;
+      }
+      .example-settings .button-label { display: inline; }
+      .example-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        max-width: none;
+        padding: 0;
+        border: 0;
+      }
+      .example-actions:has(.media-full-video-btn[hidden]) { grid-template-columns: minmax(0, 1fr); }
+      .example-actions .button-label { display: inline; }
+      .example-settings .segmented button,
+      .example-actions button {
+        width: 100%;
+        min-width: 0;
+        min-height: 44px;
+        padding: 8px 6px;
+        border-radius: 11px;
+        justify-content: center;
+      }
+      .save-example-btn {
+        border: 1px solid rgba(104, 121, 139, .2);
+        background: rgba(255, 255, 255, .025);
+        color: #c4d0da;
+        box-shadow: none;
+      }
+      .media-full-video-btn {
+        margin-left: 0;
+        border: 1px solid rgba(125, 211, 252, .24);
+        background: rgba(125, 211, 252, .08);
+        color: #aee8ff;
+        box-shadow: none;
+      }
+      .media-full-video-btn:hover:not(:disabled) {
+        border-color: rgba(125, 211, 252, .36);
+        background: rgba(125, 211, 252, .12);
+        filter: none;
+        transform: none;
+        box-shadow: none;
+      }
       .phrase-card {
         grid-template-columns: minmax(0, 1fr);
       }
@@ -1095,8 +1152,23 @@
       .heard { width: 100%; }
     }
   </style>
+  <link rel="stylesheet" href="/site-navigation.css" />
 </head>
 <body class="viewer-mode">
+  <header class="site-navigation">
+    <div class="site-navigation-inner">
+      <a class="site-brand" href="/" aria-label="ListenToLearn library">ListenToLearn</a>
+      <nav class="site-primary-links" aria-label="Primary navigation">
+        <a class="site-primary-link" href="/">Library</a>
+        <a class="site-primary-link" href="/practice" aria-current="page">Practice</a>
+        <a class="site-primary-link" href="/videos">Videos</a>
+        <a class="site-primary-link" href="/integrations">Settings</a>
+      </nav>
+      <div class="site-account">
+        <a id="loginLink" class="site-account-link" href="/login">Sign in with Google</a>
+      </div>
+    </div>
+  </header>
   <main class="app">
     <header class="viewer-header">
       <button id="backBtn" class="back-button" type="button">← Back</button>
@@ -1104,18 +1176,76 @@
         <span>Now listening</span>
         <strong id="viewerPhrase"></strong>
       </div>
-      <a id="loginLink" class="viewer-account-link" href="/login">Sign in with Google</a>
     </header>
 
     <section class="sticky-stage" id="playerTop">
       <div class="learning-workspace">
         <div class="source-row">
-          <span>Example source</span>
-          <fieldset id="sourceSwitch" class="segmented" aria-label="Example source">
+          <span>Phrase example</span>
+          <fieldset id="sourceSwitch" class="segmented" aria-label="Phrase example">
             <button type="button" data-source="tatoeba">Tatoeba</button>
             <button type="button" data-source="youglish">YouGlish</button>
           </fieldset>
         </div>
+
+        <div id="exampleTools" class="example-tools" hidden>
+          <div class="example-settings">
+            <fieldset id="exampleMode" class="segmented example-mode" aria-label="Example mode">
+              <button type="button" data-example-mode="all" aria-label="All examples" title="All examples">
+                <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M5 6h14M5 12h14M5 18h14" /></svg></span>
+                <span class="button-label">All</span>
+              </button>
+              <button type="button" data-example-mode="saved" aria-label="Saved examples" title="Saved examples">
+                <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M6 4h12v16l-6-3-6 3V4z" /></svg></span>
+                <span class="button-label">Saved</span> <span id="savedExampleCount" class="example-count">0</span>
+              </button>
+            </fieldset>
+          </div>
+          <div class="example-actions">
+            <button id="saveExampleBtn" class="save-example-btn" type="button" aria-label="Save current example" title="Save current example" disabled>
+              <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3z" /></svg></span>
+              <span class="button-label">Save clip</span>
+            </button>
+            <button id="watchFullVideoBtn" class="media-full-video-btn" type="button" aria-label="Continue in video" title="Continue in video" disabled hidden>
+              <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m9 7 8 5-8 5V7zM4 4h16v16H4z" /></svg></span>
+              <span class="button-label">Continue in video</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="exampleMessage" class="example-message" role="status"></div>
+
+        <div class="caption-box" aria-live="polite">
+          <div class="caption-label">
+            <span>Captions</span>
+            <span>click a word or select a phrase</span>
+          </div>
+          <div id="captionText" class="caption-text">Captions will appear during playback.</div>
+          <div id="selectionActions" class="caption-actions" hidden>
+            <div id="selectionPreview" class="selection-preview"></div>
+            <button id="translateSelectionBtn" type="button"><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M5 4h14M12 4v2M8 20l4-10 4 10M9.5 17h5M5 8h5M5 8c.7 4 3.1 6 7 7M19 8h-5" /></svg></span><span class="button-label">Translate</span></button>
+            <button id="listenSelectionBtn" type="button"><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M5 9v6h4l5 4V5L9 9H5zM17 9.5a4 4 0 0 1 0 5M19.5 7a7 7 0 0 1 0 10" /></svg></span><span class="button-label">Listen</span></button>
+            <button id="addSelectionBtn" type="button"><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M12 5v14M5 12h14" /></svg></span><span class="button-label">To Learn</span></button>
+          </div>
+          <div id="selectionMessage" class="selection-message" role="status"></div>
+          <div id="translationBox" class="translation-box">
+            <div class="translation-head">
+              <div id="translationSource" class="translation-source"></div>
+              <button id="clearTranslationBtn" type="button"><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z" /></svg></span><span class="button-label">Hide</span></button>
+            </div>
+            <div id="translationResult" class="translation-result"></div>
+            <div class="translation-actions">
+              <button id="translationAddBtn" type="button"><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M12 5v14M5 12h14" /></svg></span><span class="button-label">To Learn</span></button>
+            </div>
+          </div>
+        </div>
+
+        <div id="status" class="status">Preparing audio examples…</div>
+        <div id="noResults" class="no-results">
+          <div id="noResultsText"></div>
+          <button id="shorterBtn" type="button"></button>
+        </div>
+        <span id="captionNavigationHint" class="caption-navigation-status">Exact navigation is available when the API provides timing.</span>
 
         <div id="playerControls" class="player-controls player-toolbar" aria-label="Player navigation and controls">
           <div id="captionNavigation" class="control-group caption-navigation" aria-label="Caption navigation" hidden>
@@ -1157,84 +1287,9 @@
             <button class="speed-btn speed-active" data-speed="1" aria-label="Playback speed 1×" title="Playback speed 1×" type="button">1×</button>
           </div>
         </div>
-        <span id="captionNavigationHint" class="caption-navigation-status">Exact navigation is available when the API provides timing.</span>
-
-        <div id="exampleTools" class="example-tools" hidden>
-          <div class="example-settings">
-            <fieldset id="exampleMode" class="segmented example-mode" aria-label="Example mode">
-              <button type="button" data-example-mode="all" aria-label="All examples" title="All examples">
-                <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M5 6h14M5 12h14M5 18h14" /></svg></span>
-                <span class="button-label">All</span>
-              </button>
-              <button type="button" data-example-mode="saved" aria-label="Saved examples" title="Saved examples">
-                <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M6 4h12v16l-6-3-6 3V4z" /></svg></span>
-                <span class="button-label">Saved</span> <span id="savedExampleCount" class="example-count">0</span>
-              </button>
-            </fieldset>
-            <fieldset id="exampleOrder" class="segmented example-order" aria-label="Example order">
-              <button type="button" data-example-order="random" aria-label="Random order" title="Random order">
-                <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M3 6h3c4 0 5 12 9 12h6M18 15l3 3-3 3M3 18h3c1.4 0 2.5-1.2 3.3-2.5M18 3l3 3-3 3" /></svg></span>
-                <span class="button-label">Random</span>
-              </button>
-              <button type="button" data-example-order="ordered" aria-label="Ordered" title="Ordered">
-                <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M5 6h14M5 12h14M5 18h14" /></svg></span>
-                <span class="button-label">In order</span>
-              </button>
-            </fieldset>
-          </div>
-          <div class="example-actions">
-            <button id="saveExampleBtn" class="save-example-btn" type="button" aria-label="Save current example" title="Save current example" disabled>
-              <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3z" /></svg></span>
-              <span class="button-label">Save clip</span>
-            </button>
-          </div>
-        </div>
-
-        <div id="exampleMessage" class="example-message" role="status"></div>
-
-        <div class="caption-box" aria-live="polite">
-          <div class="caption-label">
-            <span>Captions</span>
-            <span>click a word or select a phrase</span>
-          </div>
-          <div id="captionText" class="caption-text">Captions will appear during playback.</div>
-          <div id="selectionActions" class="caption-actions" hidden>
-            <div id="selectionPreview" class="selection-preview"></div>
-            <button id="translateSelectionBtn" type="button"><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M5 4h14M12 4v2M8 20l4-10 4 10M9.5 17h5M5 8h5M5 8c.7 4 3.1 6 7 7M19 8h-5" /></svg></span><span class="button-label">Translate</span></button>
-            <button id="listenSelectionBtn" type="button"><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M5 9v6h4l5 4V5L9 9H5zM17 9.5a4 4 0 0 1 0 5M19.5 7a7 7 0 0 1 0 10" /></svg></span><span class="button-label">Listen</span></button>
-            <button id="addSelectionBtn" type="button"><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M12 5v14M5 12h14" /></svg></span><span class="button-label">To Learn</span></button>
-          </div>
-          <div id="selectionMessage" class="selection-message" role="status"></div>
-          <div id="translationBox" class="translation-box">
-            <div class="translation-head">
-              <div id="translationSource" class="translation-source"></div>
-              <button id="clearTranslationBtn" type="button"><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6zM12 9.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z" /></svg></span><span class="button-label">Hide</span></button>
-            </div>
-            <div id="translationResult" class="translation-result"></div>
-            <div class="translation-actions">
-              <button id="translationAddBtn" type="button"><span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M12 5v14M5 12h14" /></svg></span><span class="button-label">To Learn</span></button>
-            </div>
-          </div>
-        </div>
-
-        <div id="status" class="status">Preparing audio examples…</div>
-        <div id="noResults" class="no-results">
-          <div id="noResultsText"></div>
-          <button id="shorterBtn" type="button"></button>
-        </div>
       </div>
 
       <aside class="media-panel" aria-label="Media example">
-        <div class="media-heading">
-          <button id="watchFullVideoBtn" class="media-full-video-btn" type="button" aria-label="Watch full video" title="Watch full video" disabled hidden>
-            <span class="button-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="m9 7 8 5-8 5V7zM4 4h16v16H4z" /></svg></span>
-            <span class="button-label">Watch full video</span>
-          </button>
-          <button id="expandMediaBtn" class="media-expand-btn" type="button" aria-label="Expand player" aria-controls="widgetFrame" aria-expanded="false" title="Expand player">
-            <span class="button-icon expand-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M8 4H4v4M16 4h4v4M20 16v4h-4M4 16v4h4" /></svg></span>
-            <span class="button-label">Expand</span>
-          </button>
-        </div>
         <div id="mediaFrameSlot" class="media-frame-slot">
           <div id="widgetFrame" class="widget-frame">
           <div id="youglishPlayer" class="youglish-player">
@@ -1406,8 +1461,7 @@
       selectedId: "base-0",
       source: "tatoeba",
       speed: 1,
-      exampleMode: "all",
-      exampleOrder: "random"
+      exampleMode: "all"
     };
 
     let widget = null;
@@ -1428,7 +1482,6 @@
     let trainerReady = false;
     let guestLibrary = createGuestLibrary();
     let exampleMode = "all";
-    let exampleOrder = "random";
     let savedExampleSequenceKey = "";
     let savedExampleSequence = [];
     const captionNavigation = window.ListenToLearnCaptionNavigation || null;
@@ -1481,6 +1534,9 @@
     if (!/^[A-Za-z0-9_-]{11}$/.test(fullVideoOrigin.videoId) || !fullVideoOrigin.originalQuery) {
       fullVideoMode = false;
     }
+    if (!fullVideoMode && !initialViewerParams.get("phrase")?.trim()) {
+      window.location.replace("/practice");
+    }
 
     const el = {
       status: document.getElementById("status"),
@@ -1501,7 +1557,6 @@
       shorterBtn: document.getElementById("shorterBtn"),
       exampleTools: document.getElementById("exampleTools"),
       exampleMode: document.getElementById("exampleMode"),
-      exampleOrder: document.getElementById("exampleOrder"),
       savedExampleCount: document.getElementById("savedExampleCount"),
       saveExampleBtn: document.getElementById("saveExampleBtn"),
       watchFullVideoBtn: document.getElementById("watchFullVideoBtn"),
@@ -1537,7 +1592,6 @@
       loginLink: document.getElementById("loginLink"),
       playerTop: document.getElementById("playerTop"),
       playerControls: document.getElementById("playerControls"),
-      expandMediaBtn: document.getElementById("expandMediaBtn"),
       captionNavigation: document.getElementById("captionNavigation"),
       prevCaptionBtn: document.getElementById("prevCaptionBtn"),
       nextCaptionBtn: document.getElementById("nextCaptionBtn"),
@@ -1676,7 +1730,7 @@
       s.source = ["tatoeba", "youglish"].includes(s.source) ? s.source : "tatoeba";
       s.speed = Number.isFinite(Number(s.speed)) ? Number(s.speed) : 1;
       s.exampleMode = ["all", "saved"].includes(s.exampleMode) ? s.exampleMode : "all";
-      s.exampleOrder = ["random", "ordered"].includes(s.exampleOrder) ? s.exampleOrder : "random";
+      delete s.exampleOrder;
       delete s.translationCache;
       s.custom = Array.isArray(s.custom)
         ? s.custom
@@ -1962,7 +2016,6 @@
 
     let state = safeLoad();
     exampleMode = state.exampleMode;
-    exampleOrder = state.exampleOrder;
 
     function saveState() {
       try {
@@ -2194,12 +2247,10 @@
 
     function examplesForCurrentSource() {
       const raw = savedExamples.filter(example => example.provider === state.source);
-      const key = `${state.source}|${exampleOrder}|${raw.map(example => `${example.id}:${example.created_at}`).join(",")}`;
+      const key = `${state.source}|${raw.map(example => `${example.id}:${example.created_at}`).join(",")}`;
       if (key !== savedExampleSequenceKey) {
         savedExampleSequenceKey = key;
-        savedExampleSequence = exampleOrder === "random"
-          ? shuffled(raw)
-          : [...raw].sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")) || String(a.id).localeCompare(String(b.id)));
+        savedExampleSequence = shuffled(raw);
       }
       return savedExampleSequence;
     }
@@ -2232,24 +2283,18 @@
         btn.setAttribute("aria-pressed", active ? "true" : "false");
         if (btn.dataset.exampleMode === "saved") btn.disabled = providerExamples.length === 0;
       });
-      el.exampleOrder.querySelectorAll("button[data-example-order]").forEach(btn => {
-        const active = btn.dataset.exampleOrder === exampleOrder;
-        btn.classList.toggle("active", active);
-        btn.setAttribute("aria-pressed", active ? "true" : "false");
-      });
-
       const saved = currentSavedExample();
       const learningPhrase = Boolean(VIEWER_PHRASE_ID && VIEWER_PHRASE_STATUS);
       const itemLabel = state.source === "tatoeba" ? "track" : "clip";
       el.saveExampleBtn.classList.toggle("saved", Boolean(saved));
-      setButtonLabel(el.saveExampleBtn, saved ? "Saved" : `Save ${itemLabel}`);
+      setButtonLabel(el.saveExampleBtn, saved ? `Remove ${itemLabel}` : `Save ${itemLabel}`);
       el.saveExampleBtn.setAttribute("aria-label", saved ? "Remove current example from saved" : "Save current example");
       el.saveExampleBtn.title = saved ? "Remove current example from saved" : "Save current example";
       el.saveExampleBtn.disabled = !learningPhrase || !currentExternalId;
 
       const isYouGlish = state.source === "youglish";
       const validYouTubeVideo = isYouGlish && /^[A-Za-z0-9_-]{11}$/.test(currentYouglishVideoId);
-      el.watchFullVideoBtn.hidden = fullVideoMode || !isYouGlish;
+      el.watchFullVideoBtn.hidden = fullVideoMode || !validYouTubeVideo;
       el.watchFullVideoBtn.disabled = !validYouTubeVideo;
 
       if (!learningPhrase && !el.exampleMessage.textContent) {
@@ -2371,15 +2416,6 @@
       renderCaptionNavigation();
     }
 
-    function setMediaExpanded(expanded) {
-      const isExpanded = Boolean(expanded);
-      el.playerTop.classList.toggle("media-expanded", isExpanded);
-      el.expandMediaBtn.setAttribute("aria-expanded", isExpanded ? "true" : "false");
-      el.expandMediaBtn.setAttribute("aria-label", isExpanded ? "Collapse player" : "Expand player");
-      el.expandMediaBtn.title = isExpanded ? "Collapse player" : "Expand player";
-      setButtonLabel(el.expandMediaBtn, isExpanded ? "Collapse" : "Expand");
-    }
-
     function setSource(source) {
       if (!["tatoeba", "youglish"].includes(source) || source === state.source) return;
       tatoebaAbortController?.abort();
@@ -2433,7 +2469,7 @@
     }
 
     function orderProviderItems(items) {
-      return exampleOrder === "random" ? shuffled(items) : [...items];
+      return shuffled(items);
     }
 
     function finiteCaptionTime(value) {
@@ -2936,10 +2972,9 @@
       hideNoResults();
       el.status.classList.remove("error");
       const providerExamples = examplesForCurrentSource();
-      const orderLabel = exampleOrder === "random" ? "random order" : "in order";
       el.status.textContent = usingSavedExamples()
         ? `Saved track ${savedExampleIndex + 1}/${providerExamples.length} · Tatoeba`
-        : `Audio examples found: ${tatoebaTracks.length} · ${orderLabel} · example ${tatoebaIndex + 1}/${tatoebaTracks.length} · Tatoeba`;
+        : `Audio examples found: ${tatoebaTracks.length} · random order · example ${tatoebaIndex + 1}/${tatoebaTracks.length} · Tatoeba`;
       renderExampleTools();
       if (autoplay) playTatoeba();
     }
@@ -3011,10 +3046,9 @@
       }
 
       el.status.classList.remove("error");
-      const orderLabel = exampleOrder === "random" ? "random" : "sequential";
       el.status.textContent = savedLabel
         ? `Finding “${displayQuery}” in ${savedLabel}…`
-        : `Finding ${orderLabel} examples: “${displayQuery}” · accent: ${accentLabel()}…`;
+        : `Finding random examples: “${displayQuery}” · accent: ${accentLabel()}…`;
 
       try {
         if (state.accent) widget.fetch(query, "english", state.accent);
@@ -3089,7 +3123,7 @@
         fetchTatoeba(query);
         return;
       }
-      fetchYouglish(exampleOrder === "random" ? `${query} :r` : query, query);
+      fetchYouglish(`${query} :r`, query);
     }
 
     function choosePhrase(id, scrollToPlayer = false) {
@@ -3675,17 +3709,6 @@
       fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
     }
 
-    function setExampleOrder(order) {
-      if (order !== "random" && order !== "ordered") return;
-      exampleOrder = order;
-      state.exampleOrder = order;
-      savedExampleSequenceKey = "";
-      savedExampleIndex = 0;
-      saveState();
-      renderExampleTools();
-      fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
-    }
-
     function decodeCaption(raw) {
       const encoded = String(raw || "").replace(/\+/g, " ");
       try { return decodeURIComponent(encoded); }
@@ -3821,7 +3844,8 @@
         }
         if (repeatCaptionEnabled && entry.id !== repeatTargetId
             && !captionNavigationBusy && !captionNavigationPendingTargetId) {
-          disableRepeatCaption("Phrase repeat disabled: playback moved to another caption.");
+          repeatTargetId = entry.id;
+          repeatPending = false;
         }
       } else {
         invalidateCaptionTiming("Phrase repeat disabled: YouGlish did not provide a timestamp.");
@@ -3901,10 +3925,9 @@
         return;
       }
       const providerExamples = examplesForCurrentSource();
-      const orderLabel = exampleOrder === "random" ? "random order" : "in order";
       el.status.textContent = usingSavedExamples()
         ? `Saved video ${savedExampleIndex + 1}/${providerExamples.length} · clips found: ${event.totalResult}`
-        : `Examples found: ${event.totalResult} · ${orderLabel} · accent: ${accentLabel()}`;
+        : `Examples found: ${event.totalResult} · random order · accent: ${accentLabel()}`;
     }
 
     function onVideoChange(event) {
@@ -4120,7 +4143,6 @@
         const candidate = parsed && parsed.state ? parsed.state : parsed;
         state = normalizeState(candidate);
         exampleMode = state.exampleMode;
-        exampleOrder = state.exampleOrder;
         savedExampleSequenceKey = "";
         blindRevealed = false;
         saveState();
@@ -4183,11 +4205,6 @@
       const btn = event.target.closest("button[data-example-mode]");
       if (btn) setExampleMode(btn.dataset.exampleMode);
     });
-    el.exampleOrder.addEventListener("click", event => {
-      const btn = event.target.closest("button[data-example-order]");
-      if (btn) setExampleOrder(btn.dataset.exampleOrder);
-    });
-
     el.prevCaptionBtn.addEventListener("click", () => navigateCaption("previous"));
     el.nextCaptionBtn.addEventListener("click", () => navigateCaption("next"));
     el.repeatCaptionBtn.addEventListener("click", toggleRepeatCaption);
@@ -4255,11 +4272,6 @@
       else if (state.source === "tatoeba") loadTatoebaTrack(tatoebaIndex + 1, true);
       else if (usingSavedExamples()) playSavedExample(savedExampleIndex + 1);
       else callWidget("next");
-    });
-
-    el.expandMediaBtn.addEventListener("click", () => {
-      const expanded = el.playerTop.classList.contains("media-expanded");
-      setMediaExpanded(!expanded);
     });
 
     el.sourceSwitch.addEventListener("click", event => {
@@ -4342,10 +4354,10 @@
     const viewerParams = initialViewerParams;
     let VIEWER_PHRASE = fullVideoMode
       ? fullVideoOrigin.originalQuery
-      : viewerParams.get("phrase")?.trim() || BASE_PHRASES[0].q;
+      : viewerParams.get("phrase")?.trim() || "";
     let VIEWER_PHRASE_ID = fullVideoMode
       ? fullVideoOrigin.originPhraseId
-      : viewerParams.get("phraseId")?.trim() || (!viewerParams.has("phrase") ? "preset-0" : "");
+      : viewerParams.get("phraseId")?.trim() || "";
     let VIEWER_PHRASE_STATUS = "";
     el.viewerPhrase = document.getElementById("viewerPhrase");
     el.backBtn = document.getElementById("backBtn");
@@ -4424,7 +4436,6 @@
       } else if (event.key === "connected-speech-trainer-v1:anonymous" && event.newValue === null) {
         state = cloneDefaultState();
         exampleMode = state.exampleMode;
-        exampleOrder = state.exampleOrder;
         savedExampleSequenceKey = "";
         render();
         renderSource();
@@ -4456,7 +4467,6 @@
           }
           state = safeLoad();
           exampleMode = state.exampleMode;
-          exampleOrder = state.exampleOrder;
           savedExampleSequenceKey = "";
           saveState();
         } catch (_) {
@@ -4470,7 +4480,6 @@
         guestLibrary = safeLoadGuestLibrary();
         state = safeLoad();
         exampleMode = state.exampleMode;
-        exampleOrder = state.exampleOrder;
         savedExampleSequenceKey = "";
         el.stateMessage.textContent = "Guest mode: progress is stored only in this browser.";
       }

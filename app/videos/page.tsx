@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { SiteNavigation } from "@/app/components/site-navigation";
 import {
   GUEST_LIBRARY_STORAGE_KEY,
   normalizeGuestLibrary,
@@ -170,16 +170,28 @@ export default function VideosPage() {
   }
 
   return (
-    <main className="videos-shell">
+    <>
+      <SiteNavigation
+        active="videos"
+        account={mode === "guest" ? (
+          <a className="site-account-link" href="/login">Sign in with Google</a>
+        ) : (
+          <a
+            className="site-account-link"
+            href="/cdn-cgi/access/logout"
+            onClick={() => {
+              try { window.localStorage.removeItem(AUTH_HINT_STORAGE_KEY); } catch { /* optional hint */ }
+            }}
+          >Log out</a>
+        )}
+      />
+      <main className="videos-shell">
       <header className="videos-header">
         <div>
           <p className="eyebrow">Long-form listening</p>
           <h1>Videos</h1>
           <p>Continue a YouGlish video with the trainer&apos;s captions and learning controls. Resume stays in this browser.</p>
         </div>
-        <nav className="videos-nav" aria-label="Videos navigation">
-          <Link className="back-link" href="/">Phrase library</Link>
-        </nav>
       </header>
 
       {mode === "guest" && <div className="notice" role="status">Guest mode: viewing history and resume position stay only in this browser.</div>}
@@ -232,6 +244,7 @@ export default function VideosPage() {
           </div>
         )}
       </section>
-    </main>
+      </main>
+    </>
   );
 }

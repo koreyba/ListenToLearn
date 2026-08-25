@@ -64,6 +64,8 @@ Verified baseline on 2026-08-23:
   disabled until normal playback observes it.
 - As a learner, I can enable `Повтор фразы` and hear the current caption again
   when it is consumed; disabling it lets playback continue normally.
+- As a learner, I can move to an observed previous or next caption while repeat
+  stays enabled and follows the newly selected caption.
 - As a learner using Tatoeba, I see only whole-track navigation; timed phrase
   controls are not shown because the source has no timed caption chunks.
 - As a learner, I see disabled controls and an honest explanation when the
@@ -84,6 +86,8 @@ Verified baseline on 2026-08-23:
 - Repeat requests the same caption ID, does not change the video, and does not
   create overlapping timers or navigation loops. Turning repeat off prevents
   the next repeat action.
+- The repeat control has a visually distinct pressed state, and selecting
+  another caption in the same video retargets repeat without switching it off.
 - When `current_time` is missing/invalid or the widget lacks `move`, the feature
   remains visibly unavailable; no `-5`-second fallback is labelled as phrase
   navigation.

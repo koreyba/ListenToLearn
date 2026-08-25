@@ -100,3 +100,68 @@ only bounded in-memory work.
 
 Any provider mismatch must record the actual event order and available fields.
 Do not replace a missing timestamp with an unlabeled fixed seek.
+
+## Exploratory Edge Matrix
+
+Local TDD follow-up on 2026-08-25 added 25 active edge tests. The initial RED
+run for the first 19 had 39 total, 30 passed and 9 failures. A later live smoke
+found two more regressions; their focused RED run passed 0/2. After the minimal
+production-code fixes, later live smokes corrected the pending-state contract.
+The final correction established that caption buttons derive only from cached
+neighbors, not command state; four focused behavior checks initially passed
+0/4. The focused suite now passes 46/46.
+
+Passing characterization cases:
+
+- timestamps exactly at and just beyond the 30-second segment boundary;
+- invalid provider times, including zero as a valid timestamp;
+- out-of-order caption callbacks sorted by timestamp;
+- a known caption callback with missing timing retains its cached time;
+- switching video cancels controlled Next without pausing the new video;
+- a new time inside an inactive segment range reactivates that segment;
+- a large backward seek starts an isolated segment;
+- identical caption IDs remain isolated between videos.
+
+Former RED cases now fixed:
+
+- equal timestamps expose a zero-delta caption target that cannot be confirmed;
+- a known ID with a wildly changed timestamp stretches/reorders its segment and
+  produces a cross-gap movement (`-1193s` instead of `-3s` in the fixture);
+- a late caption tagged with video A is stored in active video B;
+- a timestamped caption tagged with its video is lost when it arrives before
+  `onVideoChange`;
+- an empty `onVideoChange` payload switches away from the valid active cursor;
+- Replay pending does not disable competing Previous actions;
+- a second Replay click sends a duplicate provider command;
+- controlled Next remains permanently busy if playback stops before its target;
+- duplicate `onCaptionConsumed` callbacks issue duplicate Repeat seeks.
+- caption callbacks without a provider ID receive a history-length-based ID,
+  so Replay never recognizes the first caption and keeps navigation blocked.
+- Repeat is incorrectly disabled while waiting for captions, navigation, or
+  Replay even though it is an always-available user toggle.
+- Previous/Next are incorrectly disabled by a transient command lock instead of
+  being derived only from the active caption's cached neighbors;
+- repeated no-ID callbacks for the same caption with a drifting `current_time`
+  create phantom history entries and expose a nonexistent Previous target.
+
+Evidence command:
+
+`node --test tests/caption-segments.test.mjs tests/youglish-caption-navigation.test.mjs`
+
+Final local verification:
+
+- `npm test`: production build plus configured tests passed 75/75;
+- `node --test tests/*.test.mjs`: repository tests passed 90/90;
+- `npm run lint`: 0 errors and two pre-existing generated warnings;
+- `npx tsc --noEmit` and `git diff --check`: passed.
+
+The fixes keep the first trusted timestamp for a known caption ID, reject
+zero-delta targets, bind tagged caption events to their video, ignore empty video
+changes, include Replay in the shared pending state, release controlled Next on
+an early playback stop, acknowledge Repeat movement only after its caption is
+observed again, and stabilize missing provider IDs by matching caption text and
+timing. Previous/Next enabled state now depends only on cached neighbors; command
+pending never disables them. Repeated current-caption callbacks inside the
+30-second segment tolerance reuse the same entry, while identical text outside
+that tolerance remains distinct. Repeat is never disabled in YouGlish mode.
+These local changes have not been pushed to PR #14.

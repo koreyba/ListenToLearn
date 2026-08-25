@@ -36,6 +36,9 @@ type CaptionEntry = {
   firstSeen: number;
   observedAt: number;
   lastKnownTime?: number | null;
+  nextOffsetSeconds?: number | null;
+  nextOffsetTargetId?: string;
+  playbackContinuity?: number;
 };
 
 type VideoCaptionState = {
@@ -92,7 +95,19 @@ request, the controller pauses again after the target is confirmed.
 For a replay-only first caption without a timestamp, Next remains available. A
 direct `move` is used only with a valid current time; otherwise the controller
 plays toward the already known next caption ID and restores the prior paused
-state when that caption arrives.
+state when that caption arrives. The navigation intent survives transient
+`PAUSED`, `BUFFERING`, and `PLAYING` callbacks caused by provider commands; only
+the target caption, explicit Replay cancellation, a video change, a provider
+error, or a 20-second timeout completes it. If playback is already running, the
+controller waits without issuing pause/play churn. No extra visible navigation
+status is rendered while waiting.
+
+User play/pause commands record the requested playback state separately from
+the last provider callback. This prevents a late `PLAYING` callback from
+overwriting an explicit pause before controlled Next restores that pause at its
+target. An explicit user Pause during an already-running controlled Next cancels
+that target immediately, so a later Next click can start a fresh attempt rather
+than waiting for the timeout.
 
 ## Design Decisions
 
@@ -105,9 +120,37 @@ state when that caption arrives.
   cannot be confirmed.
 - Clear pending controlled-playback or Replay intent when the widget rejects a
   command so a later unrelated caption event cannot complete a stale action.
+- Treat provider player-state callbacks as observations, not acknowledgements
+  that can cancel a newer caption-navigation intent.
+- Keep Replay available during controlled Next; Replay explicitly cancels that
+  intent and returns to the first observed caption.
 
 Rejected alternatives: clearing all history on every seek, one flat per-video
-timeline, scraping the iframe, or fixed five-second movement.
+timeline, scraping the iframe, fixed five-second movement, or deriving a Replay
+seek from measured caption duration. Live provider tests showed that `move()` is
+relative to the widget playhead rather than the virtual Replay caption: a
+duration-based move skipped the known next caption, while a delta derived from
+the Replay callback cursor preserved the target but did not shorten playback.
+The public Widget API exposes no absolute seek or current-position getter.
+
+### Symmetric untimed-edge navigation
+
+The rejected experiment attempted a forward seek after provider Replay. The new
+best-effort path instead learns a clean, uninterrupted media-time edge `A -> B`
+and uses it symmetrically: `move(-d)` returns from B to untimed A and `move(+d)`
+returns from A to B. Elapsed playback inside the current caption is added or
+subtracted from the command, and playback speed converts wall time to media
+time. A player-state discontinuity discards the previous interval; if playback
+returns to `PLAYING` while untimed A is still current, measurement restarts from
+that playhead. Pausing without a subsequent resume, video switching, missing
+measurements, or an edge outside the 30-second segment tolerance retain the
+existing Replay/controlled-playback fallback.
+
+The learned edge is navigation metadata only. It never supplies `startTime`,
+changes history order, changes segment membership, or controls whether a cached
+Next neighbor exists. Each edge is bound to the ID of the neighbor it measured,
+so later insertion of another cached caption invalidates its use. Provider
+callbacks still confirm the requested caption.
 
 ## Non-Functional Requirements
 

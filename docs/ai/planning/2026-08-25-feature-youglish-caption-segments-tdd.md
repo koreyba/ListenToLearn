@@ -54,6 +54,42 @@ description: Break down work into actionable tasks and estimate timeline
 - [x] T8: Perform lifecycle code review for behavior, integration risk, security,
   and design alignment; resolve any blocking finding.
 
+### Phase 4: Live provider-race follow-up
+
+- [x] T9: Capture sanitized live traces for paused/playing navigation races.
+- [x] T10: Replay the captured `2 -> 3 -> 1 -> target caption` prefix in a
+  browser-contract regression test.
+- [x] T11: Preserve explicit playback intent, coalesce duplicate Next, keep
+  Replay available as cancellation, and expire an unconfirmed target.
+- [x] T12: Run the full local verification and live YouGlish acceptance smoke.
+
+### Phase 5: Replay-to-Next acceleration research
+
+- [x] T13: Record sanitized `onCaptionConsumed` and speed signals and prove the
+  trace contains no raw provider caption/video content.
+- [x] T14: Measure initial and Replay A-to-B playback on three live examples,
+  including 0.75x playback.
+- [x] T15: Test duration-based and Replay-cursor relative seeks against the live
+  widget, then remove both experiments after they failed the exact-B contract.
+- [x] T16: Retain controlled playback as the safe fallback and document the
+  missing absolute-seek/current-position API capability.
+
+### Phase 6: Symmetric untimed-edge compromise
+
+- [x] T17: Add RED contracts for learning a clean `A -> B` media-time edge and
+  reusing inverse relative moves for `B -> A -> B`.
+- [x] T18: Invalidate learned-edge measurement across buffering and video
+  switches, and account for playback speed and elapsed caption playback.
+- [x] T19: Preserve Replay/controlled playback when no trustworthy edge exists
+  and expose only sanitized edge timing in local traces.
+- [x] T20: Run full deterministic local verification.
+- [x] T21: Run a live exact-caption smoke when the YouGlish daily quota permits
+  playback.
+- [x] T22: Reproduce the live `caption A -> UNSTARTED -> BUFFERING -> PLAYING ->
+  caption B` ordering and start edge measurement from the accepted `PLAYING`.
+- [x] T23: Cancel controlled Next immediately on an explicit user Pause and
+  prove a subsequent Next can retry without the 20-second timeout.
+
 ## Dependencies
 
 - The deterministic fake widget and RED tests are already present.
@@ -82,6 +118,11 @@ remote publication is implied.
   through JSDOM.
 - Replay event ordering: use explicit pending target/playback-intent state and
   confirm via provider callbacks.
+- Replay acceleration: the public API offers only relative `move(seconds)` and
+  no stable absolute playhead. Keep controlled playback unless YouGlish adds a
+  documented absolute seek/current-position contract.
+- Symmetric edge acceleration remains best-effort until a live smoke confirms
+  that inverse relative moves return to the exact cached captions.
 
 ## Resources Needed
 

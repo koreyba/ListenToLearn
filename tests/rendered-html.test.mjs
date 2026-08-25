@@ -405,7 +405,7 @@ test("trainer uses one unbroken toolbar and one stateful play pause control", as
   assert.match(trainer, /data-speed="0\.75"[^>]*aria-label="Playback speed 0\.75×"[^>]*title="Playback speed 0\.75×"/);
   assert.match(trainer, /data-speed="1"[^>]*aria-label="Playback speed 1×"[^>]*title="Playback speed 1×"/);
   assert.match(trainer, /function renderPlaybackControl\(\)/);
-  assert.match(trainer, /playerState === 1[\s\S]*?callWidget\("pause"\)[\s\S]*?callWidget\("play"\)/);
+  assert.match(trainer, /const wantsPlayback = playerState !== 1;[\s\S]*?requestedYouglishPlayback = wantsPlayback;[\s\S]*?callWidget\(wantsPlayback \? "play" : "pause"\)/);
   assert.match(trainer, /playerState = nextState;\s*renderPlaybackControl\(\);/);
   assert.match(trainer, /Recording ready — press Play\./);
   assert.doesNotMatch(trainer, /Recording ready — press Listen\./);

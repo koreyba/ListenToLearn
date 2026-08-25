@@ -50,6 +50,71 @@ description: Technical implementation notes, patterns, and code guidelines
 - Saved-example playback waits for the provider's `onVideoChange` event before
   switching video state, avoiding attribution of the old history to a new ID.
 
+### Completed: live provider-state race
+
+- A local-only, query-enabled recorder stores sanitized widget commands,
+  provider events, and caption-navigation state without raw caption/video data.
+- The captured `next-during-provider-state-race` fixture now drives the browser
+  regression sequence `PAUSED -> BUFFERING -> PLAYING -> target caption`.
+- Explicit user playback intent is separate from raw provider state. Controlled
+  Next survives transient state callbacks, emits at most one required `play`,
+  restores pause at its target, and expires after 20 seconds if unconfirmed.
+- Replay is never disabled by controlled Next; activating it cancels the target
+  intent and starts normal Replay synchronization.
+- Waiting for a target does not add a visible status line or replace the current
+  caption text.
+
+### Completed: Replay acceleration hypothesis test
+
+- The local-only trace now records sanitized `onCaptionConsumed` and playback
+  speed signals. Raw caption text, provider IDs, and video IDs remain excluded.
+- Three live examples showed that active playback duration is repeatable within
+  roughly 0.20-0.24 seconds, including after conversion from 0.75x wall time.
+- A duration-based `move()` skipped the cached B caption in two live attempts,
+  both when sent before playback and after `PLAYING`.
+- Treating Replay `current_time` as a separate playhead cursor reached the exact
+  B callback and restored pause, but still replayed the whole A-to-B interval;
+  it did not improve latency.
+- Both acceleration experiments and their provisional tests were removed. The
+  safe controlled-playback behavior remains unchanged.
+- The official YouGlish Widget API documents only relative `move(seconds)` and
+  exposes neither absolute seek nor a current-position getter:
+  <https://youglish.com/api/doc/js-api>.
+
+### Implemented: symmetric untimed-edge navigation
+
+- A clean uninterrupted natural `A -> B` transition records media-time distance
+  on untimed A without assigning it an absolute timestamp.
+- Previous from B uses `move(-(edge + elapsedInB))`; Next from A uses
+  `move(edge - elapsedInA)`. Both commands reuse one measured edge and preserve
+  the stable cached order.
+- Player-state discontinuities and video switches invalidate measurement.
+  Reduced speed is converted from wall time to media time.
+- An edge records its target caption ID and is used only while that caption is
+  still the immediate cached neighbor. Skipped or newly inserted neighbors
+  cannot overwrite or reuse the wrong distance.
+- Missing or unsafe measurements retain the existing Replay and controlled-play
+  path. The local trace exposes only numeric `nextOffsetSeconds`, never raw
+  caption text or provider IDs.
+- The deterministic contract, mutation proof, and exact-caption live smoke pass.
+
+### Fixed: live first-caption event ordering
+
+- A captured live trace showed the first caption callback arriving before
+  `UNSTARTED -> BUFFERING -> PLAYING`. The original learned-edge contract assumed
+  `PLAYING` arrived first, so no offset was recorded and Next fell back to a
+  controlled target.
+- Entering `PLAYING` with untimed A now resets A's observation point and
+  continuity token. B measures only the uninterrupted media interval after that
+  transition; buffering followed by another `PLAYING` safely restarts it.
+- An explicit user Pause clears a controlled target and its timer. Provider
+  pause/buffer callbacks remain observations and do not cancel the target.
+- Both live-order regressions have focused RED -> GREEN and independent mutation
+  proof.
+- The post-fix live cycle learned `A -> B = 5.0125s`, issued
+  `move(-5.079)` and `move(+4.949)`, confirmed exact A and B callbacks, and never
+  entered controlled fallback.
+
 ## Integration Points
 
 The YouGlish widget remains the only media provider. No server, database,

@@ -3877,7 +3877,6 @@
       playerState = nextState;
       renderPlaybackControl();
       if (fullVideoMode && nextState !== 1) persistFullVideoProgress();
-      if (controlledPlaybackStopped) renderCaptionNavigation();
       recordCaptionTrace("widget.player-state-applied", { state: nextState });
     }
 

@@ -28,6 +28,12 @@ D1 database is created. Cloudflare Access protects Worker preview URLs.
    production deploy.
 5. Smoke-test public production routes and the Access-protected branch preview.
 
+Workers Builds must have exactly one non-production trigger for this repository:
+the `listen-to-learn` Git connection runs `npm run deploy:branch-preview` for
+non-production branches. Do not reconnect `listen-to-learn-preview` to Git;
+that would create a second trigger which could promote feature branches to the
+active shared preview deployment.
+
 The current migration `0004_clever_blonde_phantom.sql` is applied remotely. The current verified deployment version is `299a4d43-b7e4-42d6-b5c7-6fa88e928bd5`.
 
 ## Secrets and rollback

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../public/site-navigation.css";
 
 :root {
   --bg: #0d1014;
@@ -40,7 +41,7 @@ button { cursor: pointer; }
 .header-total strong { display: block; font-size: 32px; line-height: 1; }
 .header-total span { display: block; margin-top: 7px; color: var(--muted); font-size: 13px; }
 
-.tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 6px; border: 1px solid var(--line); border-radius: 18px; background: #10151b; }
+.tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 6px; border: 1px solid var(--line); border-radius: 18px; background: #10151b; }
 .tab { display: flex; justify-content: space-between; gap: 10px; min-height: 52px; padding: 14px 15px; border: 0; border-radius: 13px; background: transparent; color: var(--muted); text-align: left; }
 .tab strong { min-width: 27px; padding: 2px 7px; border-radius: 999px; background: #222a34; color: #cbd5df; text-align: center; }
 .tab.active { background: var(--panel-2); color: var(--text); box-shadow: 0 8px 24px rgba(0,0,0,.2); }
@@ -62,6 +63,7 @@ button { cursor: pointer; }
 .phrase-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .phrase-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; min-height: 174px; padding: 17px; border: 1px solid var(--line); border-radius: 18px; background: linear-gradient(145deg, rgba(27,34,43,.96), rgba(20,25,32,.96)); box-shadow: 0 12px 28px rgba(0,0,0,.14); }
 .phrase-open { display: flex; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; flex-direction: column; align-items: flex-start; text-align: left; }
+.phrase-summary { cursor: default; }
 .phrase-text { font-size: 21px; font-weight: 800; line-height: 1.2; overflow-wrap: anywhere; }
 .phrase-translation { margin-top: 8px; color: #a8e6ce; font-size: 16px; line-height: 1.35; overflow-wrap: anywhere; }
 .phrase-context { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }

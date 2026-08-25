@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { SiteNavigation } from "@/app/components/site-navigation";
 
 type Integration = {
   provider: "deepl";
@@ -87,12 +87,15 @@ export default function IntegrationsPage() {
     : "The key is not configured yet.";
 
   return (
-    <main className="integrations-shell">
-      <Link className="back-link" href="/">← Back to library</Link>
+    <>
+      <SiteNavigation
+        active="settings"
+        account={<a className="site-account-link" href="/cdn-cgi/access/logout">Log out</a>}
+      />
+      <main className="integrations-shell">
       <p className="eyebrow">Connected speech trainer</p>
       <h1>Integrations</h1>
       <p className="integrations-intro">Connect services that help you learn. Sign in with Google; keys are never returned to the browser after saving.</p>
-      <a className="account-link" href="/cdn-cgi/access/logout">Log out</a>
 
       {error && <div className="notice error" role="alert">{error}</div>}
       {notice && <div className="notice success" role="status">{notice}</div>}
@@ -127,6 +130,7 @@ export default function IntegrationsPage() {
         </div>
         <p className="integration-security">The key is sent over HTTPS, encrypted on the Worker with AES-GCM, and stored in D1. It is never included in API responses.</p>
       </section>
-    </main>
+      </main>
+    </>
   );
 }

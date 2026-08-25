@@ -10,7 +10,7 @@ description: Break down work into actionable tasks and estimate timeline
 
 - [x] M0: Isolated feature worktree and lifecycle documents created; requirements/design/testing lint passes.
 - [x] M1: Persist context and global sort/example preferences without breaking existing data.
-- [x] M2: Ship audio-first trainer layout, explicit navigation, and all/saved + random/ordered traversal.
+- [x] M2: Ship audio-first trainer layout, explicit navigation, all/saved filtering, and random traversal.
 - [x] M3: Ship unified translation/save behavior for words and selections.
 - [x] M4: Run implementation alignment, automated/manual verification, and final review.
 
@@ -36,10 +36,12 @@ description: Break down work into actionable tasks and estimate timeline
 
 ### Phase 3: Trainer workspace and provider traversal
 
-- [x] T1: Recompose trainer markup/CSS into audio-first split/stacked layout with compact policy-compliant media panel.
+- [x] T1: Recompose trainer markup/CSS into one desktop/mobile learning flow
+  with settings and captions before controls and a policy-compliant media panel
+  last.
   - Depends on: R2.
   - Validation: inline script parse, build, desktop/mobile browser smoke, >=200px widget check.
-- [x] T2: Persist global example mode/order, implement ordered/random provider sequences, and retain saved-example phrase binding.
+- [x] T2: Persist global all/saved mode, use random provider sequences, and retain saved-example phrase binding.
   - Depends on: T1; existing examples API.
   - Validation: static contracts, provider fixtures, manual reload and saved/all traversal.
 - [x] T3: Separate caption/video navigation. Track caption history, feature-detect exact caption operations, and keep honest disabled fallback; wire provider video/audio previous/next.
@@ -81,7 +83,7 @@ description: Break down work into actionable tasks and estimate timeline
 - **Caption seek is not exposed by the provider:** maintain history and a feature-detection seam; keep controls disabled rather than faking a time jump.
 - **Widget ad/size constraints:** keep the widget in its own >=200px media panel and never overlay app controls.
 - **Old local/D1 state:** normalize browser settings and add an idempotent runtime column check/migration.
-- **Random traversal resets unexpectedly:** cache one randomized sequence per phrase/provider/order key and only rebuild when the source list or order setting changes.
+- **Random traversal resets unexpectedly:** cache one randomized sequence per phrase/provider key and rebuild only when the source list changes.
 - **DeepL outage:** persist text/context and return pending feedback; never make saving depend on provider availability.
 - **Static trainer regression:** compile the inline script in `tests/rendered-html.test.mjs` and run full build/lint after every coherent implementation section.
 

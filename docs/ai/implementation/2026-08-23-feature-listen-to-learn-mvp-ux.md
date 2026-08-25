@@ -37,13 +37,19 @@ description: Technical implementation notes, patterns, and code guidelines
 
 ### Trainer workspace and examples
 
-- Desktop uses a two-column sticky stage: `.learning-workspace` contains source, navigation, playback, captions, translation, and actions; `.media-panel` keeps provider media separate with a minimum 200px widget frame.
-- The workspace uses one flat, non-wrapping icon toolbar at every viewport; semantic control wrappers use `display: contents` so the former group cards and headings do not consume space. At <=760px the stage returns to normal flow and the learning workspace precedes media.
+- Desktop and mobile use one stacked stage. `.learning-workspace` renders source,
+  example settings, captions, status, and the flat control toolbar in semantic
+  order; `.media-panel` follows with a minimum 200px widget frame.
+- The workspace uses one flat, non-wrapping icon toolbar at every viewport;
+  semantic control wrappers use `display: contents` so the former group cards
+  and headings do not consume space.
 - One stateful `playPauseBtn` derives its icon, tooltip, and accessible name from Tatoeba audio state or the YouGlish player-state callback; activating a paused YouGlish player now calls `play()` instead of always calling `pause()`.
-- Caption-navigation guidance is outside the toolbar, example mode/order/save share one row, and redundant media-heading copy is visually removed.
-- Primary controls and mobile source/example/media-expand actions retain 44px height. Hidden visual labels remain available through explicit English `aria-label` and `title` values, including both speed controls.
-- `exampleMode` and `exampleOrder` are normalized in the existing browser state and saved globally. New state is `all` + `random`.
-- Ordered provider items preserve provider/creation order; random items are shuffled once per phrase/provider/order key. Saved examples remain keyed by phrase/provider/external ID and are replayed as concrete video/audio items.
+- Caption-navigation guidance is outside and immediately before the toolbar;
+  all/saved mode, `Save clip`, and `Continue in video` share one row. The
+  media panel has no separate action header or Expand/Collapse state.
+- Primary controls and mobile source/example actions retain 44px height. Hidden visual labels remain available through explicit English `aria-label` and `title` values, including both speed controls.
+- `exampleMode` is normalized in the existing browser state and saved globally. Legacy `exampleOrder` is discarded; traversal is always random and the order controls were removed.
+- Provider items are shuffled once per phrase/provider key. Saved examples remain keyed by phrase/provider/external ID and are replayed as concrete video/audio items.
 - Caption changes are recorded per current YouGlish video. Caption navigation, its status hint, and repeat-caption control are rendered only for YouGlish; Tatoeba keeps the toolbar compact without caption-only controls. Buttons are enabled only if a concrete caption method is present, and no five-second seek is used as a caption transition.
 
 ### Translation and save flow
@@ -68,7 +74,7 @@ description: Technical implementation notes, patterns, and code guidelines
 ## Performance Considerations
 
 - Sorting and provider ordering are client-side over already loaded lists.
-- Saved random sequences are cached until the source/order/list key changes.
+- Saved random sequences are cached until the source/list key changes.
 - Only the visible translation action performs a DeepL request; no translation cache is persisted.
 
 ## Security Notes

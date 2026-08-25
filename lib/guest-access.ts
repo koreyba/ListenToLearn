@@ -15,6 +15,8 @@ export function isPublicGuestRequest(request: Request) {
     || pathname === "/trainer"
     || pathname === "/trainer/"
     || pathname === "/trainer.html"
+    || pathname === "/practice"
+    || pathname === "/practice/"
     || pathname === "/videos"
     || pathname === "/videos/"
     || publicAssetPaths.has(pathname)

@@ -951,20 +951,32 @@ test("a new caption inside a known segment range joins that segment", async t =>
   assertDeltas(trainer.widgetCalls.move.slice(-1), [3]);
 });
 
-test("an external caption change turns off Repeat for the previous caption", async t => {
+test("Repeat follows a newly selected caption until the user turns it off", async t => {
   const trainer = await createTrainer();
   t.after(trainer.close);
 
   observeVideo(trainer, "video-a", [
-    caption("a1", 600, "first"),
+    caption("a1", undefined, "first"),
     caption("a2", 603, "second"),
   ]);
+  trainer.controls.previous.click();
+  trainer.events.onCaptionChange(caption("a1", undefined, "first"));
   trainer.controls.repeat.click();
   assert.equal(trainer.controls.repeat.getAttribute("aria-pressed"), "true");
 
-  trainer.events.onCaptionChange(caption("a1", 600, "first"));
+  trainer.controls.next.click();
+  trainer.events.onCaptionChange(caption("a2", 603, "second"));
+  assert.equal(trainer.controls.repeat.getAttribute("aria-pressed"), "true");
 
+  const movementBeforeConsumed = trainer.widgetCalls.move.length;
+  trainer.events.onCaptionConsumed({ id: "a2" });
+  assert.equal(trainer.widgetCalls.move.length, movementBeforeConsumed + 1);
+
+  trainer.controls.repeat.click();
   assert.equal(trainer.controls.repeat.getAttribute("aria-pressed"), "false");
+
+  trainer.events.onCaptionConsumed({ id: "a2" });
+  assert.equal(trainer.widgetCalls.move.length, movementBeforeConsumed + 1);
 });
 
 test("out-of-order caption callbacks are navigated in timestamp order", async t => {

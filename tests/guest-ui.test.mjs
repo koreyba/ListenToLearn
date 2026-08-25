@@ -3,7 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("library page has a local guest mode and an explicit Google entry point", async () => {
-  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const page = await readFile(
+    new URL("../app/components/phrase-workspace.tsx", import.meta.url),
+    "utf8",
+  );
 
   assert.match(page, /GUEST_LIBRARY_STORAGE_KEY/);
   assert.match(page, /addGuestPhrase/);

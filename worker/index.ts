@@ -18,7 +18,14 @@ type AccessEnv = Env & {
 const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 const backfillInFlight = new Map<string, Promise<void>>();
 
-const PUBLIC_DOCUMENT_PATHS = new Set(["/", "/trainer", "/trainer/", "/trainer.html"]);
+const PUBLIC_DOCUMENT_PATHS = new Set([
+  "/",
+  "/trainer",
+  "/trainer/",
+  "/trainer.html",
+  "/practice",
+  "/practice/",
+]);
 const PUBLIC_LONG_CACHE_PATHS = new Set([
   "/caption-navigation.js",
   "/favicon.svg",

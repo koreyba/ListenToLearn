@@ -1,7 +1,7 @@
 ---
 phase: design
 title: Automatic Video History Design
-description: Reuse saved-video persistence as deliberate full-video history and move the CTA into the media header
+description: Reuse saved-video persistence as deliberate continuous-video history and keep the CTA beside Save clip
 ---
 
 # Automatic Video History Design
@@ -10,7 +10,7 @@ description: Reuse saved-video persistence as deliberate full-video history and 
 
 ```mermaid
 flowchart LR
-  Result[YouGlish result] -->|Watch full video| Upsert[Upsert video by videoId]
+  Result[Phrase example] -->|Continue in video| Upsert[Upsert video by videoId]
   Upsert --> Guest[Guest localStorage]
   Upsert --> Account[Subject-scoped POST /api/videos]
   Upsert --> Warm[Existing warm Full Video transition]
@@ -33,7 +33,7 @@ videoId, originPhraseId, originQuery, originCaption,
 language, accent, createdAt, updatedAt
 ```
 
-`videoId` remains unique. `updatedAt` is refreshed when `Watch full video` is chosen and drives newest-first display. Browser-local progress remains separate.
+`videoId` remains unique. `updatedAt` is refreshed when `Continue in video` is chosen and drives newest-first display. Browser-local progress remains separate.
 
 ## API Design
 
@@ -43,8 +43,23 @@ language, accent, createdAt, updatedAt
 
 ## Component Breakdown
 
-- **Media header:** `Watch full video` at the left; `Expand` at the right. Hide the CTA unless the current source/result provides a valid YouTube ID and original query.
-- **Example tools:** retain saved-clip controls and filters only; remove the full-video history actions.
+- **Source row:** label the provider choice `Phrase example`.
+- **Example tools:** keep `Continue in video` beside `Save clip`. Hide the CTA
+  unless the current source/result provides a valid YouTube ID and original query.
+  On mobile, remove the nested toolbar card and use one aligned 2×2 grid:
+  `All | Saved` directly above `Save clip | Continue in video`. Every cell uses
+  equal width, 44px height, matching radius and centred content; only state and
+  accent differ. When Continue is hidden, including Tatoeba, `Save clip` spans
+  both columns instead of leaving an empty cell.
+- **Media panel:** render the full-width provider directly, without an
+  Expand/Collapse control or a separate action header. Configure the YouGlish
+  widget with `components: 128`, the nonzero Dictionary-support bit whose
+  documented Caption dependency is intentionally absent. The surrounding trainer
+  supplies the title, captions and playback controls while the widget retains the video surface.
+- **Playback settings:** place a native accent select followed by a turtle-icon
+  Slow toggle in the final toolbar slots. Accent uses no overlaid chevron and
+  disappears for Tatoeba and Full Video Mode; Slow maps pressed to `0.75×` and
+  released to `1×`.
 - **Videos page:** rename page/section/copy from saved/bookmark terminology to `Videos` and `Continue watching`; retain thumbnail, resume, remove and empty states.
 
 ## Design Decisions
@@ -57,6 +72,7 @@ language, accent, createdAt, updatedAt
 ## Non-Functional Requirements
 
 - The automatic upsert must not add another YouGlish fetch.
-- The media header must remain usable at desktop and mobile breakpoints; mobile may collapse CTA labels while retaining accessible names.
+- The example-action group must remain usable at desktop and mobile breakpoints;
+  mobile keeps visible action labels and 44px touch targets without a nested card.
 - No transcript, secret or untrusted HTML is added to history.
 - Account writes remain subject-scoped; guest data remains bounded to the existing 200-record cap.

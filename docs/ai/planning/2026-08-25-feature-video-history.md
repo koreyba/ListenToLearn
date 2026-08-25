@@ -16,13 +16,18 @@ description: TDD tasks for CTA alignment, automatic history and Continue watchin
 
 ### Phase 1: Contracts
 
-- [x] Add rendered tests that require `Watch full video` in the media header and reject `Watch later`.
+- [x] Add rendered tests that require `Continue in video` beside `Save clip`,
+  reject `Watch later`, and reject redundant Expand/Collapse state.
 - [x] Add rendered tests for automatic guest/account upsert before the warm transition.
 - [x] Add page-copy tests for `Videos` and `Continue watching`.
 
 ### Phase 2: Implementation
 
-- [x] Move the CTA into `.media-heading` and update responsive styling.
+- [x] Move the CTA into `.example-actions`, rename the source/CTA, remove
+  Expand/Collapse, and update responsive styling.
+- [x] Remove the duplicate YouGlish title and built-in control-button panel.
+- [x] Move accent selection into the player toolbar and consolidate playback
+  speed into one accessible Slow toggle.
 - [x] Consolidate the existing save and warm-transition flow into one non-blocking history action.
 - [x] Remove `Watch later` state/listeners and update `/videos` terminology.
 
@@ -41,7 +46,8 @@ description: TDD tasks for CTA alignment, automatic history and Continue watchin
 
 - Persistence latency blocks navigation: start the write but never require it to succeed before entering warm mode.
 - Failed writes become invisible: show the existing non-blocking example message.
-- CTA crowds the narrow media header: use left/right alignment and collapse the label at the narrow breakpoint.
+- CTA crowds the narrow action row: remove the mobile toolbar card, use one
+  equal-column 2×2 grid, and hide Continue until it is actionable.
 - Existing saved records disappear after renaming: reuse the same schema/storage keys.
 
 ## Resources Needed

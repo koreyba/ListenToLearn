@@ -36,7 +36,7 @@ The target users are the owner and a small group of friends using the personal n
 - As a learner, I can sort any library tab by newest/oldest added or A–Z/Z–A using the same control and see the setting restored in a later session.
 - As a learner, I can see controls, captions, contextual translation, `Сохранить`, and `+ To Learn` without the media widget or its advertisement covering them.
 - As a learner, I can navigate previous/next videos independently from previous/next captions. Previous/next video works for YouGlish and Tatoeba, including the saved-example mode.
-- As a learner, I can switch between all provider examples and examples saved for this phrase, and switch random/ordered traversal without the choice being reset merely because I opened another phrase.
+- As a learner, I can switch between all provider examples and examples saved for this phrase; provider traversal is random without a separate order setting.
 - As a learner, I can click a caption word, receive one DeepL contextual translation, and use `+ To Learn` beside that result.
 - As a learner, I can select a short or full caption, translate it, listen to it, or add it to the same phrase library. The stored entry contains the caption as context when it exists.
 - As a learner, I can save a concrete YouGlish video or Tatoeba audio item for the current phrase and later replay it from `Сохранённые`.
@@ -58,9 +58,11 @@ The target users are the owner and a small group of friends using the personal n
 - [x] The current library still exposes all four states, preset/custom phrases, and status transitions.
 - [x] The library exposes one identical sort control in every tab with date and alphabetic modes; the selected value persists in browser storage and sorting is stable for ties.
 - [x] The trainer has distinct caption and video navigation controls. Video navigation uses the provider API/track list; caption navigation never falls back to an unlabeled five-second seek.
-- [x] Example mode and order are global trainer settings, persisted in browser storage, and default to `all` + `random` for a new browser state.
+- [x] Example mode is a global persisted trainer setting and defaults to `all`; provider traversal is always random and exposes no order control.
 - [x] Saved examples remain keyed by `(phrase_id, provider, external_id)` and replay the concrete YouGlish video/Tatoeba audio item.
-- [x] The desktop layout keeps the learning workspace and a >=200px-by-200px media frame visible without overlap; the mobile layout keeps controls/captions/actions usable before the compact media area.
+- [x] Desktop and mobile use the same learning order: source and example settings,
+  captions, controls, then a >=200px-by-200px media frame. Media actions stay
+  attached to the video without overlapping provider content.
 - [x] A word click shows one contextual translation box and an adjacent `+ To Learn` action; selected text retains translate/listen/save actions.
 - [x] Phrase-saving accepts context and an available translation; a missing DeepL service does not prevent saving or status progression.
 - [x] Existing YouGlish, Tatoeba, subtitle, replay, play/pause, speed, and source-switch flows remain available in the implementation; play/pause is one stateful control for both providers, while YouGlish success-path playback remains provider-dependent.
@@ -73,7 +75,7 @@ Implementation evidence and the remaining provider limits are recorded in the te
 - The current public architecture remains: React/Vinext library page, `public/trainer.html`, server API routes, Cloudflare Worker/D1, and server-side DeepL credentials.
 - The official YouGlish widget API documents `previous()`/`next()` for tracks, `move(seconds)` for time movement, and `onCaptionChange` with a caption ID, but does not document a seek-to-caption function. Therefore exact caption navigation is a feature-detected best effort and may remain unavailable; this is an explicit accepted MVP limitation. The widget must remain fully viewable and at least 200px by 200px, and its `Powered by YouGlish.com`/ad surface remains inside the widget.
 - Global UI preferences use the existing browser `localStorage` state model; they are not stored per phrase or in D1.
-- Library sort default is `added_desc` (newest first) and is global/persisted. Ordered saved examples use creation order (oldest first); random sequences are shuffled once per loaded phrase/provider context, then navigable in both directions.
+- Library sort default is `added_desc` (newest first) and is global/persisted. Provider and saved-example sequences are shuffled once per loaded phrase/provider context, then navigable in both directions.
 - Exact saved playback position is deferred; the saved record stores the provider item and current caption/context metadata only.
 - Adding a word uses the existing `phrases` table with the same `status` lifecycle. A `context` column is added; no standalone words table or UI section is introduced.
 - DeepL remains optional and best-effort. Existing integration access, secret handling, and external provider attribution/security boundaries remain unchanged.

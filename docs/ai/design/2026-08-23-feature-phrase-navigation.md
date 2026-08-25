@@ -107,14 +107,16 @@ exception blocks that direction and reports the failure.
 When repeat is enabled, `onCaptionConsumed` checks the consumed ID against the
 current target. It seeks back to the current caption's observed start using the
 elapsed playback estimate when available, then the known next-caption interval,
-then a minimum bounded fallback. A caption change to another ID outside an
-in-flight navigation is treated as a failed verification and disables repeat
-with a visible status message. Turning repeat off clears the target before any
-future consumed event is handled.
+then a minimum bounded fallback. An accepted caption change within the current
+video retargets the loop to that caption, including after previous/next
+navigation. Missing timing, a failed movement, or a query/source/video reset
+still disables repeat. Turning repeat off clears the target before any future
+consumed event is handled.
 
 ### UI state
 
-`repeatCaptionBtn` exposes `aria-pressed` and a label containing `вкл`/`выкл`.
+`repeatCaptionBtn` exposes `aria-pressed`, a label containing `вкл`/`выкл`, and
+a distinct accent background, border, and focus-ring-like shadow while pressed.
 For YouGlish, previous/next/repeat controls are disabled while timing is
 unavailable or a navigation command is busy. For Tatoeba, the timed caption
 navigation group and phrase-repeat control are hidden; existing replay and

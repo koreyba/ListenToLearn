@@ -14,7 +14,20 @@ description: Contracts and smoke coverage for media CTA placement and deliberate
 
 ## Unit and Rendered Tests
 
-- [x] `Watch full video` is inside `.media-heading` and remains separately addressable.
+- [x] `Phrase example` names the provider chooser and `Continue in video` is
+  inside `.example-actions` immediately after `Save clip`.
+- [x] Continue is hidden until a valid YouTube video ID exists.
+- [x] Tatoeba collapses the action row to one full-width `Save clip` cell.
+- [x] A saved example changes its action label to `Remove clip`/`Remove track`.
+- [x] The example toolbar is one visual panel with only `All`/`Saved` and the
+  two actions; Random/In order controls and their setter/listener are absent.
+- [x] Expand/Collapse markup, state, CSS, and listeners are absent.
+- [x] The YouGlish widget uses the nonzero dependency-only mask `components: 128`,
+  without its built-in title or duplicate control-button panel; zero is rejected
+  because the widget expands it to the default full UI.
+- [x] Rendered HTML verifies `All`/`US`/`UK`/`AUS`, Tatoeba/Full Video accent
+  hiding, no overlaid chevron, and the accessible Slow pressed state without
+  legacy accent or numeric speed buttons.
 - [x] `Watch later` markup/state/listeners are absent.
 - [x] Clicking Full Video invokes guest/account upsert and then the existing warm transition.
 - [x] Persistence failure does not prevent warm transition.
@@ -30,8 +43,11 @@ description: Contracts and smoke coverage for media CTA placement and deliberate
 
 ## End-to-End / Manual Tests
 
-- [x] Desktop: filters remain one aligned row while the media CTA sits beside Expand.
-- [x] Mobile: CTA remains accessible without overflowing the media panel.
+- [x] Desktop: the all/saved filter and actions remain one aligned panel while the CTA sits beside `Save clip`.
+- [x] Mobile: `Save clip` and `Continue in video` are labelled horizontal
+  actions aligned under `All`/`Saved` in the same equal-width 2×2 grid, with
+  >=44px height and no nested toolbar card. The shared player toolbar has no
+  horizontal overflow and speed labels remain legible.
 - [x] Enter Full Video, return to `/videos`, and continue from the generated card.
 - [x] Tatoeba and ordinary YouGlish clip flows do not show or record the Full Video CTA/history.
 
@@ -55,10 +71,14 @@ description: Contracts and smoke coverage for media CTA placement and deliberate
 
 ## Verification Record — 2026-08-25
 
-- `npm test`: 54 passed, 0 failed; includes a successful production build.
-- `npm run lint`: 0 errors; 2 pre-existing warnings in generated `worker-configuration.d.ts`.
-- `npx tsc --noEmit`, lifecycle feature lint and `git diff --check`: passed.
-- Local desktop smoke at 1440×900: filters and Save clip share one row; Full Video is left of Expand.
-- Local mobile smoke at 390×844: no horizontal overflow; CTA buttons are 44×44; when Full Video is hidden, Expand remains right-aligned.
+- `npm test`: build completed and `131/131` configured tests passed.
+- `node --test tests/*.test.mjs`: `145/145` repository tests passed.
+- `npx tsc --noEmit`, scoped ESLint, lifecycle feature lint and `git diff --check`: passed.
+- Local responsive smoke: `Phrase example`, `All`/`Saved`, `Save clip`, and
+  `Continue in video` remain in the learning workspace; Random/In order and
+  Expand/Collapse controls are absent. Mobile removes the nested example card,
+  aligns filters/actions to one equal-column 2×2 grid, and hides Continue while
+  no valid video exists. Actions retain 44px targets, the lower toolbar does not
+  overflow, and the accent/Slow controls remain aligned and legible.
 - Cloudflare branch preview: deliberate Full Video entry created exactly one `Continue watching` card; `Continue` reopened Full Video Mode with the stored origin/caption metadata.
 - The removal path remains covered by existing guest/API contracts; destructive UI removal was not repeated during preview smoke.

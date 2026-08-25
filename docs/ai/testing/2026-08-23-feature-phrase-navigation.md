@@ -19,8 +19,8 @@ description: Define testing approach, test cases, and quality assurance
 The current project uses rendered-source tests, so the first layer asserts the
 browser contract and parses the inline script:
 
-- [x] Trainer exposes `repeatCaptionBtn`, `aria-pressed`, and timing-aware
-  caption controls.
+- [x] Trainer exposes `repeatCaptionBtn`, `aria-pressed`, a distinct pressed
+  style, and timing-aware caption controls.
 - [x] Trainer registers `onCaptionConsumed` and `onPlayerStateChange`, reads
   `event.current_time`, and never labels `move(-5)` as caption navigation.
 - [x] Inline JavaScript remains syntactically valid.
@@ -44,10 +44,10 @@ Controller scenarios to cover with a fake widget/event harness:
 - [ ] Missing/invalid `current_time` disables exact controls without calling
   `move(-5)`.
 - [ ] A source/video reset or newer command leaves controls consistent.
-- [ ] Repeat handles only the active caption ID, and repeat-off prevents the
-  next consumed event from seeking.
-- [ ] Repeat failure on an unexpected caption disables repeat rather than
-  continuing an unsafe loop.
+- [x] Repeat follows a newly selected adjacent caption, handles its consumed
+  event, and repeat-off prevents the next consumed event from seeking.
+- [x] Missing timing or movement failure disables repeat rather than continuing
+  an unsafe loop.
 
 ## Integration Tests
 
@@ -134,6 +134,19 @@ Fresh evidence on 2026-08-23:
   widget reported that its daily search quota was exceeded, and the Worker
   dev server is incompatible with this installed Miniflare compatibility-date
   ceiling.
+
+Fresh Repeat follow-up evidence on 2026-08-25:
+
+- The controlled-next regression test failed against the previous behavior
+  with `aria-pressed` changing from expected `true` to actual `false`; restoring
+  caption retargeting made the focused test pass.
+- Removing the pressed-state CSS made the rendered-source contract fail;
+  restoring the active selector made it pass.
+- `npm test`: build passed; 128 tests passed, 0 failed.
+- `node --test tests/*.test.mjs`: 142 passed, 0 failed.
+- `npx tsc --noEmit`, scoped ESLint for all changed source/test files,
+  `git diff --check`, and `npx ai-devkit@latest lint --feature
+  phrase-navigation`: passed.
 
 ## Manual Testing
 

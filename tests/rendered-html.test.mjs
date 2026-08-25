@@ -12,6 +12,92 @@ test("build includes development preview metadata", async () => {
   assert.match(bundle, /["']codex-preview["']\s*:\s*["']development["']/i);
 });
 
+test("unified site navigation exposes every primary section", async () => {
+  const navigation = await readFile(
+    new URL("../app/components/site-navigation.tsx", import.meta.url),
+    "utf8",
+  );
+  const library = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const practice = await readFile(new URL("../app/practice/page.tsx", import.meta.url), "utf8");
+  const workspace = await readFile(
+    new URL("../app/components/phrase-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const videos = await readFile(new URL("../app/videos/page.tsx", import.meta.url), "utf8");
+  const integrations = await readFile(new URL("../app/integrations/page.tsx", import.meta.url), "utf8");
+  const trainer = await readFile(new URL("../public/trainer.html", import.meta.url), "utf8");
+
+  for (const [href, label] of [
+    ["/", "Library"],
+    ["/practice", "Practice"],
+    ["/videos", "Videos"],
+    ["/integrations", "Settings"],
+  ]) {
+    assert.match(navigation, new RegExp(`href: "${href.replaceAll("/", "\\/")}"`));
+    assert.match(navigation, new RegExp(`label: "${label}"`));
+    assert.match(trainer, new RegExp(`href="${href}"[^>]*>${label}<`));
+  }
+
+  assert.match(library, /<PhraseWorkspace surface="library"/);
+  assert.match(practice, /<PhraseWorkspace surface="practice"/);
+  assert.match(workspace, /<SiteNavigation\s+active=\{surface\}/);
+  assert.match(videos, /<SiteNavigation\s+active="videos"/);
+  assert.match(integrations, /<SiteNavigation\s+active="settings"/);
+  assert.match(trainer, /href="\/practice" aria-current="page">Practice<\/a>/);
+});
+
+test("unified navigation stays on top for desktop and moves to the bottom on mobile", async () => {
+  const styles = await readFile(
+    new URL("../public/site-navigation.css", import.meta.url),
+    "utf8",
+  );
+  const layout = await readFile(new URL("../app/layout.tsx", import.meta.url), "utf8");
+  const globalStyles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const trainer = await readFile(new URL("../public/trainer.html", import.meta.url), "utf8");
+
+  assert.match(globalStyles, /@import "\.\.\/public\/site-navigation\.css";/);
+  assert.doesNotMatch(layout, /href="\/site-navigation\.css"/);
+  assert.match(trainer, /href="\/site-navigation\.css"/);
+  assert.match(styles, /\.site-navigation \{[\s\S]*?position: sticky;[\s\S]*?top: 0;/);
+  assert.match(styles, /@media \(max-width: 760px\)[\s\S]*?\.site-primary-links \{[\s\S]*?position: fixed;[\s\S]*?bottom: 0;/);
+  assert.match(styles, /@media \(max-width: 760px\)[\s\S]*?\.site-navigation \{[\s\S]*?backdrop-filter: none;/);
+  assert.match(styles, /grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
+  assert.match(styles, /env\(safe-area-inset-bottom\)/);
+  assert.match(styles, /\.site-primary-link \{[\s\S]*?min-height: 50px;/);
+  assert.match(trainer, /top: var\(--site-navigation-offset, 0\)/);
+});
+
+test("Library catalogs new phrases while Practice owns the learning queues", async () => {
+  const appEntries = await readdir(new URL("../app/", import.meta.url));
+  assert.ok(appEntries.includes("practice"), "Practice needs its own route instead of opening the trainer");
+
+  const library = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const practice = await readFile(new URL("../app/practice/page.tsx", import.meta.url), "utf8");
+  const workspace = await readFile(
+    new URL("../app/components/phrase-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const styles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const worker = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
+  const trainer = await readFile(new URL("../public/trainer.html", import.meta.url), "utf8");
+
+  assert.match(library, /<PhraseWorkspace surface="library"\s*\/>/);
+  assert.match(practice, /<PhraseWorkspace surface="practice"\s*\/>/);
+  assert.match(workspace, /const practiceTabs[^=]*=\s*\[[\s\S]*?To Learn[\s\S]*?Learning Now[\s\S]*?Learned[\s\S]*?\];/);
+  assert.doesNotMatch(workspace.match(/const practiceTabs[^=]*=\s*\[([\s\S]*?)\];/)?.[1] || "", /Pick/);
+  assert.match(workspace, /surface === "practice" \? "learning_now" : "pick"/);
+  assert.match(workspace, /surface === "library"\s*\? phrase\.status === "pick"\s*:\s*phrase\.status === activeTab/);
+  assert.match(workspace, /surface === "practice" && \([\s\S]*?aria-label="Learning sections"/);
+  assert.match(workspace, /surface === "practice" \? \([\s\S]*?onClick=\{\(\) => openPhrase\(phrase\)\}/);
+  assert.match(workspace, /window\.location\.assign\(`\/trainer\?\$\{query\.toString\(\)\}`\)/);
+  assert.match(workspace, /Mark as Learned/);
+  assert.match(styles, /\.tabs \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
+  assert.match(styles, /\.phrase-summary \{[^}]*cursor: default;/);
+  assert.match(worker, /PUBLIC_DOCUMENT_PATHS[^;]*"\/practice"/);
+  assert.match(trainer, /if \(!fullVideoMode && !initialViewerParams\.get\("phrase"\)\?\.trim\(\)\) \{[\s\S]*?window\.location\.replace\("\/practice"\);/);
+  assert.doesNotMatch(trainer, /viewerParams\.get\("phrase"\)\?\.trim\(\) \|\| BASE_PHRASES\[0\]\.q/);
+});
+
 test("trainer exposes word and selected-phrase actions", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),
@@ -68,7 +154,7 @@ test("caption navigation is ready before the first YouGlish caption callback", a
   assert.ok(controllerIndex > helperIndex, "the helper must load before the trainer controller");
 });
 
-test("YouGlish videos and Tatoeba tracks can be randomized and saved per phrase", async () => {
+test("YouGlish videos and Tatoeba tracks default to random and can be saved per phrase", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),
     "utf8",
@@ -82,7 +168,7 @@ test("YouGlish videos and Tatoeba tracks can be randomized and saved per phrase"
     "utf8",
   );
   const page = await readFile(
-    new URL("../app/page.tsx", import.meta.url),
+    new URL("../app/components/phrase-workspace.tsx", import.meta.url),
     "utf8",
   );
   assert.match(trainer, /id="exampleMode"/);
@@ -93,7 +179,9 @@ test("YouGlish videos and Tatoeba tracks can be randomized and saved per phrase"
   assert.match(trainer, /provider: state\.source/);
   assert.match(trainer, /audioId: Number\(example\.external_id\)/);
   assert.match(trainer, /tatoebaTracks = orderProviderItems/);
-  assert.match(trainer, /exampleOrder === "random"/);
+  assert.match(trainer, /function orderProviderItems\(items\) \{\s*return shuffled\(items\);\s*\}/);
+  assert.match(trainer, /fetchYouglish\(`\$\{query\} :r`, query\);/);
+  assert.doesNotMatch(trainer, /data-example-order=/);
   assert.doesNotMatch(examplesRoute, /CREATE TABLE IF NOT EXISTS phrase_examples/);
   assert.match(examplesRoute, /LEFT JOIN phrase_examples/);
   assert.match(examplesRoute, /example: publicExample/);
@@ -203,6 +291,7 @@ test("Full Video Mode keeps learning controls and removes result-only controls",
   assert.match(trainer, /body\.full-video-mode[^}]*#replayBtn/s);
   assert.match(trainer, /body\.full-video-mode[^}]*\.video-navigation/s);
   assert.match(trainer, /body\.full-video-mode[^}]*#exampleTools/s);
+  assert.match(trainer, /el\.accentControl\.hidden = tatoeba \|\| fullVideoMode;/);
   const warmTransition = trainer.match(/function watchCurrentFullVideo\(\) \{([\s\S]*?)\n    \}\n\n    function setExampleMode/)?.[1] || "";
   assert.match(warmTransition, /widget\.pause\(\)/);
   assert.match(warmTransition, /history\.pushState\(\{ fullVideo: true \}/);
@@ -221,21 +310,24 @@ test("YouGlish results keep clip filters aligned and record history on Full Vide
     "utf8",
   );
   const page = await readFile(
-    new URL("../app/page.tsx", import.meta.url),
+    new URL("../app/components/phrase-workspace.tsx", import.meta.url),
+    "utf8",
+  );
+  const navigation = await readFile(
+    new URL("../app/components/site-navigation.tsx", import.meta.url),
     "utf8",
   );
 
-  const mediaHeading = trainer.match(/<div class="media-heading">([\s\S]*?)<\/div>\s*<div id="mediaFrameSlot"/)?.[1] || "";
-  assert.match(mediaHeading, /id="watchFullVideoBtn"/);
+  const controls = trainer.indexOf('id="playerControls"');
+  const exampleTools = trainer.indexOf('id="exampleTools"');
+  const saveClip = trainer.indexOf('id="saveExampleBtn"');
+  const watchFullVideo = trainer.indexOf('id="watchFullVideoBtn"');
   assert.ok(
-    mediaHeading.indexOf("watchFullVideoBtn") < mediaHeading.indexOf("expandMediaBtn"),
-    "the Full Video action must sit left of Expand",
+    exampleTools < saveClip && saveClip < watchFullVideo && watchFullVideo < controls,
+    "Full Video must sit beside Save clip before the shared toolbar",
   );
-  assert.match(
-    trainer,
-    /\.media-expand-btn\s*\{[^}]*margin-left:\s*auto/s,
-    "Expand must stay right-aligned when the Full Video action is hidden",
-  );
+  assert.doesNotMatch(trainer, /expandMediaBtn|media-expanded|Expand player|Collapse player/);
+  assert.doesNotMatch(trainer, /class="media-heading"/);
   assert.doesNotMatch(trainer, /watchLaterBtn|Watch later/i);
   assert.match(trainer, /Save clip/);
   assert.match(trainer, /fetch\("\/api\/videos"/);
@@ -257,7 +349,8 @@ test("YouGlish results keep clip filters aligned and record history on Full Vide
     warmTransition.indexOf("recordCurrentVideoHistory(origin)") < warmTransition.indexOf("widget.pause()"),
     "history upsert must start before entering Full Video Mode",
   );
-  assert.match(page, /href="\/videos"/);
+  assert.match(page, /<SiteNavigation\s+active=\{surface\}/);
+  assert.match(navigation, /href: "\/videos"/);
 });
 
 test("DeepL credentials stay in the shared server helper", async () => {
@@ -282,7 +375,7 @@ test("learning phrases persist and render their translation", async () => {
     "utf8",
   );
   const page = await readFile(
-    new URL("../app/page.tsx", import.meta.url),
+    new URL("../app/components/phrase-workspace.tsx", import.meta.url),
     "utf8",
   );
   assert.match(route, /translation = CASE WHEN translation = '' THEN/);
@@ -305,7 +398,7 @@ test("MVP UX persists phrase context and exposes global library sorting", async 
     "utf8",
   );
   const page = await readFile(
-    new URL("../app/page.tsx", import.meta.url),
+    new URL("../app/components/phrase-workspace.tsx", import.meta.url),
     "utf8",
   );
   const migration = await readFile(
@@ -325,7 +418,7 @@ test("MVP UX persists phrase context and exposes global library sorting", async 
   assert.match(page, /created_at/);
 });
 
-test("MVP UX keeps example settings global and separates caption/video navigation", async () => {
+test("MVP UX keeps saved filters global and separates caption/video navigation", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),
     "utf8",
@@ -336,9 +429,9 @@ test("MVP UX keeps example settings global and separates caption/video navigatio
   assert.match(trainer, /<script src="\/caption-navigation\.js"><\/script>/);
   assert.match(trainer, /id="prevVideoBtn"/);
   assert.match(trainer, /id="nextVideoBtn"/);
-  assert.match(trainer, /data-example-order="random"/);
-  assert.match(trainer, /data-example-order="ordered"/);
-  assert.match(trainer, /exampleOrder/);
+  assert.doesNotMatch(trainer, /id="exampleOrder"/);
+  assert.doesNotMatch(trainer, /data-example-order=/);
+  assert.doesNotMatch(trainer, /function setExampleOrder/);
   assert.match(trainer, /captionHistory/);
   assert.match(trainer, /current_time/);
   assert.match(trainer, /onCaptionConsumed/);
@@ -350,17 +443,14 @@ test("MVP UX keeps example settings global and separates caption/video navigatio
   assert.match(trainer, /id="translationAddBtn"/);
 });
 
-test("trainer exposes one accessible expanded media layout for both providers", async () => {
+test("trainer uses one full-width media layout without redundant expand state", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),
     "utf8",
   );
 
-  assert.match(trainer, /id="expandMediaBtn"/);
-  assert.match(trainer, /aria-label="Expand player"/);
-  assert.match(trainer, /classList\.toggle\("media-expanded", isExpanded\)/);
-  assert.match(trainer, /setAttribute\("aria-expanded", isExpanded \? "true" : "false"\)/);
-  assert.match(trainer, /grid-template-columns: minmax\(0, 1\.15fr\) minmax\(380px, \.85fr\)/);
+  assert.doesNotMatch(trainer, /expandMediaBtn|media-expanded|setMediaExpanded|Expand player|Collapse player/);
+  assert.match(trainer, /grid-template-columns: minmax\(0, 1fr\)/);
   assert.match(trainer, /grid-template-areas: "workspace" "media"/);
   assert.doesNotMatch(trainer, /id="mediaOverlay"/);
 });
@@ -371,9 +461,10 @@ test("trainer interface labels are consistently English", async () => {
     "utf8",
   );
 
-  assert.match(trainer, /aria-label="Example source"/);
+  assert.match(trainer, /<span>Phrase example<\/span>/);
+  assert.match(trainer, /aria-label="Phrase example"/);
   assert.match(trainer, /class="button-label">Previous<\/span>/);
-  assert.match(trainer, />Expand<\/span>/);
+  assert.match(trainer, /class="button-label">Continue in video<\/span>/);
   assert.doesNotMatch(trainer, /[\u0400-\u04FF]/);
 });
 
@@ -402,8 +493,7 @@ test("trainer uses one unbroken toolbar and one stateful play pause control", as
   assert.doesNotMatch(trainer, /class="control-group-label"/);
   assert.match(trainer, /id="playPauseBtn"[^>]*aria-label="Pause playback"[^>]*title="Pause playback"/);
   assert.doesNotMatch(trainer, /id="pauseBtn"/);
-  assert.match(trainer, /data-speed="0\.75"[^>]*aria-label="Playback speed 0\.75×"[^>]*title="Playback speed 0\.75×"/);
-  assert.match(trainer, /data-speed="1"[^>]*aria-label="Playback speed 1×"[^>]*title="Playback speed 1×"/);
+  assert.match(trainer, /id="slowPlaybackBtn"[^>]*aria-label="Slow playback"/);
   assert.match(trainer, /function renderPlaybackControl\(\)/);
   assert.match(trainer, /const wantsPlayback = playerState !== 1;[\s\S]*?requestedYouglishPlayback = wantsPlayback;[\s\S]*?callWidget\(wantsPlayback \? "play" : "pause"\)/);
   assert.match(trainer, /playerState = nextState;\s*renderPlaybackControl\(\);/);
@@ -426,6 +516,53 @@ test("trainer keeps primary controls compact across desktop and mobile", async (
   assert.match(trainer, /\.example-tools \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) auto;/);
 });
 
+test("trainer controls use one polished visual system", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    trainer,
+    /\.player-controls \{[\s\S]*?background: linear-gradient\(180deg, rgba\(20, 27, 35, \.98\), rgba\(13, 18, 24, \.98\)\);[\s\S]*?box-shadow:/,
+  );
+  assert.match(
+    trainer,
+    /\.player-controls button \{[\s\S]*?border: 1px solid transparent;[\s\S]*?border-radius: 11px;[\s\S]*?background: transparent;/,
+  );
+  assert.match(
+    trainer,
+    /\.example-tools \{[\s\S]*?padding: 6px;[\s\S]*?border: 1px solid rgba\(86, 102, 119, \.42\);[\s\S]*?border-radius: 16px;[\s\S]*?background: linear-gradient\(180deg, rgba\(20, 27, 35, \.98\), rgba\(13, 18, 24, \.98\)\);/,
+  );
+  assert.match(
+    trainer,
+    /\.example-settings \.segmented \{[\s\S]*?padding: 0;[\s\S]*?border: 0;[\s\S]*?background: transparent;[\s\S]*?box-shadow: none;/,
+  );
+  assert.match(
+    trainer,
+    /\.example-settings \.segmented button\.active \{[\s\S]*?border-color: rgba\(125, 211, 252, \.18\);[\s\S]*?background: rgba\(125, 211, 252, \.11\);/,
+  );
+  assert.match(
+    trainer,
+    /\.media-full-video-btn \{[\s\S]*?background: linear-gradient\(135deg, #38bdf8, #7dd3fc\);[\s\S]*?color: #07131a;[\s\S]*?box-shadow:/,
+  );
+  assert.match(
+    trainer,
+    /\.segmented button\.active \{[\s\S]*?background: linear-gradient\(180deg, #2d3947, #26313d\);[\s\S]*?box-shadow:/,
+  );
+  assert.match(trainer, /\.control-select \{[\s\S]*?position: relative;/);
+  assert.doesNotMatch(trainer, /\.control-select::after/);
+  assert.match(trainer, /\.slow-playback-btn\[aria-pressed="true"\] \{[\s\S]*?background:/);
+  assert.match(
+    trainer,
+    /\.example-actions \{[\s\S]*?align-items: center;[\s\S]*?border-left: 1px solid rgba\(86, 102, 119, \.28\);/,
+  );
+  assert.match(
+    trainer,
+    /@media \(max-width: 560px\)[\s\S]*?\.control-select select \{[\s\S]*?font-size: 10\.5px;/,
+  );
+});
+
 test("mobile trainer puts example choices and captions before controls and media", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),
@@ -435,6 +572,30 @@ test("mobile trainer puts example choices and captions before controls and media
   assert.match(
     trainer,
     /@media \(max-width: 760px\)[\s\S]*?\.learning-workspace \{[\s\S]*?display: flex;[\s\S]*?flex-direction: column;[\s\S]*?\.source-row \{[\s\S]*?order: 1;[\s\S]*?\.example-tools \{[\s\S]*?order: 2;[\s\S]*?\.caption-box \{[\s\S]*?order: 4;[\s\S]*?\.player-controls \{[\s\S]*?order: 8;/,
+  );
+});
+
+test("desktop mirrors the mobile learning flow and places media last", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  const source = trainer.indexOf('id="sourceSwitch"');
+  const choices = trainer.indexOf('id="exampleTools"');
+  const captions = trainer.indexOf('class="caption-box"');
+  const controls = trainer.indexOf('id="playerControls"');
+  const saveClip = trainer.indexOf('id="saveExampleBtn"');
+  const watchFullVideo = trainer.indexOf('id="watchFullVideoBtn"');
+  const media = trainer.indexOf('class="media-panel"');
+  const mediaFrame = trainer.indexOf('id="mediaFrameSlot"');
+
+  assert.ok(source < choices && choices < saveClip && saveClip < watchFullVideo);
+  assert.ok(watchFullVideo < captions && captions < controls && controls < media);
+  assert.ok(media < mediaFrame);
+  assert.match(
+    trainer,
+    /\.sticky-stage \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);[\s\S]*?grid-template-areas: "workspace" "media";/,
   );
 });
 
@@ -448,7 +609,7 @@ test("trainer removes idle player notices and the media title", async () => {
   assert.doesNotMatch(trainer, /class="media-label">Media<\/div>/);
 });
 
-test("mobile trainer places expand below media and tightens vertical spacing", async () => {
+test("mobile trainer places media directly after the shared toolbar", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),
     "utf8",
@@ -456,8 +617,9 @@ test("mobile trainer places expand below media and tightens vertical spacing", a
 
   assert.match(
     trainer,
-    /@media \(max-width: 760px\)[\s\S]*?\.learning-workspace \{[\s\S]*?padding: 8px;[\s\S]*?\.example-tools \{[\s\S]*?margin-top: 0;[\s\S]*?border-top: 0;[\s\S]*?\.caption-box \{[\s\S]*?margin-top: 6px;[\s\S]*?padding: 10px;[\s\S]*?\.player-controls \{[\s\S]*?margin-top: 6px;[\s\S]*?\.media-panel \{[\s\S]*?display: flex;[\s\S]*?flex-direction: column;[\s\S]*?\.media-frame-slot \{ order: 1; \}[\s\S]*?\.media-heading \{[\s\S]*?order: 2;[\s\S]*?margin: 4px 0 0;/,
+    /@media \(max-width: 760px\)[\s\S]*?\.learning-workspace \{[\s\S]*?padding: 8px;[\s\S]*?\.example-tools \{[\s\S]*?margin-top: 0;[\s\S]*?\.caption-box \{[\s\S]*?margin-top: 6px;[\s\S]*?padding: 10px;[\s\S]*?\.player-controls \{[\s\S]*?margin-top: 6px;[\s\S]*?\.media-panel \{[\s\S]*?margin-top: 4px;[\s\S]*?padding: 6px;/,
   );
+  assert.doesNotMatch(trainer, /class="media-heading"/);
 });
 
 test("caption controls are visible only for YouGlish", async () => {
@@ -474,7 +636,7 @@ test("caption controls are visible only for YouGlish", async () => {
   assert.match(trainer, /el\.repeatCaptionBtn\.hidden = !captionsAvailable;/);
 });
 
-test("icon-only example settings retain accessible names and touch targets", async () => {
+test("mobile example controls align to two columns and collapse Tatoeba actions", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),
     "utf8",
@@ -482,22 +644,92 @@ test("icon-only example settings retain accessible names and touch targets", asy
 
   assert.match(trainer, /data-example-mode="all" aria-label="All examples" title="All examples"/);
   assert.match(trainer, /data-example-mode="saved" aria-label="Saved examples" title="Saved examples"/);
-  assert.match(trainer, /data-example-order="random" aria-label="Random order" title="Random order"/);
-  assert.match(trainer, /data-example-order="ordered" aria-label="Ordered" title="Ordered"/);
+  assert.doesNotMatch(trainer, /aria-label="Random order"/);
+  assert.doesNotMatch(trainer, /aria-label="Ordered"/);
+  assert.match(trainer, /id="watchFullVideoBtn"[^>]*aria-label="Continue in video"[^>]*title="Continue in video"/);
   assert.match(trainer, /\.player-controls button \{[\s\S]*?min-height: 44px;/);
   assert.match(trainer, /#sourceSwitch button,\s*\.example-settings \.segmented button \{\s*min-height: 44px;/);
-  assert.match(trainer, /\.media-expand-btn \{\s*min-width: 44px;\s*min-height: 44px;/);
+  assert.match(
+    trainer,
+    /@media \(max-width: 560px\)[\s\S]*?\.example-tools \{[\s\S]*?padding: 0;[\s\S]*?border: 0;[\s\S]*?border-radius: 0;[\s\S]*?background: transparent;[\s\S]*?box-shadow: none;/,
+  );
+  assert.match(
+    trainer,
+    /\.example-settings \.segmented \{[\s\S]*?display: grid;[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[\s\S]*?width: 100%;/,
+  );
+  assert.match(
+    trainer,
+    /\.example-actions \{[\s\S]*?display: grid;[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[\s\S]*?gap: 6px;[\s\S]*?padding: 0;[\s\S]*?border: 0;/,
+  );
+  assert.match(trainer, /\.example-actions \.button-label \{ display: inline; \}/);
+  assert.match(trainer, /\.example-settings \.segmented button,\s*\.example-actions button \{[\s\S]*?width: 100%;[\s\S]*?min-width: 0;[\s\S]*?min-height: 44px;[\s\S]*?padding: 8px 6px;/);
+  assert.match(
+    trainer,
+    /\.media-full-video-btn \{[\s\S]*?margin-left: 0;[\s\S]*?border: 1px solid rgba\(125, 211, 252, \.24\);[\s\S]*?background: rgba\(125, 211, 252, \.08\);[\s\S]*?color: #aee8ff;[\s\S]*?box-shadow: none;/,
+  );
+  assert.match(trainer, /\.example-actions:has\(\.media-full-video-btn\[hidden\]\) \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+  assert.match(trainer, /const validYouTubeVideo = isYouGlish && \/\^\[A-Za-z0-9_-\]\{11\}\$\//);
+  assert.match(trainer, /el\.watchFullVideoBtn\.hidden = fullVideoMode \|\| !validYouTubeVideo;/);
+});
+
+test("saved example button names the remove action", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    trainer,
+    /setButtonLabel\(el\.saveExampleBtn, saved \? `Remove \$\{itemLabel\}` : `Save \$\{itemLabel\}`\)/,
+  );
+  assert.doesNotMatch(trainer, /setButtonLabel\(el\.saveExampleBtn, saved \? "Saved"/);
+});
+
+test("YouGlish widget uses a nonzero dependency-only mask to hide its built-in chrome", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(trainer, /new YG\.Widget\("yg-widget", \{\s*components: 128,/);
+  assert.doesNotMatch(trainer, /components: 0/);
+  assert.doesNotMatch(trainer, /components: 68/);
+});
+
+test("trainer owns a compact YouGlish accent selector and slow toggle", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  const controls = trainer.indexOf('id="playerControls"');
+  const accent = trainer.indexOf('id="accentControl"');
+  const slow = trainer.indexOf('id="slowPlaybackBtn"');
+  assert.ok(controls < accent && accent < slow);
+  assert.match(trainer, /id="accentSelect"[^>]*aria-label="Accent"/);
+  assert.match(trainer, /<option value="">All<\/option>/);
+  assert.match(trainer, /<option value="us">US<\/option>/);
+  assert.match(trainer, /<option value="uk">UK<\/option>/);
+  assert.match(trainer, /<option value="aus">AUS<\/option>/);
+  assert.match(trainer, /\["us", "uk", "aus", ""\]\.includes\(s\.accent\)/);
+  assert.match(trainer, /el\.accentControl\.hidden = tatoeba \|\| fullVideoMode;/);
+  assert.match(trainer, /el\.accentSelect\.addEventListener\("change"/);
+  assert.match(trainer, /id="slowPlaybackBtn"[^>]*aria-label="Slow playback"[^>]*aria-pressed="false"/);
+  assert.match(trainer, /el\.slowPlaybackBtn\.addEventListener\("click"/);
+  assert.match(trainer, /setSpeed\(Number\(state\.speed\) === 0\.75 \? 1 : 0\.75\)/);
+  assert.doesNotMatch(trainer, /id="accentSwitch"/);
+  assert.doesNotMatch(trainer, /id="speedSelect"/);
 });
 
 test("library and integration surfaces use English UI labels", async () => {
   const surfaces = await Promise.all([
-    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/integrations/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
   ]);
 
   for (const surface of surfaces) assert.doesNotMatch(surface, /[\u0400-\u04FF]/);
-  assert.match(surfaces[0], /Listen to real speech\./);
+  assert.match(surfaces[0], /Find useful phrases\./);
   assert.match(surfaces[1], /Translate English phrases into Russian\./);
   assert.match(surfaces[2], /<html lang="en">/);
 });
@@ -510,6 +742,12 @@ test("phrase controls use timing-aware caption events and expose repeat state", 
 
   assert.match(trainer, /id="repeatCaptionBtn"/);
   assert.match(trainer, /aria-pressed/);
+  assert.match(trainer, /#repeatCaptionBtn\[aria-pressed="true"\]\s*\{[^}]*background:/);
+  assert.ok(
+    trainer.indexOf('#repeatCaptionBtn[aria-pressed="true"]')
+      > trainer.indexOf(".player-controls button:hover:not(:disabled)"),
+    "the pressed Repeat style must override the generic hover style",
+  );
   assert.match(trainer, /onCaptionConsumed/);
   assert.match(trainer, /onPlayerStateChange/);
   assert.match(trainer, /event\.current_time/);

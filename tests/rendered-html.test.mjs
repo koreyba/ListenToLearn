@@ -273,6 +273,40 @@ test("trainer keeps primary controls compact across desktop and mobile", async (
   assert.match(trainer, /\.example-tools \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) auto;/);
 });
 
+test("mobile trainer puts example choices and captions before controls and media", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    trainer,
+    /@media \(max-width: 760px\)[\s\S]*?\.learning-workspace \{[\s\S]*?display: flex;[\s\S]*?flex-direction: column;[\s\S]*?\.source-row \{[\s\S]*?order: 1;[\s\S]*?\.example-tools \{[\s\S]*?order: 2;[\s\S]*?\.caption-box \{[\s\S]*?order: 4;[\s\S]*?\.player-controls \{[\s\S]*?order: 8;/,
+  );
+});
+
+test("trainer removes idle player notices and the media title", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(trainer, /\.status:not\(\.error\),\s*\.caption-navigation-status \{ display: none; \}/);
+  assert.doesNotMatch(trainer, /class="media-label">Media<\/div>/);
+});
+
+test("mobile trainer places expand below media and tightens vertical spacing", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    trainer,
+    /@media \(max-width: 760px\)[\s\S]*?\.learning-workspace \{[\s\S]*?padding: 8px;[\s\S]*?\.example-tools \{[\s\S]*?margin-top: 0;[\s\S]*?border-top: 0;[\s\S]*?\.caption-box \{[\s\S]*?margin-top: 6px;[\s\S]*?padding: 10px;[\s\S]*?\.player-controls \{[\s\S]*?margin-top: 6px;[\s\S]*?\.media-panel \{[\s\S]*?display: flex;[\s\S]*?flex-direction: column;[\s\S]*?\.media-frame-slot \{ order: 1; \}[\s\S]*?\.media-heading \{[\s\S]*?order: 2;[\s\S]*?margin: 4px 0 0;/,
+  );
+});
+
 test("caption controls are visible only for YouGlish", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),

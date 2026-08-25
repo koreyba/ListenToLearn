@@ -9,13 +9,20 @@ const repositoryRoot = path.resolve(
 );
 
 const deployments = {
+  "branch-preview": {
+    configFile: "wrangler.preview.jsonc",
+    workerName: "listen-to-learn-preview",
+    wranglerCommand: ["versions", "upload"],
+  },
   preview: {
     configFile: "wrangler.preview.jsonc",
     workerName: "listen-to-learn-preview",
+    wranglerCommand: ["deploy"],
   },
   production: {
     configFile: "wrangler.production.jsonc",
     workerName: "listen-to-learn",
+    wranglerCommand: ["deploy"],
   },
 };
 
@@ -29,7 +36,7 @@ const extraArgs = process.argv.slice(3);
 const deployment = deployments[target];
 
 if (!deployment) {
-  fail("target must be exactly preview or production");
+  fail("target must be exactly branch-preview, preview or production");
 }
 
 if (
@@ -67,7 +74,7 @@ const wranglerBinary =
   process.env.WRANGLER_BIN ?? path.join(repositoryRoot, "node_modules/.bin/wrangler");
 const result = spawnSync(
   wranglerBinary,
-  ["deploy", "--config", configPath, ...extraArgs],
+  [...deployment.wranglerCommand, "--config", configPath, ...extraArgs],
   {
     cwd: repositoryRoot,
     env: process.env,

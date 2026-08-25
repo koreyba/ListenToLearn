@@ -20,6 +20,13 @@ description: Define testing approach, test cases, and quality assurance
 
 After deployment, verify that `/` and `/trainer?...` return 200, `/api/phrases` remains public, and `/integrations` plus `/api/integrations` return a Cloudflare Access redirect for an unauthenticated request. Verify the D1 migration independently without selecting or printing ciphertext.
 
+`tests/deployment-config.test.mjs` verifies that branch previews use
+`wrangler versions upload` with `wrangler.preview.jsonc`, keep preview URLs
+enabled, and cannot silently promote either the shared preview Worker or
+production. A remote branch check must additionally verify the stable branch
+alias, immutable version URL, shared preview D1 binding, and unchanged active
+shared-preview deployment.
+
 ## Manual owner flow
 
 1. Open `/integrations` and complete the one-time email PIN for the allow-listed owner email.

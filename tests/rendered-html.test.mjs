@@ -273,6 +273,18 @@ test("trainer keeps primary controls compact across desktop and mobile", async (
   assert.match(trainer, /\.example-tools \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) auto;/);
 });
 
+test("mobile trainer puts example choices and captions before controls and media", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    trainer,
+    /@media \(max-width: 760px\)[\s\S]*?\.learning-workspace \{[\s\S]*?display: flex;[\s\S]*?flex-direction: column;[\s\S]*?\.source-row \{ order: 1; \}[\s\S]*?\.example-tools \{[\s\S]*?order: 2;[\s\S]*?\.caption-box \{ order: 4; \}[\s\S]*?\.player-controls \{[\s\S]*?order: 8;[\s\S]*?margin-top: 8px;/,
+  );
+});
+
 test("caption controls are visible only for YouGlish", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),

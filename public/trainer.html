@@ -977,7 +977,24 @@
       .media-panel {
         border-radius: 16px;
       }
-      .learning-workspace { padding: 10px; }
+      .learning-workspace {
+        display: flex;
+        flex-direction: column;
+        padding: 10px;
+      }
+      .source-row { order: 1; }
+      .example-tools {
+        order: 2;
+      }
+      .example-message { order: 3; }
+      .caption-box { order: 4; }
+      .status { order: 5; }
+      .no-results { order: 6; }
+      .caption-navigation-status { order: 7; }
+      .player-controls {
+        order: 8;
+        margin-top: 8px;
+      }
       .media-panel { padding: 9px; margin-top: 10px; }
       #sourceSwitch button,
       .example-settings .segmented button {

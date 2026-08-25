@@ -105,6 +105,19 @@ export async function ensureUser(user: AuthenticatedUser) {
         )
     `).bind(user.subject, LEGACY_OWNER_ID, user.subject),
     db.prepare(`
+      INSERT OR IGNORE INTO saved_videos
+        (id, user_id, youtube_video_id, origin_phrase_id, origin_query, origin_caption, language, accent, created_at, updated_at)
+      SELECT 'migrated-' || id, ?, youtube_video_id, origin_phrase_id, origin_query, origin_caption, language, accent, created_at, updated_at
+      FROM saved_videos AS legacy
+      WHERE legacy.user_id = ?
+        AND NOT EXISTS (
+          SELECT 1
+          FROM saved_videos AS current
+          WHERE current.user_id = ?
+            AND current.youtube_video_id = legacy.youtube_video_id
+        )
+    `).bind(user.subject, LEGACY_OWNER_ID, user.subject),
+    db.prepare(`
       INSERT OR IGNORE INTO integration_secrets
         (id, user_id, provider, ciphertext, iv, encryption_version, created_at, updated_at)
       SELECT 'migrated-' || id, ?, provider, ciphertext, iv, encryption_version, created_at, updated_at
@@ -120,6 +133,7 @@ export async function ensureUser(user: AuthenticatedUser) {
       .bind(user.subject, LEGACY_OWNER_ID),
     db.prepare("DELETE FROM phrase_progress WHERE user_id = ?").bind(LEGACY_OWNER_ID),
     db.prepare("DELETE FROM phrase_examples WHERE user_id = ?").bind(LEGACY_OWNER_ID),
+    db.prepare("DELETE FROM saved_videos WHERE user_id = ?").bind(LEGACY_OWNER_ID),
     db.prepare("DELETE FROM integration_secrets WHERE user_id = ?").bind(LEGACY_OWNER_ID),
     db.prepare("DELETE FROM users WHERE id = ?").bind(LEGACY_OWNER_ID),
   ]);

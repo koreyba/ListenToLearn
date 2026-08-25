@@ -6,6 +6,8 @@ import {
   normalizeGuestLibrary,
   removeGuestPhrase,
   removeGuestSavedExample,
+  removeGuestSavedVideo,
+  saveGuestVideo,
   setGuestPhraseStatus,
   toggleGuestSavedExample,
 } from "../lib/guest-library.ts";
@@ -19,11 +21,136 @@ test("malformed guest storage normalizes to an empty safe library", () => {
   });
 
   assert.deepEqual(state, {
-    version: 1,
+    version: 2,
     statuses: { "preset-1": "to_learn" },
     customPhrases: [],
     savedExamples: [],
+    savedVideos: [],
   });
+});
+
+test("version-one guest storage gains an empty saved-video library without losing data", () => {
+  const state = normalizeGuestLibrary({
+    version: 1,
+    statuses: { "preset-0": "learning_now" },
+    customPhrases: [],
+    savedExamples: [],
+  });
+
+  assert.equal(state.version, 2);
+  assert.equal(state.statuses["preset-0"], "learning_now");
+  assert.deepEqual(state.savedVideos, []);
+});
+
+test("guest saved-video normalization keeps only bounded valid YouTube records", () => {
+  const state = normalizeGuestLibrary({
+    savedVideos: [
+      {
+        id: "guest-video-1",
+        videoId: "M7lc1UVf-VE",
+        originPhraseId: " preset-0 ",
+        originQuery: "  courage  ",
+        originCaption: "  have courage  ",
+        language: " English ",
+        accent: " us ",
+        createdAt: "2026-08-25T09:00:00.000Z",
+        updatedAt: "2026-08-25T10:00:00.000Z",
+      },
+      { id: "bad", videoId: "not a video id" },
+    ],
+  });
+
+  assert.deepEqual(state.savedVideos, [{
+    id: "guest-video-1",
+    videoId: "M7lc1UVf-VE",
+    originPhraseId: "preset-0",
+    originQuery: "courage",
+    originCaption: "have courage",
+    language: "english",
+    accent: "us",
+    createdAt: "2026-08-25T09:00:00.000Z",
+    updatedAt: "2026-08-25T10:00:00.000Z",
+  }]);
+});
+
+test("guest video save deduplicates by video id and refreshes origin context", () => {
+  const first = saveGuestVideo(createGuestLibrary(), {
+    videoId: "M7lc1UVf-VE",
+    originPhraseId: "preset-0",
+    originQuery: "courage",
+    originCaption: "have courage",
+    language: "english",
+    accent: "us",
+  }, "2026-08-25T09:00:00.000Z");
+  const second = saveGuestVideo(first.state, {
+    videoId: "M7lc1UVf-VE",
+    originPhraseId: "preset-1",
+    originQuery: "real courage",
+    originCaption: "that takes real courage",
+    language: "english",
+    accent: "uk",
+  }, "2026-08-25T10:00:00.000Z");
+
+  assert.equal(first.created, true);
+  assert.equal(second.created, false);
+  assert.equal(second.state.savedVideos.length, 1);
+  assert.equal(second.video.id, first.video.id);
+  assert.equal(second.video.createdAt, "2026-08-25T09:00:00.000Z");
+  assert.equal(second.video.updatedAt, "2026-08-25T10:00:00.000Z");
+  assert.equal(second.video.originPhraseId, "preset-1");
+  assert.equal(second.video.originCaption, "that takes real courage");
+  assert.equal(second.video.language, "english");
+  assert.equal(second.video.accent, "uk");
+});
+
+test("new guest video saves require the original query and normalize supported locale metadata", () => {
+  const missingQuery = saveGuestVideo(createGuestLibrary(), {
+    videoId: "M7lc1UVf-VE",
+    language: "english",
+  });
+  const saved = saveGuestVideo(createGuestLibrary(), {
+    videoId: "M7lc1UVf-VE",
+    originQuery: "courage",
+    language: "ENGLISH",
+    accent: "invalid",
+  }, "2026-08-25T09:00:00.000Z");
+
+  assert.equal(missingQuery.created, false);
+  assert.equal(missingQuery.video, null);
+  assert.equal(saved.video.language, "english");
+  assert.equal(saved.video.accent, "");
+});
+
+test("guest video removal does not affect phrase examples", () => {
+  const example = toggleGuestSavedExample(createGuestLibrary(), {
+    phraseId: "preset-0",
+    provider: "youglish",
+    externalId: "M7lc1UVf-VE",
+    query: "courage",
+  }, "2026-08-25T09:00:00.000Z");
+  const saved = saveGuestVideo(example.state, {
+    videoId: "M7lc1UVf-VE",
+    originPhraseId: "preset-0",
+    originQuery: "courage",
+  }, "2026-08-25T09:00:00.000Z");
+  const removed = removeGuestSavedVideo(saved.state, saved.video.id);
+
+  assert.equal(removed.savedVideos.length, 0);
+  assert.equal(removed.savedExamples.length, 1);
+});
+
+test("guest video saves keep only the 200 newest records", () => {
+  let state = createGuestLibrary();
+  for (let index = 0; index < 201; index += 1) {
+    state = saveGuestVideo(state, {
+      videoId: `v${String(index).padStart(10, "0")}`,
+      originQuery: `query ${index}`,
+    }, new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString()).state;
+  }
+
+  assert.equal(state.savedVideos.length, 200);
+  assert.equal(state.savedVideos[0].videoId, "v0000000200");
+  assert.equal(state.savedVideos.some((video) => video.videoId === "v0000000000"), false);
 });
 
 test("guest phrase status changes stay in the local state", () => {

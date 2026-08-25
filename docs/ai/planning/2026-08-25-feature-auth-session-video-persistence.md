@@ -31,6 +31,10 @@ description: Dependency-ordered TDD delivery plan for authoritative auth state a
   - Dependencies: Task 1.2.
   - Validation: rendered/JSDOM behavior tests, guest route smoke, existing page tests.
   - Testing links: all public-client auth integration and sign-out consistency scenarios.
+- [x] **Task 1.4 — Persist explicit application logout across Access SSO refresh.**
+  - Outcome: logout sets a host-only HttpOnly guest marker before supplemental Access cleanup; session/account routing honors it until verified explicit `/login` clears it.
+  - Dependencies: live reproduction showing application-domain Access logout was immediately reversed by global SSO.
+  - Validation: red/green cookie/controller/redirect tests, Worker routing-order contract, sensitivity proof, and full local gates. Deployed refresh/navigation smoke remains in Task 4.4.
 
 ### Phase 2: D1 and video API
 
@@ -81,9 +85,9 @@ description: Dependency-ordered TDD delivery plan for authoritative auth state a
   - Dependencies: Task 4.2.
   - Validation: runbook review against deployment/monitoring templates and current Cloudflare APIs.
 - [ ] **Task 4.4 — Apply and verify Cloudflare changes.**
-  - Outcome: preview/production D1 migration is applied; existing account Access app gains exact preview/production `/api/videos` destinations without policy/audience drift; deployed Worker receives authenticated video assertions.
+  - Outcome: preview/production D1 migration is applied; existing account Access app gains exact preview/production `/api/videos` destinations without policy/audience drift; deployed Worker receives authenticated video assertions; signed-out state survives refresh/navigation until explicit login.
   - Dependencies: publish/deploy authorization, review-ready commit/branch, Task 4.3.
-  - Validation: Access application GET readback, unauthenticated `/api/videos` Access redirect, authenticated session/API smoke, aggregate D1 row/progress delta, no guest write delta.
+  - Validation: Access application GET readback, unauthenticated `/api/videos` Access redirect, authenticated session/API smoke, logout/refresh/navigation/re-login smoke, aggregate D1 row/progress delta, no guest write delta.
 
 ## Dependencies
 
@@ -122,4 +126,4 @@ Execution is sequential by evidence, not by calendar date. A red test, reviewed 
 
 ## Progress Summary
 
-Milestones 1–3 and the local release-readiness review are complete. Red/green tests, 168/168 full tests, TypeScript, lint, build, feature lint, diff check, regression sensitivity, and local D1 migration/readback pass. The authorized preview portion of Task 4.4 is complete: migrations `0010` and `0011` are applied, no preview migrations remain pending, and authenticated Practice/Videos reads pass. Access mutation, persistence-write/cross-browser smoke, preview promotion, and production rollout remain separately gated, so Milestone 4 is not yet closed.
+Milestones 1–3 and the local release-readiness review are complete. A manual preview check exposed global Access SSO silently restoring the application session after the earlier branded logout; Task 1.4 now covers the durable application-level boundary. The fresh build plus full suite passes 176/176, and marker sensitivity fails when the exact marker condition is disabled and passes after restore. Authorized preview migrations `0010` and `0011` are applied with no pending migration. Deployed logout smoke, persistence-write/cross-browser smoke, and production rollout remain open, so Milestone 4 is not yet closed.

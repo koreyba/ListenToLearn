@@ -9,6 +9,7 @@ description: Privacy-safe operational checks for optional sessions, protected vi
 ## Key Signals
 
 - `/api/session`: status distribution and latency; a sudden 5xx increase blocks reliable account detection.
+- `/api/logout`: status distribution; any non-2xx prevents the application from claiming persistent guest mode.
 - `/api/videos`: Access redirects for unauthenticated requests, Worker 401/4xx/5xx rates, latency, and request volume.
 - D1: aggregate `saved_videos` count, rows with non-null `progress_updated_at`, migration state, and error rate.
 - Client-visible symptom: `Progress is saved in this browser, but account sync failed.`
@@ -24,7 +25,7 @@ description: Privacy-safe operational checks for optional sessions, protected vi
 
 During the first smoke and observation window:
 
-1. Confirm guest public-page availability and optional-session `200` behavior.
+1. Confirm guest public-page availability, optional-session `200`, and marker-bearing `{ "user": null }` behavior.
 2. Confirm unauthenticated `/api/videos` is intercepted by Access.
 3. Watch `/api/session` and `/api/videos` error rates after Worker/Access rollout.
 4. Compare aggregate D1 counts before/after one synthetic authenticated journey and one guest journey.
@@ -33,7 +34,7 @@ During the first smoke and observation window:
 ## Alert Conditions
 
 - Critical: public learning pages enter an Access loop, account A can observe account B data, Settings becomes public, or identity verification accepts invalid tokens.
-- High: authenticated `/api/videos` consistently 401/5xx, resume rows never gain `progress_updated_at`, or Sign out leaves former-account data visible.
+- High: authenticated `/api/videos` consistently 401/5xx, resume rows never gain `progress_updated_at`, or Sign out/refresh restores former-account data without explicit Sign in.
 - Warning: session endpoint latency/error spike, elevated sync warnings, or video write volume materially exceeds the expected 15-second bound.
 
 ## Incident Response
@@ -50,4 +51,4 @@ During the first smoke and observation window:
 - Protected: unauthenticated `/api/videos` enters Access.
 - Authenticated synthetic journey: create/update/read/delete one video and verify resume timestamp advances.
 - Cross-device: a second authenticated browser restores the server caption anchor.
-- Logout: branded `/logout` completes the official Access request, returns to Library, shows guest mode, and does not request former-account data.
+- Logout: branded `/logout` sets the application marker, returns to Library, remains guest across refresh/navigation despite global Access SSO, blocks former-account APIs, and explicit Sign in clears the marker.

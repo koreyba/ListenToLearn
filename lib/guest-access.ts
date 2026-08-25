@@ -17,6 +17,8 @@ const publicLoginReturnPaths = new Set([
   "/trainer.html",
   "/videos",
   "/videos/",
+  "/integrations",
+  "/integrations/",
 ]);
 
 export function isPublicGuestRequest(request: Request) {
@@ -43,8 +45,15 @@ export function guestLoginRedirect(request: Request) {
   const requestUrl = new URL(request.url);
   const requested = requestUrl.searchParams.get("returnTo") || "/";
   let target = new URL("/", requestUrl);
+  const requestedPath = requested.split(/[?#]/, 1)[0];
+  const hasDotSegment = requestedPath.split("/").some((segment) => segment === "." || segment === "..");
 
-  if (requested.length <= 2_000 && requested.startsWith("/") && !requested.startsWith("//")) {
+  if (
+    requested.length <= 2_000
+    && requested.startsWith("/")
+    && !requested.startsWith("//")
+    && !hasDotSegment
+  ) {
     try {
       const candidate = new URL(requested, requestUrl);
       if (candidate.origin === requestUrl.origin && publicLoginReturnPaths.has(candidate.pathname)) {

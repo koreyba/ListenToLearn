@@ -16,10 +16,11 @@ description: Implemented trust boundary, D1 resume model, client mode selection,
 ## Code Structure
 
 - `lib/access-session.ts`: bounded header/cookie token extraction, cryptographic Access JWT verification, and minimal optional-session response.
+- `lib/app-session.ts`: host-only HttpOnly signed-out marker parsing, set response, and explicit-login clearing cookie.
 - `lib/guest-access.ts`: public route matrix including `/logout`, plus bounded allowlisted `returnTo` normalization.
-- `lib/client-session.ts`: browser session probe, consistent login/logout links, background Access logout controller, and subject-namespaced progress keys.
+- `lib/client-session.ts`: browser session probe, persistent application logout followed by supplemental Access cleanup, consistent links, and subject-namespaced progress keys.
 - `app/logout/page.tsx`: branded sign-out transition that returns to Library and exposes a retry state instead of Cloudflare service HTML.
-- `worker/index.ts`: public `GET/HEAD /api/session` before generic guest routing; protected APIs still require verified identity.
+- `worker/index.ts`: public `GET/HEAD /api/session`, application logout override, explicit-login marker clearing, and verified identity propagation for account routes.
 - `lib/video-history.ts`: progress payload and stored-row normalization.
 - `db/schema.ts`, `drizzle/0011_tranquil_siren.sql`: additive resume columns.
 - `app/api/videos/route.ts`: subject-scoped GET/POST/DELETE with optional atomic progress upsert.
@@ -33,7 +34,13 @@ description: Implemented trust boundary, D1 resume model, client mode selection,
 - Public clients call `GET /api/session`; `listen-to-learn-authenticated-v1` has been removed as an authority.
 - The protected-request assertion remains authoritative. Only the optional session endpoint may fall back to the exact `CF_Authorization` cookie.
 - Cookie and assertion tokens pass the same `jose` issuer, audience, signature, expiry, and subject validation.
-- `/login` accepts only `/`, `/practice`, `/videos`, or `/trainer` return paths (including bounded trainer query data); all other targets return to `/`.
+- `/login` accepts only `/`, `/practice`, `/videos`, `/trainer`, or protected Settings return paths (including bounded trainer query data); all other targets return to `/`.
+
+### Persistent application logout
+
+- `completeSignOut()` first posts to `/api/logout`; a non-success response leaves the branded retry state.
+- The Worker sets a `__Host-` HttpOnly marker with no identity or secret data. Marker-bearing optional session probes resolve guest, account APIs fail before Access identity is accepted, and Settings redirects through explicit login.
+- The official Access logout request is retained as best-effort cleanup, but global SSO cannot override the marker. A verified `/login` response clears it.
 
 ### Account video persistence
 
@@ -60,6 +67,7 @@ description: Implemented trust boundary, D1 resume model, client mode selection,
 ## Error Handling
 
 - Invalid/missing session degrades public pages to guest mode; protected APIs remain fail-closed.
+- Failure to persist the signed-out marker is visible and retryable; failure of supplemental Access cleanup still leaves the application safely signed out.
 - Account page data failures keep the verified Sign out state and show an error instead of falsely showing Sign in.
 - Failed account progress sync leaves the subject-namespaced local mirror intact and displays a sync warning.
 - Invalid progress returns `400`; unexpected D1 failures return no-store `500` responses without logging request bodies or identity values.
@@ -70,11 +78,12 @@ description: Implemented trust boundary, D1 resume model, client mode selection,
 - Progress payloads remain under the existing 16 KiB body limit and are bounded to seven days, 160 caption-ID characters, and 1,000 caption-text characters.
 - Every video SQL read/update/delete includes the verified subject; the client cannot supply identity.
 - Identity headers are stripped before guest routing; JWTs, cookies, subjects, emails, queries, captions, and request bodies are not logged.
+- The signed-out cookie is host-only, HttpOnly, Secure, SameSite=Lax, carries no privilege, and is cleared only after verified explicit login.
 
 ## Verification Snapshot
 
 - Red-first tests captured missing session bootstrap, D1 progress schema/API, synchronization, retry, and stored-row normalization.
-- The first full run discovered 164 tests; two obsolete expectations were updated for the intentional progress-aware signatures. The final review also caught and red/green-tested the unavailable-`localStorage` fallback; the preview-AUD follow-up brings the fresh suite to 168/168.
+- The first full run discovered 164 tests; two obsolete expectations were updated for the intentional progress-aware signatures. The final review also caught and red/green-tested the unavailable-`localStorage` fallback. The later live logout reproduction added application-marker, client sequencing, safe Settings return, and Worker ordering coverage; the fresh build plus full suite passes 176/176.
 - Live PR preview diagnosis reproduced an authenticated `/login` `401`: Access issued the branch-preview application's audience while the deployed preview Worker accepted only the two production audiences. A red/green configuration test now requires the third audience in preview and rejects it in production.
 - `npx tsc --noEmit`, `npm run lint`, `npm run build`, feature lint, `git diff --check`, and local D1 migration/schema readback pass.
 - No P0/P1 code or design blocker remains in local review. The named runtime-harness and live-environment gaps remain explicit in the testing doc.

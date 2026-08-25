@@ -10,6 +10,7 @@ type SessionFetcher = (
 ) => Promise<Response>;
 
 export const SIGN_OUT_HREF = "/logout";
+export const APP_LOGOUT_HREF = "/api/logout";
 export const ACCESS_LOGOUT_HREF = "/cdn-cgi/access/logout";
 const YOUTUBE_PROGRESS_STORAGE_PREFIX = "listen-to-learn-youtube-progress-v1:";
 
@@ -20,17 +21,29 @@ export async function completeSignOut(
   navigate: SignOutNavigator = (target) => window.location.replace(target),
 ) {
   try {
-    const response = await fetcher(ACCESS_LOGOUT_HREF, {
+    const response = await fetcher(APP_LOGOUT_HREF, {
+      method: "POST",
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+    if (!response.ok) return false;
+  } catch {
+    return false;
+  }
+
+  try {
+    await fetcher(ACCESS_LOGOUT_HREF, {
       cache: "no-store",
       credentials: "same-origin",
       redirect: "manual",
     });
-    if (!response.ok && response.type !== "opaqueredirect") return false;
-    navigate("/");
-    return true;
   } catch {
-    return false;
+    // The application marker is authoritative. Access logout is supplemental
+    // because a valid global Access SSO session can mint a fresh app token.
   }
+
+  navigate("/");
+  return true;
 }
 
 export function signInHref(returnTo: string) {

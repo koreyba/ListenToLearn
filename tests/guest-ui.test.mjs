@@ -81,3 +81,19 @@ test("worker resolves the optional session before generic public routing", async
   assert.match(worker, /verifyAccessIdentity\(request, env, \{ allowCookie: true \}\)/);
   assert.match(worker, /optionalSessionResponse\(identity\)/);
 });
+
+test("worker keeps explicit application logout authoritative over Access SSO", async () => {
+  const worker = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
+  const marker = worker.indexOf("const appSignedOut = hasAppSignedOutMarker(request)");
+  const session = worker.indexOf('pathname === "/api/session"');
+  const publicRouting = worker.indexOf("if (isPublicGuestRequest(request))");
+  const signedOutBoundary = worker.indexOf("if (appSignedOut)", publicRouting);
+  const requiredIdentity = worker.indexOf("const identity = await verifyAccessIdentity(request, env);", signedOutBoundary);
+
+  assert.match(worker, /pathname === "\/api\/logout" && request\.method === "POST"/);
+  assert.ok(marker >= 0 && marker < session, "signed-out marker must override optional Access session");
+  assert.match(worker, /const identity = appSignedOut\s*\? null\s*:\s*await verifyAccessIdentity/);
+  assert.ok(signedOutBoundary > publicRouting, "public pages must remain available in guest mode");
+  assert.ok(requiredIdentity > signedOutBoundary, "signed-out account APIs must fail before Access identity is accepted");
+  assert.match(worker, /"Set-Cookie": clearAppSignedOutCookie\(\)/);
+});

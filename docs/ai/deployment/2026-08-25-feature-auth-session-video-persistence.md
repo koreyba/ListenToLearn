@@ -27,7 +27,7 @@ description: Ordered D1, Worker, and Cloudflare Access rollout with exact readba
 3. Deploy the preview Worker through the repository's preview deployment command.
 4. Update the existing account Access application by adding only the exact preview and production `/api/videos` destinations. Preserve application ID, audience, 24-hour session, existing destinations, CORS/cookie settings, and policy.
 5. Read the Access application back and diff every field; stop on any drift beyond the two destinations.
-6. Preview smoke: guest public pages and optional session; unauthenticated `/api/videos` Access redirect; authenticated session, video create/progress/read/delete; Settings to public-page session continuity; Sign out.
+6. Preview smoke: guest public pages and optional session; unauthenticated `/api/videos` Access redirect; authenticated session, video create/progress/read/delete; Settings continuity; Sign out followed by refresh/navigation while global SSO remains active; explicit Sign in restores the account.
 7. Apply the additive migration to production D1 and read back schema.
 8. Deploy production Worker.
 9. Repeat the production smoke and aggregate D1 delta. Do not print subject, email, query, caption, cookie, or token values.
@@ -38,7 +38,7 @@ description: Ordered D1, Worker, and Cloudflare Access rollout with exact readba
 - Guest `GET /api/session` returns `200`, `no-store`, `{ "user": null }`.
 - Unauthenticated `/api/videos` receives the Access flow rather than Worker `401`.
 - Authenticated `/api/session` returns a verified user; `/api/videos` create/read/update/delete succeeds and a second browser restores resume data.
-- Sign out via public `/logout` invokes `/cdn-cgi/access/logout` in the background, returns to Library without exposing Cloudflare service HTML, and leaves all public surfaces in guest mode.
+- Sign out via public `/logout` sets the application HttpOnly marker, invokes `/cdn-cgi/access/logout` as supplemental cleanup, returns to Library without exposing Cloudflare service HTML, and remains guest after refresh/navigation until explicit Sign in.
 - Aggregate D1 change matches the smoke and guest navigation causes no D1 delta.
 
 ## Migration and Rollback
@@ -57,4 +57,4 @@ description: Ordered D1, Worker, and Cloudflare Access rollout with exact readba
 
 ## Current Status
 
-Local implementation and local D1 migration verification are complete. PR #19 has an automatically uploaded branch preview version. Authorized preview D1 migrations `0010` and `0011` were applied on 2026-08-25; a fresh list reports no pending migrations, and authenticated Practice and Videos both load without the former JSON/API failure. Access destination mutation, preview promotion, production migration/deploy, authenticated create/update/delete persistence smoke, cross-browser restore, and live Sign out remain separately gated.
+Local implementation and local D1 migration verification are complete. PR #19 has an automatically uploaded branch preview version. Authorized preview D1 migrations `0010` and `0011` were applied on 2026-08-25; a fresh list reports no pending migrations, and authenticated Practice/Videos reads pass. The application-level logout follow-up awaits its new preview deployment and manual refresh/navigation confirmation. Persistence-write/cross-browser smoke and production rollout remain open.

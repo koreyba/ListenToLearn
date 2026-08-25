@@ -22,6 +22,9 @@ description: Regression, ownership, persistence, and live Access verification fo
 - [x] Malformed cookie parsing cannot inject another cookie value or trusted internal header.
 - [x] Safe `returnTo` accepts approved relative learning pages and rejects external/protocol-relative/unapproved/oversized values.
 - [x] Public route matrix includes `GET /api/session` but keeps account mutations protected.
+- [x] Logout marker parsing matches only the exact host cookie; set/clear attributes are HttpOnly, Secure, host-only, and no-store.
+- [x] Marker-bearing session discovery resolves guest before Access SSO identity; account APIs fail before required identity is accepted.
+- [x] Explicit verified login clears the marker and allows the protected Settings return target without allowing dot-segment/open redirects.
 
 ### Video resume data
 
@@ -48,7 +51,7 @@ description: Regression, ownership, persistence, and live Access verification fo
 - [x] Guest history and playback generate no call to protected video APIs.
 - [x] Migration/schema/rendered route contracts include all resume columns and existing unique/index ownership constraints.
 - [x] Sign out wording/action is consistent on Library, Practice, Videos, Trainer, and Settings.
-- [x] `/logout` is public, requests the official Access endpoint with same-origin credentials/manual redirects, returns home only on completion, and keeps failures inside the app.
+- [x] `/logout` is public, persists guest mode before supplemental Access cleanup, returns home without exposing Cloudflare HTML, and keeps marker failures inside the app.
 
 ## End-to-End Tests
 
@@ -80,13 +83,13 @@ description: Regression, ownership, persistence, and live Access verification fo
 - Red: synchronization tests failed on missing throttle/flush controller; later retry and stored-row normalization tests also failed before their implementations.
 - Red/green review regression: account history requests initially serialized `progress: null` when `localStorage` was unavailable; the focused Trainer contract failed before the fallback fix and passed after account payloads began omitting absent progress.
 - Red/green live-preview regression: the branch Access application audience was absent from preview Worker variables, reproducing the authenticated `/login` `401`; the deployment-config test fails when that audience is removed and also proves production is not widened.
-- Red/green logout regression: shared-link tests initially failed on the direct Access endpoint and missing `/logout`; surface tests failed while Settings and Trainer still linked directly to Cloudflare. The green flow routes every surface through the branded page and keeps the official endpoint as a background request only.
+- Red/green logout regression: after the first branded flow, manual preview refresh reproduced immediate reauthentication from global Access SSO. New tests failed on the missing application marker/API, wrong logout sequence, missing Settings return target, and Worker override; the green flow makes the marker authoritative and Access cleanup supplemental.
 - Green targeted suites cover Access JWT issuer/audience/expiry, cookie/header extraction, safe redirects, all client bootstraps, progress validation/freshness, controller timing/retry, migration contract, Trainer wiring, and Videos source selection.
 - Local Wrangler applied migrations `0000` through `0011`; pragma readback proved the four expected columns, defaults, and nullability.
 - Remote preview Wrangler applied the two pending migrations, `0010` and `0011`. A fresh list reports no pending migrations; pragma readback proves `language`, `accent`, `resume_seconds`, `resume_caption_id`, `resume_caption_text`, and nullable `progress_updated_at` with the expected defaults.
 - Authenticated live-preview smoke after migration loads Practice without the former empty-JSON alert and loads Videos account history with a valid empty state and Sign out action.
-- The first full wildcard run passed 162/164 and exposed two obsolete assertions for the old no-progress signatures; both were reconciled with the intentional contract. The latest `npm test` build plus wildcard suite passed 168/168 after the preview-AUD regression was added.
-- Regression sensitivity proof: temporarily routing the client probe to `/api/me` made `tests/client-session.test.mjs` fail 2/3 with the expected endpoint mismatch; restoring `/api/session` passed 3/3.
+- The first full wildcard run passed 162/164 and exposed two obsolete assertions for the old no-progress signatures; both were reconciled with the intentional contract. The fresh logout follow-up build plus wildcard suite passes 176/176.
+- Regression sensitivity proof: temporarily routing the client probe to `/api/me` made its focused tests fail as expected. For the logout follow-up, temporarily disabling the exact signed-out marker value made `tests/app-session.test.mjs` fail 1/3; restoring it passed the focused 20/20 and full 176/176 suites.
 
 ### Named remaining gaps
 
@@ -98,7 +101,7 @@ description: Regression, ownership, persistence, and live Access verification fo
 
 - Check desktop and mobile headers for consistent account action and no auth-state flicker that exposes account data.
 - Verify Google Access login from Library, Practice, Videos, Trainer, and Settings without entering credentials into automation.
-- Verify Access logout clears the application cookie immediately; allow the documented 20–30 second global revocation window before a cross-application assertion check.
+- Verify Sign out, refresh, and navigation across all public pages remain guest even while global Access SSO is active; verify protected APIs return `401` and Settings triggers explicit Sign in; then verify explicit Sign in restores the account.
 - Query only aggregate D1 counts/metadata before and after smoke; do not print subjects, email, queries, captions, or tokens.
 
 ## Performance Testing

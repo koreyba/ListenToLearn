@@ -5,6 +5,7 @@ import {
   accountSession,
   completeSignOut,
   signInHref,
+  APP_LOGOUT_HREF,
   ACCESS_LOGOUT_HREF,
   SIGN_OUT_HREF,
 } from "../lib/client-session.ts";
@@ -31,10 +32,11 @@ test("account links preserve approved public return paths and keep logout inside
   assert.equal(signInHref("/videos"), "/login?returnTo=%2Fvideos");
   assert.equal(signInHref("/trainer?phrase=get+it"), "/login?returnTo=%2Ftrainer%3Fphrase%3Dget%2Bit");
   assert.equal(SIGN_OUT_HREF, "/logout");
+  assert.equal(APP_LOGOUT_HREF, "/api/logout");
   assert.equal(ACCESS_LOGOUT_HREF, "/cdn-cgi/access/logout");
 });
 
-test("logout clears the Access session in the background before returning home", async () => {
+test("logout persists guest mode before clearing the Access session and returning home", async () => {
   const calls = [];
   const completed = await completeSignOut(
     async (input, init) => {
@@ -46,6 +48,11 @@ test("logout clears the Access session in the background before returning home",
 
   assert.equal(completed, true);
   assert.deepEqual(calls, [
+    ["/api/logout", {
+      method: "POST",
+      cache: "no-store",
+      credentials: "same-origin",
+    }],
     ["/cdn-cgi/access/logout", {
       cache: "no-store",
       credentials: "same-origin",
@@ -55,7 +62,7 @@ test("logout clears the Access session in the background before returning home",
   ]);
 });
 
-test("logout stays on the app error state when the Access endpoint is unavailable", async () => {
+test("logout stays on the app error state when persistent guest mode cannot be set", async () => {
   const navigations = [];
   const completed = await completeSignOut(
     async () => { throw new Error("offline"); },
@@ -65,12 +72,16 @@ test("logout stays on the app error state when the Access endpoint is unavailabl
   assert.deepEqual(navigations, []);
 });
 
-test("logout does not claim success for an Access error response", async () => {
-  const navigations = [];
+test("logout remains successful when supplemental Access logout is unavailable", async () => {
+  const calls = [];
   const completed = await completeSignOut(
-    async () => new Response("unavailable", { status: 503 }),
-    (target) => navigations.push(target),
+    async (input) => {
+      calls.push(input);
+      if (input === "/api/logout") return Response.json({ signedOut: true });
+      return new Response("unavailable", { status: 503 });
+    },
+    (target) => calls.push(target),
   );
-  assert.equal(completed, false);
-  assert.deepEqual(navigations, []);
+  assert.equal(completed, true);
+  assert.deepEqual(calls, ["/api/logout", "/cdn-cgi/access/logout", "/"]);
 });

@@ -3,6 +3,7 @@ import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet } from "jose";
 import { backfillTranslations } from "@/app/api/phrases/route";
 import { accessTokenFromRequest, optionalSessionResponse, verifyAccessJwtIdentity } from "@/lib/access-session";
+import { appLogoutResponse, clearAppSignedOutCookie, hasAppSignedOutMarker } from "@/lib/app-session";
 import { guestLoginRedirect, isPublicGuestRequest } from "@/lib/guest-access";
 import { AUTHENTICATED_USER_HEADER, encodeUserContext } from "@/lib/user-context";
 
@@ -136,16 +137,38 @@ function scheduleBackfill(userId: string, request: Request, ctx: ExecutionContex
 
 const worker = {
   async fetch(request: Request, env: AccessEnv, ctx: ExecutionContext): Promise<Response> {
-    const pathname = new URL(request.url).pathname;
+    const requestUrl = new URL(request.url);
+    const pathname = requestUrl.pathname;
     const headers = sanitizedHeaders(request);
 
+    if (pathname === "/api/logout" && request.method === "POST") {
+      return appLogoutResponse();
+    }
+
+    const appSignedOut = hasAppSignedOutMarker(request);
+
     if (pathname === "/api/session" && (request.method === "GET" || request.method === "HEAD")) {
-      const identity = await verifyAccessIdentity(request, env, { allowCookie: true });
+      const identity = appSignedOut
+        ? null
+        : await verifyAccessIdentity(request, env, { allowCookie: true });
       const response = optionalSessionResponse(identity);
       if (request.method === "HEAD") {
         return new Response(null, { status: response.status, headers: response.headers });
       }
       return response;
+    }
+
+    if (pathname === "/login") {
+      const identity = await verifyAccessIdentity(request, env);
+      if (!identity) return unauthorizedResponse();
+      return new Response(null, {
+        status: 303,
+        headers: {
+          "Cache-Control": "no-store",
+          Location: guestLoginRedirect(request).toString(),
+          "Set-Cookie": clearAppSignedOutCookie(),
+        },
+      });
     }
 
     // Guest-safe documents, assets, and the public Tatoeba proxy do not consume
@@ -155,14 +178,22 @@ const worker = {
       return withPublicCache(response, pathname);
     }
 
+    if (appSignedOut) {
+      if (
+        (request.method === "GET" || request.method === "HEAD")
+        && (pathname === "/integrations" || pathname === "/integrations/")
+      ) {
+        const loginUrl = new URL("/login", requestUrl);
+        loginUrl.searchParams.set("returnTo", pathname);
+        return Response.redirect(loginUrl, 303);
+      }
+      return unauthorizedResponse();
+    }
+
     const identity = await verifyAccessIdentity(request, env);
 
     if (!identity) {
       return unauthorizedResponse();
-    }
-
-    if (pathname === "/login") {
-      return Response.redirect(guestLoginRedirect(request), 303);
     }
 
     headers.set(AUTHENTICATED_USER_HEADER, encodeUserContext(identity));

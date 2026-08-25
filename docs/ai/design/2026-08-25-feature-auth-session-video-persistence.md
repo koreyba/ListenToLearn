@@ -12,6 +12,7 @@ description: Authoritative optional Access session detection with guest-local an
 flowchart LR
   Guest[Guest browser] -->|public pages + GET /api/session| Worker
   Account[Signed-in browser] -->|signed Access cookie| Worker
+  SignedOut[Application signed-out marker] -->|override optional identity| Worker
   Access[Cloudflare Access] -->|JWT assertion on protected paths| Worker
   Worker -->|verified optional identity| Session[/api/session/]
   Worker -->|verified required identity| APIs[Account APIs]
@@ -95,12 +96,15 @@ Unchanged ownership rule: delete only `(id, current subject)`; local retry progr
 
 ### Login/logout
 
-- `/login?returnTo=/videos` remains protected. After verified Access authentication, the Worker redirects only to an allowlisted public app path (`/`, `/practice`, `/videos`, `/trainer` with safe bounded query where required) and appends `signedIn=1`.
-- Sign out navigates to the public `/logout` page. That page requests `/<application>/cdn-cgi/access/logout` with same-origin credentials and manual redirect handling, then replaces the location with `/`; Cloudflare's service HTML never becomes the top-level page. A failed request remains on a branded retry state, and subsequent API access still requires a verified Access token.
+- `POST /api/logout` returns `no-store` JSON and sets `__Host-listen_to_learn_signed_out=1` with `Path=/`, one-year `Max-Age`, `HttpOnly`, `Secure`, and `SameSite=Lax`.
+- While that marker exists, `GET /api/session` returns `{ "user": null }`, account APIs return `401`, public pages stay available, and Settings routes through explicit `/login`. This override is evaluated before an Access identity is accepted.
+- `/login?returnTo=...` remains protected. After verified Access authentication, the Worker clears the marker and redirects only to an allowlisted learning page or Settings path with `signedIn=1`. Dot-segment, cross-origin, protocol-relative, API, and oversized targets are rejected.
+- The public `/logout` page sets the application marker first, then requests `/<application>/cdn-cgi/access/logout` with same-origin credentials/manual redirects as supplemental cleanup and replaces the location with `/`. Failure to set the marker keeps the branded retry state; failure of the supplemental Access request does not restore account mode.
 
 ## Component Breakdown
 
 - `worker/index.ts`: token extraction/verification, optional session response, protected request propagation, safe login return target.
+- `lib/app-session.ts`: exact marker parsing plus host-only set/clear response-cookie contracts.
 - `lib/guest-access.ts`: public route classification and safe `returnTo` normalization.
 - `lib/client-session.ts`: shared browser session response types/probe, branded logout controller, and account progress key construction for React clients.
 - `app/logout/page.tsx`: public branded logout transition and retry state.
@@ -125,6 +129,10 @@ Fast for guests, but cannot distinguish stale/missing hints, login through Setti
 ### Rejected: protect every UI page with Access
 
 It would make session detection trivial but violates the explicit public-product requirement.
+
+### Chosen: application-owned signed-out marker over Access SSO
+
+Cloudflare application logout can remove the current application token, but an active global Access session can immediately issue another one. A host-only HttpOnly marker lets the application preserve the user's explicit guest choice across refresh/navigation without weakening JWT verification or making account APIs public. The marker carries no authority and can only remove privileges; explicit verified `/login` is the sole clearing path.
 
 ### Chosen: retain the two current Access applications
 

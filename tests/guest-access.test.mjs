@@ -65,10 +65,13 @@ test("login redirect returns to an approved public page and rejects unsafe targe
     guestLoginRedirect(request("/login?returnTo=%2Ftrainer%3Fphrase%3Dget%2Bit")).toString(),
     "https://listen-to-learn.example/trainer?phrase=get+it&signedIn=1",
   );
+  assert.equal(
+    guestLoginRedirect(request("/login?returnTo=%2Fintegrations")).toString(),
+    "https://listen-to-learn.example/integrations?signedIn=1",
+  );
   for (const target of [
     "//evil.example",
     "/api/me",
-    "/integrations",
     "/login",
     "/videos/../integrations",
     `/videos?value=${"x".repeat(2_000)}`,

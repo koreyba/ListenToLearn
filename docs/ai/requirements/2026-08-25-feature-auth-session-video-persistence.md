@@ -21,7 +21,7 @@ The existing account video record stores the Continue Watching item in D1, but r
 - Keep `/`, `/practice`, `/videos`, and `/trainer` usable without login; keep `/integrations` protected.
 - Make every public page derive Sign in/Sign out and guest/account mode from a verified current session, never a client hint alone.
 - Make Sign in return to the public page where it started through a same-origin allowlisted `returnTo` value.
-- Make Sign out use the official Cloudflare Access application-domain logout endpoint in the background, then return to the public Library without exposing Cloudflare's service page.
+- Make Sign out persist application guest mode, use the official Cloudflare Access application-domain logout endpoint as supplemental cleanup, then return to the public Library without exposing Cloudflare's service page.
 - Protect `/api/videos` with the same account Access policy as `/login`, `/api/me`, `/api/phrases`, `/api/examples`, and `/api/translate`.
 - Persist signed-in Continue Watching records, resume seconds, last observed caption ID/text, and progress timestamp in user-scoped D1 rows.
 - Keep guest video history and resume progress bounded in `localStorage`.
@@ -45,6 +45,7 @@ The existing account video record stores the Continue Watching item in D1, but r
 - As a signed-in learner, my last observed caption anchor and approximate resume seconds are available on another browser/device.
 - As a guest, the same actions never create or update D1 rows.
 - As a learner who signs out, the next public page renders guest state and cannot read the former account's data.
+- As a learner with an active Cloudflare global SSO session, refresh/navigation after Sign out remains guest until I explicitly choose Sign in again.
 
 ### Edge cases
 
@@ -63,6 +64,8 @@ The existing account video record stores the Continue Watching item in D1, but r
 - A verified Access JWT supplied as the protected-route assertion or cryptographically verified application cookie resolves the same user; missing/invalid identity resolves guest.
 - `GET /api/session` is public, `no-store`, returns only verified current-user display/session data or `{ user: null }`, and never accepts query/body/client headers as identity.
 - Sign in links carry only safe relative return targets; successful `/login` redirects to the allowlisted target with a bootstrap marker.
+- `POST /api/logout` sets a host-only HttpOnly application marker; while present, `/api/session` returns guest and protected application APIs fail closed even if Access silently issues a fresh application token.
+- A verified explicit `/login` clears the application marker; ordinary public navigation never clears it.
 - All learning pages use consistent `Sign in with Google` / `Sign out` wording; Settings remains protected and exposes Sign out only after Access authentication.
 - `/api/videos` is covered by Cloudflare Access in preview and production; an unauthenticated live request receives an Access redirect, not the Worker's bare `401`.
 - D1 migration adds bounded resume fields to `saved_videos`; account GET/POST round-trips them under the verified subject.
@@ -77,7 +80,7 @@ The existing account video record stores the Continue Watching item in D1, but r
 - Runtime remains Cloudflare Worker + Vinext + D1 + Cloudflare Access Free; no new paid service is introduced.
 - Access identity remains the verified JWT `sub`; email is display/legacy-migration data, not a mutable primary key.
 - Cloudflare documents that Access adds `Cf-Access-Jwt-Assertion` to protected origin requests and that the browser application token is a signed `CF_Authorization` cookie. The Worker may accept that cookie only after the same issuer/audience/signature verification used for the header.
-- Cloudflare application-domain `/cdn-cgi/access/logout` is the supported logout target and does not document an application return URL. The public `/logout` page therefore requests it in the background with manual redirect handling, returns home only after the request resolves, and keeps a branded retry state on failure. Token revocation may take 20–30 seconds globally; protected APIs remain authoritative.
+- Cloudflare exposes separate application and global Access cookies and does not support per-application logout from the global SSO session. The public `/logout` flow therefore sets an application-owned HttpOnly signed-out marker first, then requests application-domain `/cdn-cgi/access/logout` in the background. The marker, not Access token disappearance, is authoritative until explicit `/login` clears it.
 - Automatic guest-to-account merge stays explicitly deferred to avoid silently combining unrelated local and personal histories.
 - Learning/domain data is in scope for D1; presentation preferences remain browser-local by design.
 

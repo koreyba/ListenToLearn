@@ -73,4 +73,7 @@ The old `__Host-listen_to_learn_signed_out` cookie is no longer an authority. Lo
 - Sensitivity proof: changing the exact token length from 43 to 42 makes 4/4 session tests fail; restoring it passes 4/4.
 - Fresh full evidence: Vinext build and 178/178 tests pass, followed by `npx tsc --noEmit`, ESLint with only two generated-type warnings, AI DevKit feature lint, and `git diff --check`.
 - Local migration `0012` applies with no pending migrations; pragma readback proves its columns and indexes.
-- Remote preview and production migrations are complete. Remaining evidence is Worker deployment, Access cutover/readback, and deployed login/account/logout/Settings smoke.
+- Remote preview and production migrations are complete. Preview version `33adbfc7-7fec-49a0-be45-39d19686fe24` and production version `6632b88a-f235-43eb-b6ca-a9d58a6c92ae` are deployed.
+- Live explicit login returns to the allowlisted page in both environments and creates one active D1 session per environment. Settings loads account integration status after refresh.
+- Access readback proves the main app retains its audience, Google IdP, 24-hour Access duration, and allow policy while protecting only the two exact `/login` destinations. The redundant Settings app deletion returned `202`; four unrelated/administrative apps remain unchanged.
+- Cookie-free deployed smoke proves all UI pages return `200`, legacy `/integrations` returns `303 /settings`, `/api/session` returns the guest shape, and account APIs return Worker JSON `401` in preview and production. The final interactive logout/refresh smoke remains.

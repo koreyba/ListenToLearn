@@ -134,4 +134,4 @@ Execution is sequential by evidence, not by calendar date. A red test, reviewed 
 
 ## Progress Summary
 
-Milestones 1–3 are complete. The marker workaround has been replaced with hashed, revocable D1 sessions; Settings is public; the focused red/green and sensitivity proof and fresh 178-test full gate pass. Migration `0012` is applied and read back in preview and production with no pending migrations. Task 4.4 remains: both Worker deployments, Access cutover/readback, and deployed smoke.
+Milestones 1–3 are complete. Migration `0012`, both Worker deployments, login-only Access cutover, explicit login/account reads, and the deployed public/JSON route matrix are complete and read back. Task 4.4 now has only the final interactive logout/refresh smoke and final review/check publication remaining.

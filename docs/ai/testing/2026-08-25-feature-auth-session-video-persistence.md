@@ -98,6 +98,9 @@ description: Regression, ownership, persistence, and live Access verification fo
 - Local Wrangler applied migrations through `0012`; pragma readback proved `app_sessions` columns, foreign key, and user/expiry indexes in addition to the video resume fields.
 - Remote preview Wrangler applied the two pending migrations, `0010` and `0011`. A fresh list reports no pending migrations; pragma readback proves `language`, `accent`, `resume_seconds`, `resume_caption_id`, `resume_caption_text`, and nullable `progress_updated_at` with the expected defaults.
 - Final rollout applied `0012_app_sessions.sql` to preview and production; production also applied its pending `0011`. Fresh remote lists report no pending migrations, and aggregate-safe pragma readback proves all four session columns plus primary-key, user, and expiry indexes in both databases.
+- Deployed Worker versions `33adbfc7-7fec-49a0-be45-39d19686fe24` (preview) and `6632b88a-f235-43eb-b6ca-a9d58a6c92ae` (production) both pass explicit login return and account Settings/Videos UI smoke; aggregate D1 readback reports one active application session in each environment.
+- Post-cutover Access readback contains only the exact production and stable-preview `/login` destinations on the main application, with its audience, Google IdP, policy, and duration preserved; the redundant Settings application is absent.
+- Cookie-free deployed matrix passes in both environments: five public UI/redirect routes, guest `/api/session`, and JSON `401` for Videos and Integrations account APIs.
 - Authenticated live-preview smoke after migration loads Practice without the former empty-JSON alert and loads Videos account history with a valid empty state and Sign out action.
 - The fresh final build and wildcard suite pass 178/178, followed by TypeScript, lint, feature-document lint, and diff checks.
 - Regression sensitivity proof: temporarily changing the required 43-character token length to 42 made all four opaque-session tests fail; restoring 43 passed 4/4 and the full 178/178 suite.
@@ -106,7 +109,7 @@ description: Regression, ownership, persistence, and live Access verification fo
 
 - Pure session behavior is runtime-tested with a fake store and the D1 schema/store/Worker boundary has source-contract coverage. A full bundled-Worker/D1 integration harness remains desirable if Vinext permits handler and D1 injection.
 - No line/branch coverage reporter is configured. Coverage claims are therefore contract/test-case based, not a numeric line percentage.
-- The prior preview proved Practice and Videos account reads under the old Access-backed session. The new D1 application-session exchange, write/update/delete persistence, cross-browser restore, and live Sign out require the authorized deployment smoke.
+- The new D1 application-session exchange and account reads are live-proven in both environments. Video write/update/delete, cross-browser restore, and the final interactive Sign out/refresh sequence remain manual release evidence.
 
 ## Manual Testing
 

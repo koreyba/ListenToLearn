@@ -74,4 +74,4 @@ Both Workers must be ready before the Access edit because the main Access applic
 
 ## Current Status
 
-Migrations through `0012` are applied and read back in preview and production with no pending migrations. Both Worker deployments, shared Access cutover, and live smoke remain and must be proven in the order above.
+Migrations through `0012` are applied and read back in preview and production with no pending migrations. Preview version `33adbfc7-7fec-49a0-be45-39d19686fe24` and production version `6632b88a-f235-43eb-b6ca-a9d58a6c92ae` are deployed; rollback versions are `289b4526-b12c-4c1f-a65a-f00c6f5ac844` and `181ede3d-7d63-44e5-bde2-2d9943d693a2` respectively. The main Access app is login-only with its original policy/audience preserved, the Settings app is removed, explicit login and the public/JSON route matrix pass. Final interactive logout/refresh smoke remains.

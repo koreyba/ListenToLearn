@@ -22,7 +22,7 @@ export function SiteNavigation({
   return (
     <header className="site-navigation">
       <div className="site-navigation-inner">
-        <Link aria-current={active === "home" ? "page" : undefined} aria-label="Unmumble home" className="site-brand" href="/">Unmumble</Link>
+        <Link aria-current={active === "home" ? "page" : undefined} aria-label="Unmumble library" className="site-brand" href="/">Unmumble</Link>
         <nav aria-label="Primary navigation" className="site-primary-links">
           {primaryLinks.map((link) => (
             <Link

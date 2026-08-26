@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://unmumble.online"),
-  title: "Unmumble — Learn to hear real English",
+  title: "Unmumble",
   description: "Connect the sounds with the words. Listen, check, repeat, and hear real English clearly.",
   other: { "codex-preview": "development" },
   openGraph: {

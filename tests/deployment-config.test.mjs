@@ -18,6 +18,10 @@ const productionConfig = JSON.parse(
 const packageConfig = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
 );
+const PREVIEW_WORKER_ACCESS_AUD =
+  "85d7b3fcc999788239cf6f922a2bcf6b63be99dd2e05df2af5e66e7645bea1a4";
+const LOGIN_ACCESS_AUD =
+  "9b29b79b8bca8308e4933c030f464d5a1da798497182652fe75a1fd304975a29";
 
 test("Unmumble environments have explicit Worker and D1 names", () => {
   assert.equal(sourceConfig.name, "unmumble-prod");
@@ -81,6 +85,20 @@ test("production routes the Unmumble domain to the Unmumble Worker", () => {
   assert.deepEqual(productionConfig.routes, [
     { pattern: "unmumble.online", custom_domain: true },
   ]);
+});
+
+test("preview accepts its Access application without widening production", () => {
+  const previewAudiences = previewConfig.vars.ACCESS_AUD.split(",");
+  const sourcePreviewAudiences = sourceConfig.env.preview.vars.ACCESS_AUD.split(",");
+  const productionAudiences = productionConfig.vars.ACCESS_AUD.split(",");
+  const sourceProductionAudiences = sourceConfig.vars.ACCESS_AUD.split(",");
+
+  assert.deepEqual(previewAudiences, [PREVIEW_WORKER_ACCESS_AUD]);
+  assert.deepEqual(sourcePreviewAudiences, [PREVIEW_WORKER_ACCESS_AUD]);
+  assert.deepEqual(productionAudiences, [LOGIN_ACCESS_AUD]);
+  assert.deepEqual(sourceProductionAudiences, [LOGIN_ACCESS_AUD]);
+  assert.ok(!previewAudiences.includes(LOGIN_ACCESS_AUD));
+  assert.ok(!productionAudiences.includes(PREVIEW_WORKER_ACCESS_AUD));
 });
 
 test("production deploy is opt-in", () => {

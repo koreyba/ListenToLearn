@@ -1,19 +1,20 @@
 /** Cloudflare Worker entry point for Unmumble. */
 import handler from "vinext/server/app-router-entry";
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { createRemoteJWKSet } from "jose";
 import { backfillTranslations } from "@/app/api/phrases/route";
+import { accessTokenFromRequest, optionalSessionResponse, verifyAccessJwtIdentity } from "@/lib/access-session";
+import {
+  appSessionCookie,
+  clearAppSessionCookies,
+  clearLegacySignedOutCookie,
+  issueAppSession,
+  resolveAppSession,
+  revokeAppSession,
+} from "@/lib/app-session";
+import { ensureUser } from "@/lib/auth";
+import { d1AppSessionStore } from "@/lib/d1-app-sessions";
 import { guestLoginRedirect, isPublicGuestRequest } from "@/lib/guest-access";
 import { AUTHENTICATED_USER_HEADER, encodeUserContext } from "@/lib/user-context";
-
-interface ExecutionContext {
-  waitUntil(promise: Promise<unknown>): void;
-  passThroughOnException(): void;
-}
-
-type AccessEnv = Env & {
-  ACCESS_TEAM_DOMAIN?: string;
-  ACCESS_AUD?: string;
-};
 
 const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 const backfillInFlight = new Map<string, Promise<void>>();
@@ -25,9 +26,14 @@ const PUBLIC_DOCUMENT_PATHS = new Set([
   "/trainer.html",
   "/practice",
   "/practice/",
+  "/videos",
+  "/videos/",
+  "/settings",
+  "/settings/",
 ]);
 const PUBLIC_LONG_CACHE_PATHS = new Set([
   "/caption-navigation.js",
+  "/video-progress-sync.js",
   "/favicon.svg",
   "/file.svg",
   "/globe.svg",
@@ -35,7 +41,7 @@ const PUBLIC_LONG_CACHE_PATHS = new Set([
   "/window.svg",
 ]);
 
-function accessConfiguration(env: AccessEnv) {
+function accessConfiguration(env: Env) {
   const teamDomain = (env.ACCESS_TEAM_DOMAIN || "").replace(/^https?:\/\//, "").replace(/\/+$/, "");
   const audiences = (env.ACCESS_AUD || "")
     .split(",")
@@ -57,38 +63,34 @@ function jwksFor(teamDomain: string) {
   return jwks;
 }
 
-function claimString(payload: JWTPayload, key: string) {
-  const value = payload[key];
-  return typeof value === "string" ? value : "";
-}
-
-async function verifyAccessIdentity(request: Request, env: AccessEnv) {
-  const token = request.headers.get("Cf-Access-Jwt-Assertion");
+async function verifyAccessIdentity(request: Request, env: Env) {
+  const token = accessTokenFromRequest(request);
   const config = accessConfiguration(env);
   if (!token || !config) return null;
 
   try {
-    const { payload } = await jwtVerify(token, jwksFor(config.teamDomain), {
+    return await verifyAccessJwtIdentity(token, {
       issuer: config.issuer,
-      audience: config.audiences,
+      audiences: config.audiences,
+      getKey: jwksFor(config.teamDomain),
     });
-    const subject = claimString(payload, "sub");
-    if (!subject) return null;
-    return {
-      subject,
-      email: claimString(payload, "email").toLowerCase(),
-      name: claimString(payload, "name") || claimString(payload, "preferred_username"),
-    };
   } catch (error) {
-    console.warn("Access identity verification failed:", error instanceof Error ? error.message : "unknown error");
+    console.warn("Access login identity verification failed:", error instanceof Error ? error.message : "unknown error");
     return null;
   }
 }
 
 function unauthorizedResponse() {
   return Response.json(
-    { error: "Войди через Google, чтобы использовать приложение." },
+    { error: "Sign in with Google to use account features." },
     { status: 401, headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+function sessionUnavailableResponse() {
+  return Response.json(
+    { error: "Could not check the account session." },
+    { status: 503, headers: { "Cache-Control": "no-store" } },
   );
 }
 
@@ -124,6 +126,12 @@ function withPublicCache(response: Response, pathname: string) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
+function responseWithCookies(body: object, cookies: string[]) {
+  const headers = new Headers({ "Cache-Control": "no-store", "Content-Type": "application/json" });
+  for (const cookie of cookies) headers.append("Set-Cookie", cookie);
+  return new Response(JSON.stringify(body), { headers });
+}
+
 function scheduleBackfill(userId: string, request: Request, ctx: ExecutionContext) {
   if (backfillInFlight.has(userId)) return;
   const task = backfillTranslations(userId, request).finally(() => {
@@ -133,38 +141,81 @@ function scheduleBackfill(userId: string, request: Request, ctx: ExecutionContex
   ctx.waitUntil(task);
 }
 
-// Image security config. SVG sources with .svg extension auto-skip the
-// optimization endpoint on the client side (served directly, no proxy).
-// To route SVGs through the optimizer (with security headers), set
-// dangerouslyAllowSVG: true in next.config.js and uncomment below:
-// const imageConfig: ImageConfig = { dangerouslyAllowSVG: true };
-
 const worker = {
-  async fetch(request: Request, env: AccessEnv, ctx: ExecutionContext): Promise<Response> {
-    const pathname = new URL(request.url).pathname;
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const requestUrl = new URL(request.url);
+    const pathname = requestUrl.pathname;
     const headers = sanitizedHeaders(request);
+    const sessionStore = d1AppSessionStore(env.DB);
 
-    // Guest-safe documents, assets, and the public Tatoeba proxy do not consume
-    // identity data. Avoid a remote JWKS lookup on every public navigation.
+    if (
+      (request.method === "GET" || request.method === "HEAD")
+      && (pathname === "/integrations" || pathname === "/integrations/")
+    ) {
+      return Response.redirect(new URL("/settings", requestUrl), 303);
+    }
+
+    if (pathname === "/api/logout" && request.method === "POST") {
+      try {
+        await revokeAppSession(request, sessionStore);
+        return responseWithCookies({ signedOut: true }, clearAppSessionCookies());
+      } catch (error) {
+        console.warn("Application session revocation failed:", error instanceof Error ? error.message : "unknown error");
+        return sessionUnavailableResponse();
+      }
+    }
+
+    if (pathname === "/login") {
+      const identity = await verifyAccessIdentity(request, env);
+      if (!identity) return unauthorizedResponse();
+      try {
+        await ensureUser(identity);
+        const issued = await issueAppSession(request, identity, sessionStore);
+        const responseHeaders = new Headers({
+          "Cache-Control": "no-store",
+          Location: guestLoginRedirect(request).toString(),
+        });
+        responseHeaders.append("Set-Cookie", appSessionCookie(issued.token));
+        responseHeaders.append("Set-Cookie", clearLegacySignedOutCookie());
+        return new Response(null, { status: 303, headers: responseHeaders });
+      } catch (error) {
+        console.warn("Application session creation failed:", error instanceof Error ? error.message : "unknown error");
+        return sessionUnavailableResponse();
+      }
+    }
+
+    if (pathname === "/api/session" && (request.method === "GET" || request.method === "HEAD")) {
+      try {
+        const identity = await resolveAppSession(request, sessionStore);
+        const response = optionalSessionResponse(identity);
+        if (request.method === "HEAD") {
+          return new Response(null, { status: response.status, headers: response.headers });
+        }
+        return response;
+      } catch (error) {
+        console.warn("Application session lookup failed:", error instanceof Error ? error.message : "unknown error");
+        return sessionUnavailableResponse();
+      }
+    }
+
     if (isPublicGuestRequest(request)) {
       const response = await handler.fetch(new Request(request, { headers }), env, ctx);
       return withPublicCache(response, pathname);
     }
 
-    const identity = await verifyAccessIdentity(request, env);
-
-    if (!identity) {
-      return unauthorizedResponse();
+    let identity;
+    try {
+      identity = await resolveAppSession(request, sessionStore);
+    } catch (error) {
+      console.warn("Application session lookup failed:", error instanceof Error ? error.message : "unknown error");
+      return sessionUnavailableResponse();
     }
-
-    if (pathname === "/login") {
-      return Response.redirect(guestLoginRedirect(request), 303);
-    }
+    if (!identity) return unauthorizedResponse();
 
     headers.set(AUTHENTICATED_USER_HEADER, encodeUserContext(identity));
     const forwardedRequest = new Request(request, { headers });
     const response = await handler.fetch(forwardedRequest, env, ctx);
-    const searchParams = new URL(request.url).searchParams;
+    const searchParams = requestUrl.searchParams;
     if (
       response.ok
       && request.method === "GET"
@@ -176,6 +227,6 @@ const worker = {
     }
     return response;
   },
-};
+} satisfies ExportedHandler<Env>;
 
 export default worker;

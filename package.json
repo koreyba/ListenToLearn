@@ -13,7 +13,7 @@
     "deploy:preview": "node scripts/deploy-worker.mjs preview",
     "deploy:production": "node scripts/deploy-worker.mjs production",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs tests/bounded-command.test.mjs tests/caption-navigation.test.mjs tests/caption-segments.test.mjs tests/guest-library.test.mjs tests/unmumble-rename.test.mjs tests/youtube-player.test.mjs tests/youtube-progress.test.mjs tests/youglish-caption-navigation.test.mjs tests/youglish-full-video.test.mjs",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"
   },

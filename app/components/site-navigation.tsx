@@ -9,7 +9,7 @@ const primaryLinks: Array<{ href: string; label: string; section: SiteSection }>
   { href: "/", label: "Library", section: "library" },
   { href: "/practice", label: "Practice", section: "practice" },
   { href: "/videos", label: "Videos", section: "videos" },
-  { href: "/integrations", label: "Settings", section: "settings" },
+  { href: "/settings", label: "Settings", section: "settings" },
 ];
 
 export function SiteNavigation({

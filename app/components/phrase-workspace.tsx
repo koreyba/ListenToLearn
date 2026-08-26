@@ -1,12 +1,14 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SignedInSiteAccount } from "@/app/components/signed-in-site-account";
 import { SiteNavigation } from "@/app/components/site-navigation";
 import {
   readMigratedStorage,
   removeMigratedStorage,
   writeMigratedStorage,
 } from "@/lib/browser-storage";
+import { accountSession, signInHref, type AccountSessionUser } from "@/lib/client-session";
 import { PRESET_PHRASES } from "@/lib/preset-phrases";
 import {
   GUEST_LIBRARY_STORAGE_KEY,
@@ -45,7 +47,7 @@ type PhraseMutationResponse = {
   created?: boolean;
   translationPending?: boolean;
 };
-type Viewer = { id: string; email: string; name: string };
+type Viewer = AccountSessionUser;
 
 const practiceTabs: Array<{ id: Exclude<PhraseStatus, "pick">; label: string; hint: string }> = [
   { id: "to_learn", label: "To Learn", hint: "Saved for later." },
@@ -57,8 +59,6 @@ type PhraseSort = "added_desc" | "added_asc" | "alpha_asc" | "alpha_desc";
 
 const PHRASE_SORT_STORAGE_KEY = "unmumble-library-sort-v1";
 const LEGACY_PHRASE_SORT_STORAGE_KEYS = ["listen-to-learn-library-sort-v1"] as const;
-const AUTH_HINT_STORAGE_KEY = "unmumble-authenticated-v1";
-const LEGACY_AUTH_HINT_STORAGE_KEYS = ["listen-to-learn-authenticated-v1"] as const;
 const GUEST_TRAINER_STORAGE_KEY = "unmumble-trainer-v1:anonymous";
 const LEGACY_GUEST_TRAINER_STORAGE_KEYS = ["connected-speech-trainer-v1:anonymous"] as const;
 const GUEST_PRESET_CREATED_AT = "1970-01-01T00:00:00.000Z";
@@ -213,45 +213,35 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     setLoading(false);
   }, []);
 
-  const loadAccount = useCallback(async () => {
+  const loadAccount = useCallback(async (sessionUser: AccountSessionUser) => {
     setMode("account");
+    setViewer(sessionUser);
     setLoading(true);
     try {
       const response = await fetch("/api/phrases", { cache: "no-store" });
       const data = await response.json() as PhrasesResponse;
-      if (!response.ok || !data.user || typeof data.user.id !== "string") {
+      if (!response.ok || !Array.isArray(data.phrases)) {
         throw new Error(data.error || "account session unavailable");
       }
-      setViewer(data.user);
-      try {
-        writeMigratedStorage(window.localStorage, AUTH_HINT_STORAGE_KEY, LEGACY_AUTH_HINT_STORAGE_KEYS, "1");
-      } catch { /* optional hint */ }
+      setViewer(data.user || sessionUser);
       setPhrases(data.phrases);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not load account phrases.");
+    } finally {
       setLoading(false);
-    } catch {
-      try {
-        removeMigratedStorage(window.localStorage, AUTH_HINT_STORAGE_KEY, LEGACY_AUTH_HINT_STORAGE_KEYS);
-      } catch { /* optional hint */ }
-      loadGuestState();
     }
-  }, [loadGuestState]);
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const signedIn = params.get("signedIn") === "1";
     if (signedIn) window.history.replaceState(null, "", window.location.pathname);
 
-    let authHint = false;
-    try {
-      authHint = readMigratedStorage(
-        window.localStorage,
-        AUTH_HINT_STORAGE_KEY,
-        LEGACY_AUTH_HINT_STORAGE_KEYS,
-      ) === "1";
-    } catch { /* optional hint */ }
     const timer = window.setTimeout(() => {
-      if (signedIn || authHint) void loadAccount();
-      else loadGuestState();
+      void accountSession().then((sessionUser) => {
+        if (sessionUser) void loadAccount(sessionUser);
+        else loadGuestState();
+      });
     }, 0);
     return () => window.clearTimeout(timer);
   }, [loadAccount, loadGuestState]);
@@ -429,12 +419,6 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     setNotice("Guest progress cleared.");
   }
 
-  function clearAccountHint() {
-    try {
-      removeMigratedStorage(window.localStorage, AUTH_HINT_STORAGE_KEY, LEGACY_AUTH_HINT_STORAGE_KEYS);
-    } catch { /* optional storage */ }
-  }
-
   const current = surface === "library"
     ? { id: "pick", label: "New phrases", hint: "Choose phrases to add to your practice queue." }
     : practiceTabs.find((tab) => tab.id === activeTab) || practiceTabs[1];
@@ -443,13 +427,10 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     <>
       <SiteNavigation
         active={surface}
-        account={mode === "guest" ? (
-          <a className="site-account-link" href="/login">Sign in with Google</a>
+        account={mode === "guest" || !viewer ? (
+          <a className="site-account-link" href={signInHref(surface === "practice" ? "/practice" : "/")}>Sign in with Google</a>
         ) : (
-          <>
-            <span className="site-account-name" title={viewer?.email}>{viewer?.name || viewer?.email}</span>
-            <a className="site-account-link" href="/cdn-cgi/access/logout" onClick={clearAccountHint}>Log out</a>
-          </>
+          <SignedInSiteAccount user={viewer} />
         )}
       />
       <main className="library-shell">

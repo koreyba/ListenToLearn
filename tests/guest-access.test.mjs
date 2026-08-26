@@ -19,7 +19,14 @@ test("guest allowlist exposes only UI, static assets and read-only Tatoeba", () 
     "/practice/",
     "/videos",
     "/videos/",
+    "/settings",
+    "/settings/",
+    "/integrations",
+    "/integrations/",
+    "/logout",
+    "/api/session",
     "/caption-navigation.js",
+    "/video-progress-sync.js",
     "/favicon.svg",
     "/_next/static/chunk.js",
     "/api/tatoeba?q=hello",
@@ -38,7 +45,6 @@ test("guest allowlist rejects account APIs, integrations, login and unknown path
     "/api/videos",
     "/api/translate",
     "/api/integrations",
-    "/integrations",
     "/not-a-public-route",
   ]) {
     assert.equal(isPublicGuestRequest(request(path)), false, path);
@@ -51,4 +57,36 @@ test("login redirect is fixed to the public home marker and cannot become an ope
     guestLoginRedirect(request("/login?returnTo=https%3A%2F%2Fevil.example")).toString(),
     "https://listen-to-learn.example/?signedIn=1",
   );
+});
+
+test("login redirect returns to an approved public page and rejects unsafe targets", () => {
+  assert.equal(
+    guestLoginRedirect(request("/login?returnTo=%2Fvideos")).toString(),
+    "https://listen-to-learn.example/videos?signedIn=1",
+  );
+  assert.equal(
+    guestLoginRedirect(request("/login?returnTo=%2Ftrainer%3Fphrase%3Dget%2Bit")).toString(),
+    "https://listen-to-learn.example/trainer?phrase=get+it&signedIn=1",
+  );
+  assert.equal(
+    guestLoginRedirect(request("/login?returnTo=%2Fintegrations")).toString(),
+    "https://listen-to-learn.example/integrations?signedIn=1",
+  );
+  assert.equal(
+    guestLoginRedirect(request("/login?returnTo=%2Fsettings")).toString(),
+    "https://listen-to-learn.example/settings?signedIn=1",
+  );
+  for (const target of [
+    "//evil.example",
+    "/api/me",
+    "/login",
+    "/videos/../integrations",
+    `/videos?value=${"x".repeat(2_000)}`,
+  ]) {
+    assert.equal(
+      guestLoginRedirect(request(`/login?returnTo=${encodeURIComponent(target)}`)).toString(),
+      "https://listen-to-learn.example/?signedIn=1",
+      target,
+    );
+  }
 });

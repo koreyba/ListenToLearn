@@ -6,8 +6,8 @@
   position: sticky;
   top: 0;
   z-index: 2000;
-  border-bottom: 1px solid var(--line, #2a3440);
-  background: rgba(13, 16, 20, .9);
+  border-bottom: 1px solid var(--line, #303a34);
+  background: var(--app-nav-background);
   backdrop-filter: blur(18px);
 }
 
@@ -25,7 +25,7 @@
 .site-brand,
 .site-primary-link,
 .site-account-link {
-  color: var(--text, #eef2f7);
+  color: var(--text, #f1f5f2);
   text-decoration: none;
 }
 
@@ -43,9 +43,9 @@
   align-items: center;
   gap: 4px;
   padding: 4px;
-  border: 1px solid var(--line, #2a3440);
+  border: 1px solid var(--line, #303a34);
   border-radius: 14px;
-  background: rgba(16, 21, 27, .9);
+  background: var(--app-surface-glass);
 }
 
 .site-primary-link {
@@ -54,25 +54,25 @@
   padding: 0 16px;
   border-radius: 10px;
   place-items: center;
-  color: var(--muted, #93a1b1);
+  color: var(--muted, #9ca9a1);
   font-size: 13px;
   font-weight: 750;
 }
 
 .site-primary-link:hover {
-  color: var(--text, #eef2f7);
+  color: var(--text, #f1f5f2);
 }
 
 .site-primary-link[aria-current="page"] {
-  background: var(--panel-2, #1b222b);
-  color: var(--accent, #79d6ff);
+  background: var(--panel-2, #1d2420);
+  color: var(--accent, #afc1a3);
   box-shadow: 0 6px 18px rgba(0, 0, 0, .2);
 }
 
 .site-brand:focus-visible,
 .site-primary-link:focus-visible,
 .site-account-link:focus-visible {
-  outline: 2px solid var(--accent, #79d6ff);
+  outline: 2px solid var(--accent, #afc1a3);
   outline-offset: 2px;
 }
 
@@ -85,19 +85,19 @@
 }
 
 .site-account-link {
-  color: var(--muted, #93a1b1);
+  color: var(--muted, #9ca9a1);
   font-size: 12px;
   font-weight: 700;
 }
 
 .site-account-link:hover {
-  color: var(--accent, #79d6ff);
+  color: var(--accent, #afc1a3);
 }
 
 .site-account-name {
   max-width: 150px;
   overflow: hidden;
-  color: var(--muted, #93a1b1);
+  color: var(--muted, #9ca9a1);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -134,9 +134,9 @@
     gap: 2px;
     padding: 6px max(6px, env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
     border: 0;
-    border-top: 1px solid var(--line, #2a3440);
+    border-top: 1px solid var(--line, #303a34);
     border-radius: 0;
-    background: rgba(13, 16, 20, .96);
+    background: var(--app-nav-mobile-background);
     backdrop-filter: blur(18px);
   }
 

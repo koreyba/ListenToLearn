@@ -85,6 +85,13 @@
       "when": 1787688884355,
       "tag": "0011_tranquil_siren",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1787734707517,
+      "tag": "0012_app_sessions",
+      "breakpoints": true
     }
   ]
 }

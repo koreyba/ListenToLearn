@@ -1,7 +1,7 @@
 ---
 phase: design
 title: Authentication Session and Video Persistence Design
-description: Authoritative optional Access session detection with guest-local and account-D1 video progress
+description: Access-backed explicit login exchanged for revocable Unmumble D1 sessions
 ---
 
 # Authentication Session and Video Persistence Design
@@ -9,156 +9,156 @@ description: Authoritative optional Access session detection with guest-local an
 ## Architecture Overview
 
 ```mermaid
-flowchart LR
-  Guest[Guest browser] -->|public pages + GET /api/session| Worker
-  Account[Signed-in browser] -->|signed Access cookie| Worker
-  SignedOut[Application signed-out marker] -->|override optional identity| Worker
-  Access[Cloudflare Access] -->|JWT assertion on protected paths| Worker
-  Worker -->|verified optional identity| Session[/api/session/]
-  Worker -->|verified required identity| APIs[Account APIs]
-  APIs --> D1[(D1 users and saved_videos)]
-  Guest --> Local[bounded guest localStorage]
-  Account --> Mirror[user-namespaced retry mirror]
-  Access -. protects login, account APIs, Settings .-> APIs
+sequenceDiagram
+  participant B as Browser
+  participant A as Cloudflare Access
+  participant W as Unmumble Worker
+  participant D as D1
+
+  B->>A: Explicit GET /login?returnTo=/videos
+  A->>A: Google authentication / global SSO
+  A->>W: /login + verified Access JWT assertion
+  W->>W: Verify issuer, audience, signature, expiry
+  W->>D: Upsert user; rotate opaque app session
+  W-->>B: __Host-unmumble_session + 303 /videos
+  B->>W: GET /api/session with app cookie
+  W->>D: SHA-256 token lookup + user join
+  W-->>B: Account session JSON
+  B->>W: POST /api/logout
+  W->>D: Delete session hash
+  W-->>B: Clear app cookie; remain on Unmumble
 ```
 
-- `worker/index.ts` remains the trust boundary. It strips client identity headers, validates Access JWT issuer/audience/signature/expiry, and accepts `CF_Authorization` as an optional browser token only after that same verification.
-- A public `GET /api/session` returns verified session metadata or `{ user: null }` with `Cache-Control: no-store`. It does not authorize D1 operations.
-- Public clients always probe the session endpoint, then choose guest-local or account-API data. The old local auth hint is removed as an authority.
-- Account video APIs remain fail-closed and subject-scoped. Cloudflare Access must add `/api/videos` to the existing account application paths so the Worker receives an assertion.
-- The trainer writes local progress immediately, throttles D1 synchronization, and flushes changed account progress on meaningful exit/pause events.
+- Cloudflare Access is an upstream identity broker only. It protects exact `/login` destinations and may separately protect branch previews as an administrative gate.
+- `worker/index.ts` is the product trust boundary. It strips all incoming identity headers. It verifies Access only for `/login`; every other account request resolves an opaque Unmumble cookie through D1.
+- Public pages always render. Clients probe public `GET /api/session` to choose guest-local or account-D1 behavior.
+- Settings is a public shell. Integration status and mutations require the same Unmumble session as every other account API.
 
 ## Data Models
 
-`saved_videos` keeps one row per `(user_id, youtube_video_id)` and adds:
+New `app_sessions` table:
 
 ```text
-resume_seconds        REAL NOT NULL DEFAULT 0
-resume_caption_id     TEXT NOT NULL DEFAULT ''
-resume_caption_text   TEXT NOT NULL DEFAULT ''
-progress_updated_at   TEXT NULL
+token_hash   TEXT PRIMARY KEY             # base64url SHA-256, never the raw token
+user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE
+created_at   TEXT NOT NULL
+expires_at   TEXT NOT NULL
 ```
 
-- `resume_seconds` is bounded to the existing seven-day maximum and is display/warm-resume metadata, not a promise of exact cold seeking.
-- `resume_caption_id` and `resume_caption_text` store only the last observed caption anchor. No full transcript is stored.
-- `progress_updated_at` is server-generated when valid progress is written and lets clients compare D1 with their same-account retry mirror.
-- `updated_at` continues to order Continue Watching by recent deliberate viewing/progress activity; `created_at` is stable.
-- Existing unique and user-updated indexes remain sufficient.
+Indexes:
 
-Client progress keys become mode/user-specific:
+- primary-key lookup by `token_hash` for every session resolution;
+- `idx_app_sessions_user` for account-wide revocation/cleanup;
+- `idx_app_sessions_expires` for expired-record pruning.
 
-```text
-guest:   listen-to-learn-youtube-progress-v1:anonymous
-account: listen-to-learn-youtube-progress-v1:<encoded Access subject>
-```
+The browser cookie contains a 32-byte Web Crypto random token encoded as unpadded base64url. Its fixed maximum lifetime is 30 days. Login deletes the current cookie's session when present, prunes expired sessions, then inserts a new hash. Logout deletes the current hash before clearing the cookie.
 
-The account key is a bounded retry/warm-navigation mirror. D1 is the cross-browser source of truth.
+Existing `saved_videos` retains one row per `(user_id, youtube_video_id)` with resume seconds, last caption ID/text, and progress timestamp. Guest history remains bounded in `localStorage`; signed-in D1 remains the cross-browser source of truth.
 
-## API Design
+## API and Route Contracts
 
-### `GET /api/session` — public optional identity
+### `GET /login?returnTo=...` — Access-protected identity exchange
 
-Response, always `200` and `no-store`:
+1. Extract only the Access assertion added by Cloudflare for this route.
+2. Verify JWT issuer, one accepted login audience, signature, lifetime, and `sub`.
+3. Ensure the D1 user using `sub` as immutable ID.
+4. Rotate to a new opaque application session.
+5. Set `__Host-unmumble_session=<raw token>; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax`.
+6. Clear legacy `__Host-listen_to_learn_signed_out` during rollout.
+7. Redirect with `303` to a bounded allowlisted UI target plus `signedIn=1`.
+
+No other path may exchange an Access JWT for an application identity.
+
+### `GET /api/session` — public optional application session
+
+Always returns `200`, `Cache-Control: no-store`:
 
 ```json
 { "user": null }
 ```
 
-or:
+or the minimal D1 user:
 
 ```json
-{ "user": { "id": "verified-sub", "email": "...", "name": "..." } }
+{ "user": { "id": "subject", "email": "learner@example.com", "name": "Learner" } }
 ```
 
-The endpoint accepts identity only from a verified Access assertion/application cookie. It never ensures a D1 user or returns account data.
+Unknown/expired tokens resolve guest. An expired matching row is deleted opportunistically.
 
-### `GET /api/videos` — protected
+### Account APIs — Worker-protected
 
-Returns subject-owned history including the four resume fields. Values are normalized before reaching the browser.
+For `/api/me`, `/api/phrases`, `/api/examples`, `/api/translate`, `/api/videos`, and `/api/integrations`, the Worker:
 
-### `POST /api/videos` — protected idempotent upsert
+1. resolves the application session from D1;
+2. returns `401` when absent/invalid;
+3. injects the normalized internal user context after stripping any client-supplied copy;
+4. routes to the existing subject-scoped handler.
 
-Existing origin fields remain required. An optional `progress` object carries:
+Cloudflare Access does not protect these APIs. This avoids redirect HTML/302 responses at JSON boundaries and makes preview/production authorization identical.
 
-```json
-{
-  "seconds": 123.4,
-  "captionId": "bounded-id",
-  "captionText": "last observed bounded caption"
-}
-```
+### `POST /api/logout` — server revocation
 
-The route validates all origin/progress fields first, then performs one subject-scoped upsert. Missing progress preserves existing resume fields; valid progress updates resume fields and server timestamps. The initial `Continue in video` write includes the current progress, eliminating create/update races.
+- Resolve the exact application cookie, hash it, and delete its D1 row.
+- If deletion fails, return a retryable no-store error and do not claim success.
+- On success (including an already-unknown token), return `{ "signedOut": true }` and clear both the current application cookie and the legacy signed-out marker.
+- The branded `/logout` page calls only this endpoint and returns to `/`; it does not call Cloudflare's global logout endpoint.
 
-### `DELETE /api/videos?id=...` — protected
+### Public route behavior
 
-Unchanged ownership rule: delete only `(id, current subject)`; local retry progress for that account/video is also cleared in the client after success.
-
-### Login/logout
-
-- `POST /api/logout` returns `no-store` JSON and sets `__Host-listen_to_learn_signed_out=1` with `Path=/`, one-year `Max-Age`, `HttpOnly`, `Secure`, and `SameSite=Lax`.
-- While that marker exists, `GET /api/session` returns `{ "user": null }`, account APIs return `401`, public pages stay available, and Settings routes through explicit `/login`. This override is evaluated before an Access identity is accepted.
-- `/login?returnTo=...` remains protected. After verified Access authentication, the Worker clears the marker and redirects only to an allowlisted learning page or Settings path with `signedIn=1`. Dot-segment, cross-origin, protocol-relative, API, and oversized targets are rejected.
-- The public `/logout` page sets the application marker first, then requests `/<application>/cdn-cgi/access/logout` with same-origin credentials/manual redirects as supplemental cleanup and replaces the location with `/`. Failure to set the marker keeps the branded retry state; failure of the supplemental Access request does not restore account mode.
+- UI routes `/`, `/practice`, `/videos`, `/trainer`, `/settings`, `/logout`, and legacy `/integrations` remain public.
+- `/integrations` permanently redirects to `/settings` before account resolution.
+- `GET /api/session` and read-only Tatoeba proxy remain public; account APIs remain fail-closed in the Worker.
 
 ## Component Breakdown
 
-- `worker/index.ts`: token extraction/verification, optional session response, protected request propagation, safe login return target.
-- `lib/app-session.ts`: exact marker parsing plus host-only set/clear response-cookie contracts.
-- `lib/guest-access.ts`: public route classification and safe `returnTo` normalization.
-- `lib/client-session.ts`: shared browser session response types/probe, branded logout controller, and account progress key construction for React clients.
-- `app/logout/page.tsx`: public branded logout transition and retry state.
-- `app/components/phrase-workspace.tsx`: Library/Practice session bootstrap and consistent account action.
-- `app/videos/page.tsx`: session bootstrap, D1 history/resume in account mode, local history/resume in guest mode.
-- `app/integrations/page.tsx`: protected Settings action with consistent Sign out wording.
-- `public/trainer.html`: session bootstrap, user-namespaced local mirror, throttled account progress upsert/flush.
-- `app/api/videos/route.ts`: progress validation and subject-scoped round-trip.
-- `db/schema.ts` plus a new numbered Drizzle migration: resume columns.
-- Cloudflare Access account application: add exact `/api/videos` destination while preserving existing policy/audience.
+- `lib/access-session.ts`: Access assertion extraction and cryptographic login identity verification only.
+- `lib/app-session.ts`: cookie parsing/encoding, Web Crypto token generation/hash, D1 create/resolve/revoke, and response-cookie helpers.
+- `worker/index.ts`: route classification, login exchange, public optional session, logout revocation, and internal identity propagation.
+- `lib/auth.ts`: ensures the Access-proven user at login and continues handler-level defense in depth.
+- `lib/client-session.ts` and `app/logout/page.tsx`: authoritative session probe and branded application logout without Cloudflare navigation.
+- `db/schema.ts` and migration: `app_sessions` table and indexes.
+- Settings, Videos, Trainer, Library/Practice: unchanged client contract around `/api/session`; Settings loads account APIs only after a real app session.
 
-## Design Decisions
+## Design Decisions and Alternatives
 
-### Chosen: public optional-session endpoint backed by verified Access tokens
+### Chosen: opaque server-side D1 sessions
 
-This makes the server session authoritative without forcing public pages behind Access. A browser cookie is not trusted as an ordinary cookie; it is treated as an alternate carrier for the same signed JWT and receives full `jose` verification.
+Only a random bearer token reaches the browser and only its hash reaches D1. Server deletion provides immediate revocation and requires no committed/runtime signing secret. The extra D1 lookup is acceptable for the current small learning application and gives a single auditable authorization boundary.
 
-### Rejected: keep the `localStorage` auth hint and patch individual pages
+### Rejected: continue using Access cookies plus a signed-out marker
 
-Fast for guests, but cannot distinguish stale/missing hints, login through Settings, another tab, token expiry, or logout consistently. It caused the current defect.
+It cannot provide true per-application logout because Access global SSO can reissue application tokens. It also couples every account API to an external path list, which already omitted Videos.
 
-### Rejected: protect every UI page with Access
+### Rejected: stateless signed application JWT
 
-It would make session detection trivial but violates the explicit public-product requirement.
+It removes a D1 read but makes logout unable to revoke a copied token without a denylist and introduces a long-lived signing secret. That is worse for this product's explicit logout requirement.
 
-### Chosen: application-owned signed-out marker over Access SSO
+### Deferred: direct Google OAuth
 
-Cloudflare application logout can remove the current application token, but an active global Access session can immediately issue another one. A host-only HttpOnly marker lets the application preserve the user's explicit guest choice across refresh/navigation without weakening JWT verification or making account APIs public. The marker carries no authority and can only remove privileges; explicit verified `/login` is the sole clearing path.
+Direct OAuth is conventional for a consumer product, but it requires separately managed Google credentials and callback configuration. The selected exchange keeps existing Google identity and achieves clean application session ownership now; a future provider migration changes only `/login`, not API authorization.
 
-### Chosen: retain the two current Access applications
+### Chosen: Access only on `/login`; preview-wide Access is administrative
 
-Live API readback shows one account application for `/login` and the main account APIs and one Settings application for `/integrations` and `/api/integrations`. Both use a 24-hour session, an `allow everyone` policy constrained by the configured Google IdP, domain-scoped HttpOnly authorization cookies, and distinct audiences already accepted by the production Worker. Branch preview aliases are protected by a third `preview_worker` Access application, so only the preview Worker configuration accepts that additional audience. This feature adds `/api/videos` to the account application but does not merge or delete Access applications. Cross-application navigation remains a required live smoke.
+Production/public UI and JSON APIs are never path-protected by Access. A branch-preview `preview_worker` application may remain owner-only for deployment confidentiality, but its assertion is ignored outside explicit `/login` and therefore cannot silently sign the product back in.
 
-Merging the applications was considered because one audience is simpler, but it would require a destructive policy/application migration unrelated to the proven defect. Keeping both preserves the current Settings boundary and rollback path.
+## Security and Reliability
 
-### Chosen: extend the existing idempotent video upsert
+- 256-bit Web Crypto tokens; SHA-256 hashes only in D1; constant-format cookie names and size bounds.
+- `__Host-`, HttpOnly, Secure, SameSite=Lax cookie prevents JavaScript access, subdomain setting, and normal cross-site POST attachment.
+- Access tokens, application tokens, hashes, cookies, user identifiers, and learning payloads are never logged.
+- All account SQL remains subject-scoped; session identity cannot come from query/body/client headers.
+- Session and auth responses are `no-store`; public documents retain existing cache behavior.
+- Fixed expiry avoids a D1 write on every request. Login and expired-token lookup prune stale sessions.
+- Migration is additive. Worker rollback may leave the unused session table safely in place.
 
-One endpoint owns both the history record and its last resume anchor. This avoids a POST/PATCH race on first entry and preserves current subject scoping/deduplication.
+## Rollout and Rollback
 
-### Chosen: immediate local mirror plus throttled D1 writes
+1. Apply the `app_sessions` migration to both preview and production D1.
+2. Deploy both Workers while the old Access routes still exist; this is required because one Access application currently covers both environments.
+3. Sign in once per environment to create and verify application sessions.
+4. Restrict the shared main Access application to exact `/login` production and stable-preview destinations.
+5. Remove `/integrations` and `/api/integrations` protection by deleting the redundant Settings Access application.
+6. Keep or narrow preview-wide Access as an administrative gate; verify it no longer determines product session state.
+7. Run guest, login, account API, video persistence, Settings, logout, refresh, and explicit re-login smoke in both environments.
 
-Local writes preserve responsive warm navigation. A trailing account sync at most every 15 seconds plus event flush bounds D1 volume while making cross-browser resume useful. Full observed-caption history and UI preferences stay local.
-
-### Rejected: write every caption callback to D1
-
-It produces unnecessary write amplification and couples storage load to provider callback frequency.
-
-## Non-Functional Requirements
-
-- Session and account responses are `no-store`; public documents keep their existing cache behavior.
-- JWTs, cookies, subjects, emails, caption text, queries, and progress bodies are never logged.
-- All account SQL includes the verified subject; guest requests perform zero D1 writes.
-- Session failure degrades to guest without redirect loops or page failure.
-- Progress requests remain below the Fetch keepalive body limit and are bounded by current payload limits.
-- Cross-device resume can lag continuous playback by at most the throttle window unless the final flush fails; the UI must not claim a successful server save after an error.
-- Migration is additive and backward-compatible. Rollback code tolerates the new columns remaining in D1.
-- Rollout order is migration, Worker/API code, Access `/api/videos` destination update, then authenticated smoke. Do not report D1 persistence before all four are verified.
+Rollback restores the previous Worker and Access application snapshots. The additive session table remains; deleting current sessions is acceptable and forces a clean login.

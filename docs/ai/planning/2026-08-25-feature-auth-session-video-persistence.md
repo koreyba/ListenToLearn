@@ -8,7 +8,7 @@ description: Dependency-ordered TDD delivery plan for authoritative auth state a
 
 ## Milestones
 
-- [x] Milestone 1 — Authoritative session boundary: safe login return targets, optional verified Access session, and consistent public-page account bootstrap.
+- [x] Milestone 1 — Authoritative session boundary: exchange verified Access login identity for revocable D1-backed Unmumble sessions.
 - [x] Milestone 2 — Account video persistence: additive D1 resume schema and subject-scoped API round-trip.
 - [x] Milestone 3 — Playback synchronization: user-isolated local mirror, throttled D1 progress, and Videos account restore.
 - [ ] Milestone 4 — Release readiness: lifecycle docs, full regression review, Access configuration, migration, and live smoke.
@@ -35,6 +35,14 @@ description: Dependency-ordered TDD delivery plan for authoritative auth state a
   - Outcome: logout sets a host-only HttpOnly guest marker before supplemental Access cleanup; session/account routing honors it until verified explicit `/login` clears it.
   - Dependencies: live reproduction showing application-domain Access logout was immediately reversed by global SSO.
   - Validation: red/green cookie/controller/redirect tests, Worker routing-order contract, sensitivity proof, and full local gates. Deployed refresh/navigation smoke remains in Task 4.4.
+- [x] **Task 1.5 — Replace the marker workaround with opaque D1 sessions.**
+  - Outcome: `/login` verifies Access once and rotates a 256-bit application session; `/api/session` and every account API authorize through a hashed D1 token; logout revokes the row and clears the cookie.
+  - Dependencies: approved architecture revision after the live Settings/global-SSO defect.
+  - Validation: red/green token, cookie, expiry, rotation, revocation, and Worker route tests; local migration readback.
+- [x] **Task 1.6 — Make Settings and legacy Integrations public UI shells.**
+  - Outcome: `/settings` remains guest after logout, `/integrations` redirects to it, and only `/api/integrations` requires the application session.
+  - Dependencies: Task 1.5 session resolver.
+  - Validation: guest route/UI tests and deployed logout → Settings smoke.
 
 ### Phase 2: D1 and video API
 
@@ -84,18 +92,18 @@ description: Dependency-ordered TDD delivery plan for authoritative auth state a
   - Outcome: additive migration order, Worker rollout, Access update/readback, aggregate-only D1 smoke, rollback, logs/metrics, and privacy rules are explicit.
   - Dependencies: Task 4.2.
   - Validation: runbook review against deployment/monitoring templates and current Cloudflare APIs.
-- [ ] **Task 4.4 — Apply and verify Cloudflare changes.**
-  - Outcome: preview/production D1 migration is applied; existing account Access app gains exact preview/production `/api/videos` destinations without policy/audience drift; deployed Worker receives authenticated video assertions; signed-out state survives refresh/navigation until explicit login.
+- [ ] **Task 4.4 — Apply and verify D1/Worker/Access changes.**
+  - Outcome: preview/production D1 migration is applied; the account Access app protects only exact `/login` destinations; the redundant Settings Access app is removed; account APIs use the Unmumble session; signed-out state survives every public navigation until explicit login.
   - Dependencies: publish/deploy authorization, review-ready commit/branch, Task 4.3.
-  - Validation: Access application GET readback, unauthenticated `/api/videos` Access redirect, authenticated session/API smoke, logout/refresh/navigation/re-login smoke, aggregate D1 row/progress delta, no guest write delta.
+  - Validation: Access application GET readback, public UI/API route matrix, authenticated session/API smoke, logout/refresh/Settings/re-login smoke, aggregate D1 session/video delta, no guest write delta.
 
 ## Dependencies
 
 - Session interfaces precede client bootstrap so all pages consume one contract.
 - Schema precedes API resume fields; API contract precedes trainer synchronization.
 - Initial history upsert includes progress to prevent a create-versus-progress race.
-- Access `/api/videos` destination and D1 migration must exist before production persistence can be claimed.
-- Cloudflare Access changes preserve the current application ID, audience, 24-hour session, destinations, and allow policy except for the two added video destinations.
+- The `app_sessions` migration and Worker session exchange must be deployed before Access protection is removed from account APIs.
+- Cloudflare Access keeps the existing Google identity/policy and main application audience, but its product destinations are reduced to exact `/login` routes.
 - No provider spike is needed: this feature keeps the accepted last-caption cold-restore contract and does not change YouGlish seek behavior.
 
 ## Timeline & Estimates
@@ -109,13 +117,13 @@ Execution is sequential by evidence, not by calendar date. A red test, reviewed 
 
 ## Risks & Mitigation
 
-- **Access cookie unavailable on an unprotected path:** keep `/login` as the explicit recovery path, test the actual production cookie/session endpoint before rollout, and fall back to a narrow signed application session design only if live evidence disproves the documented domain cookie behavior.
-- **Cross-application SSO mismatch:** Worker accepts both existing audiences; live Settings → public pages → account APIs smoke is release-blocking.
+- **Session bearer theft:** store only SHA-256 hashes, use a 256-bit `__Host-` HttpOnly cookie, fixed 30-day expiry, rotation, and server-side revocation.
+- **Access/application cutover gap:** the main Access app spans production and preview, so migrate and deploy both Workers first, create real app sessions in both, and only then narrow destinations; preserve exact pre-change snapshots for rollback.
 - **D1 write amplification:** throttle to 15 seconds, write only changed progress, flush once at meaningful exits.
 - **Pagehide delivery loss:** keep same-account local retry mirror and use a bounded keepalive request; never claim server persistence without D1 readback.
 - **Cross-account browser leakage:** derive account local keys from verified `sub`; never merge anonymous or another subject's mirror.
 - **Provider regression:** retain existing warm/cold fetch-count and caption-navigation suites unchanged.
-- **Access policy drift:** GET exact current application before update, patch from fresh representation, and compare app ID/audience/policy/destinations after update.
+- **Access policy drift:** GET exact current applications before mutation, preserve the main Google allow policy/audience, and verify that only `/login` remains product-protected.
 
 ## Resources Needed
 
@@ -126,4 +134,4 @@ Execution is sequential by evidence, not by calendar date. A red test, reviewed 
 
 ## Progress Summary
 
-Milestones 1–3 and the local release-readiness review are complete. A manual preview check exposed global Access SSO silently restoring the application session after the earlier branded logout; Task 1.4 now covers the durable application-level boundary. The fresh build plus full suite passes 176/176, and marker sensitivity fails when the exact marker condition is disabled and passes after restore. Authorized preview migrations `0010` and `0011` are applied with no pending migration. Deployed logout smoke, persistence-write/cross-browser smoke, and production rollout remain open, so Milestone 4 is not yet closed.
+Milestones 1–3 are complete. The marker workaround has been replaced with hashed, revocable D1 sessions; Settings is public; the focused red/green and sensitivity proof and fresh 178-test full gate pass. Migration `0012` is applied and read back in preview and production with no pending migrations. Task 4.4 remains: both Worker deployments, Access cutover/readback, and deployed smoke.

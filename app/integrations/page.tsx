@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { SiteNavigation } from "@/app/components/site-navigation";
-import { SIGN_OUT_HREF } from "@/lib/client-session";
+import {
+  accountSession,
+  signInHref,
+  SIGN_OUT_HREF,
+  type AccountSessionUser,
+} from "@/lib/client-session";
 
 type Integration = {
   provider: "deepl";
@@ -13,6 +18,7 @@ type Integration = {
 type IntegrationsResponse = { integrations?: Integration[]; error?: string };
 
 export default function IntegrationsPage() {
+  const [session, setSession] = useState<AccountSessionUser | null>(null);
   const [integration, setIntegration] = useState<Integration | null>(null);
   const [key, setKey] = useState("");
   const [loading, setLoading] = useState(true);
@@ -30,7 +36,9 @@ export default function IntegrationsPage() {
   useEffect(() => {
     void (async () => {
       try {
-        await loadStatus();
+        const currentSession = await accountSession();
+        setSession(currentSession);
+        if (currentSession) await loadStatus();
       } catch (reason) {
         setError(reason instanceof Error ? reason.message : "Could not check integrations.");
       } finally {
@@ -87,6 +95,47 @@ export default function IntegrationsPage() {
     ? "The key is encrypted and saved only for this account."
     : "The key is not configured yet.";
 
+  if (loading) {
+    return (
+      <>
+        <SiteNavigation active="settings" />
+        <main className="integrations-shell">
+          <p className="eyebrow">Connected speech trainer</p>
+          <h1>Settings</h1>
+          <p className="integrations-intro" role="status">Checking your account…</p>
+        </main>
+      </>
+    );
+  }
+
+  if (!loading && !session) {
+    return (
+      <>
+        <SiteNavigation
+          active="settings"
+          account={<a className="site-account-link" href={signInHref("/settings")}>Sign in with Google</a>}
+        />
+        <main className="integrations-shell">
+          <p className="eyebrow">Connected speech trainer</p>
+          <h1>Settings</h1>
+          <p className="integrations-intro">Your learning pages remain available in guest mode.</p>
+          <section className="integration-card" aria-labelledby="settings-sign-in-title">
+            <div className="integration-card-heading">
+              <div>
+                <p className="integration-label">Account settings</p>
+                <h2 id="settings-sign-in-title">Sign in to manage integrations</h2>
+                <p>Connect DeepL and keep its encrypted API key with your account.</p>
+              </div>
+            </div>
+            <div className="integration-actions">
+              <a className="site-account-link" href={signInHref("/settings")}>Sign in with Google</a>
+            </div>
+          </section>
+        </main>
+      </>
+    );
+  }
+
   return (
     <>
       <SiteNavigation
@@ -95,8 +144,8 @@ export default function IntegrationsPage() {
       />
       <main className="integrations-shell">
       <p className="eyebrow">Connected speech trainer</p>
-      <h1>Integrations</h1>
-      <p className="integrations-intro">Connect services that help you learn. Sign in with Google; keys are never returned to the browser after saving.</p>
+      <h1>Settings</h1>
+      <p className="integrations-intro">Connect services that help you learn. Keys are never returned to the browser after saving.</p>
 
       {error && <div className="notice error" role="alert">{error}</div>}
       {notice && <div className="notice success" role="status">{notice}</div>}

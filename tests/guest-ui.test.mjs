@@ -61,6 +61,29 @@ test("every account surface routes sign out through the branded app flow", async
   assert.match(sources[3], /loginLink\.href = "\/logout"/);
 });
 
+test("Settings stays guest after logout until the learner explicitly signs in", async () => {
+  const [settings, navigation, trainer, worker] = await Promise.all([
+    readFile(new URL("../app/integrations/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/site-navigation.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../public/trainer.html", import.meta.url), "utf8"),
+    readFile(new URL("../worker/index.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(settings, /accountSession/);
+  assert.match(settings, /signInHref\("\/settings"\)/);
+  assert.match(settings, /if \(!loading && !session\)/);
+  const loadingBranch = settings.indexOf("if (loading)");
+  const guestBranch = settings.indexOf("if (!loading && !session)");
+  assert.ok(
+    loadingBranch >= 0 && loadingBranch < guestBranch,
+    "Settings must not expose account controls before session discovery finishes",
+  );
+  assert.match(navigation, /href: "\/settings", label: "Settings"/);
+  assert.match(trainer, /href="\/settings">Settings</);
+  assert.match(worker, /new URL\("\/settings", requestUrl\)/);
+  assert.doesNotMatch(worker, /loginUrl\.searchParams\.set\("returnTo", pathname\)/);
+});
+
 test("worker sanitizes identity headers before allowing a guest request", async () => {
   const worker = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
   const guestBranch = worker.indexOf("if (!identity)");
@@ -78,22 +101,24 @@ test("worker resolves the optional session before generic public routing", async
 
   assert.ok(sessionBranch >= 0, "worker must expose the optional session endpoint");
   assert.ok(sessionBranch < publicBranch, "session must be resolved before generic public routing");
-  assert.match(worker, /verifyAccessIdentity\(request, env, \{ allowCookie: true \}\)/);
+  assert.match(worker, /resolveAppSession\(request, sessionStore/);
   assert.match(worker, /optionalSessionResponse\(identity\)/);
 });
 
-test("worker keeps explicit application logout authoritative over Access SSO", async () => {
+test("worker exchanges Access only at login and authorizes every account API with the app session", async () => {
   const worker = await readFile(new URL("../worker/index.ts", import.meta.url), "utf8");
-  const marker = worker.indexOf("const appSignedOut = hasAppSignedOutMarker(request)");
+  const login = worker.indexOf('pathname === "/login"');
   const session = worker.indexOf('pathname === "/api/session"');
   const publicRouting = worker.indexOf("if (isPublicGuestRequest(request))");
-  const signedOutBoundary = worker.indexOf("if (appSignedOut)", publicRouting);
-  const requiredIdentity = worker.indexOf("const identity = await verifyAccessIdentity(request, env);", signedOutBoundary);
+  const requiredIdentity = worker.indexOf("await resolveAppSession(request, sessionStore", publicRouting);
 
   assert.match(worker, /pathname === "\/api\/logout" && request\.method === "POST"/);
-  assert.ok(marker >= 0 && marker < session, "signed-out marker must override optional Access session");
-  assert.match(worker, /const identity = appSignedOut\s*\? null\s*:\s*await verifyAccessIdentity/);
-  assert.ok(signedOutBoundary > publicRouting, "public pages must remain available in guest mode");
-  assert.ok(requiredIdentity > signedOutBoundary, "signed-out account APIs must fail before Access identity is accepted");
-  assert.match(worker, /"Set-Cookie": clearAppSignedOutCookie\(\)/);
+  assert.ok(login >= 0 && login < session, "explicit login must own the Access exchange");
+  assert.match(worker, /verifyAccessIdentity\(request, env\)/);
+  assert.doesNotMatch(worker, /allowCookie/);
+  assert.ok(requiredIdentity > publicRouting, "account APIs must resolve the app session after public routing");
+  assert.match(worker, /issueAppSession\(request, identity, sessionStore/);
+  assert.match(worker, /revokeAppSession\(request, sessionStore\)/);
+  assert.doesNotMatch(worker, /hasAppSignedOutMarker/);
+  assert.doesNotMatch(worker, /cdn-cgi\/access\/logout/);
 });

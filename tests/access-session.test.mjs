@@ -7,7 +7,7 @@ import {
 } from "../lib/access-session.ts";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 
-test("Access assertion is authoritative and the application cookie is optional-session fallback only", () => {
+test("Access identity proof accepts only the assertion injected on explicit login", () => {
   const headerRequest = new Request("https://listen-to-learn.example/api/session", {
     headers: {
       "Cf-Access-Jwt-Assertion": "header-token",
@@ -15,14 +15,12 @@ test("Access assertion is authoritative and the application cookie is optional-s
     },
   });
   assert.equal(accessTokenFromRequest(headerRequest), "header-token");
-  assert.equal(accessTokenFromRequest(headerRequest, { allowCookie: true }), "header-token");
 
   const cookieRequest = new Request("https://listen-to-learn.example/api/session", {
     headers: { Cookie: "CF_Authorization=cookie-token; fake_CF_Authorization=forged" },
   });
   assert.equal(accessTokenFromRequest(cookieRequest), "");
-  assert.equal(accessTokenFromRequest(cookieRequest, { allowCookie: true }), "cookie-token");
-  assert.equal(accessTokenFromRequest(new Request("https://listen-to-learn.example/api/session"), { allowCookie: true }), "");
+  assert.equal(accessTokenFromRequest(new Request("https://listen-to-learn.example/login")), "");
 });
 
 test("optional session response is no-store and exposes only verified display identity", async () => {

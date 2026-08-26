@@ -9,6 +9,16 @@ export const users = sqliteTable("users", {
   updatedAt: text("updated_at").notNull(),
 });
 
+export const appSessions = sqliteTable("app_sessions", {
+  tokenHash: text("token_hash").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: text("created_at").notNull(),
+  expiresAt: text("expires_at").notNull(),
+}, (table) => [
+  index("idx_app_sessions_user").on(table.userId),
+  index("idx_app_sessions_expires").on(table.expiresAt),
+]);
+
 export const phrases = sqliteTable("phrases", {
   id: text("id").primaryKey(),
   text: text("text").notNull(),

@@ -15,16 +15,21 @@ description: Regression, ownership, persistence, and live Access verification fo
 
 ## Unit Tests
 
-### Access session and redirects
+### Access login exchange and application sessions
 
-- [x] Missing assertion/cookie produces no optional identity.
-- [x] Header token takes precedence on protected requests; cookie fallback is used only for optional browser session detection.
+- [x] Access JWT issuer, audience, signature, lifetime, and subject validation fails closed.
+- [x] Only `/login` consumes an Access assertion; ordinary requests ignore Access identity.
+- [x] Session token generation produces 32 random bytes encoded as bounded base64url; D1 stores only SHA-256.
+- [x] Exact application-cookie parsing rejects prefix/suffix/oversized/invalid tokens.
+- [x] Session creation rotates an existing token, prunes expired rows, and uses a fixed 30-day expiry.
+- [x] Session resolution returns the joined D1 user only for a known non-expired hash and deletes an expired matching row.
+- [x] Logout deletes the current hash before returning success and clears both current and legacy cookies.
 - [x] Malformed cookie parsing cannot inject another cookie value or trusted internal header.
 - [x] Safe `returnTo` accepts approved relative learning pages and rejects external/protocol-relative/unapproved/oversized values.
 - [x] Public route matrix includes `GET /api/session` but keeps account mutations protected.
-- [x] Logout marker parsing matches only the exact host cookie; set/clear attributes are HttpOnly, Secure, host-only, and no-store.
-- [x] Marker-bearing session discovery resolves guest before Access SSO identity; account APIs fail before required identity is accepted.
-- [x] Explicit verified login clears the marker and allows the protected Settings return target without allowing dot-segment/open redirects.
+- [x] Application cookie attributes are `__Host-`, HttpOnly, Secure, SameSite=Lax, path `/`, and bounded to 30 days.
+- [x] Legacy signed-out marker is ignored for authorization and cleared during login/logout rollout.
+- [x] Verified explicit login sets the application cookie and allows the public Settings return target without allowing dot-segment/open redirects.
 
 ### Video resume data
 
@@ -43,7 +48,9 @@ description: Regression, ownership, persistence, and live Access verification fo
 
 ## Integration Tests
 
-- [ ] Worker `GET /api/session` returns `no-store` guest JSON without identity and verified user JSON with a valid injected verifier fixture.
+- [ ] Worker `GET /api/session` returns `no-store` guest JSON without an app session and D1 user JSON with a valid app session.
+- [ ] Worker account routes use only the D1 app session; forged internal headers and Access assertions on non-login paths do not authorize.
+- [ ] Worker `/login` exchanges a verified Access identity for a rotated session; `/api/logout` revokes it.
 - [x] Library/Practice, Videos, and Trainer always probe session; none branches solely on `listen-to-learn-authenticated-v1`.
 - [x] Videos account bootstrap fetches `/api/videos`; guest bootstrap reads only bounded local history/progress.
 - [ ] Video POST creates one subject-owned row with progress and duplicate POST updates it without changing `created_at`.
@@ -51,20 +58,22 @@ description: Regression, ownership, persistence, and live Access verification fo
 - [x] Guest history and playback generate no call to protected video APIs.
 - [x] Migration/schema/rendered route contracts include all resume columns and existing unique/index ownership constraints.
 - [x] Sign out wording/action is consistent on Library, Practice, Videos, Trainer, and Settings.
-- [x] `/logout` is public, persists guest mode before supplemental Access cleanup, returns home without exposing Cloudflare HTML, and keeps marker failures inside the app.
+- [x] `/logout` is public, revokes only the Unmumble session, returns home without Access navigation, and keeps revocation failures inside the app.
+- [x] Settings stays public/guest after logout; legacy `/integrations` redirects to `/settings`.
 
 ## End-to-End Tests
 
 - [ ] Guest opens `/`, `/practice`, `/videos`, and `/trainer`; all render without Access navigation and show Sign in.
 - [ ] Sign in from Videos returns to Videos, shows Sign out, and loads account D1 history.
-- [ ] Sign in through Settings then navigate to each public page; every page recognizes the account.
+- [ ] Sign in through Settings then navigate to each public page; every page recognizes the D1 application session.
 - [ ] Account opens a video, advances captions, pauses/leaves, and a second browser/session restores the D1 caption anchor.
-- [ ] Sign out, revisit each public page, and verify guest state with no former-account data.
+- [ ] Sign out, revisit each public page including Settings, and verify guest state with no former-account data despite active Access global SSO.
 - [ ] Existing Full Video warm transition performs zero extra YouGlish fetches; cold restore performs at most one.
 
 ## Test Data
 
 - Deterministic Access identity fixtures for two subjects and two accepted audiences; tokens/verifiers are synthetic and contain no real account data.
+- Deterministic fake D1 session adapter plus generated opaque tokens; assertions never contain production cookies or token hashes.
 - In-memory/fake D1 rows for two users sharing the same YouTube ID to prove composite ownership.
 - Boundary fixtures for 11-character YouTube IDs, resume seconds, caption IDs/text, timestamps, and oversized payloads.
 - Existing YouGlish live-caption trace fixture remains unchanged for provider regression coverage.
@@ -83,25 +92,27 @@ description: Regression, ownership, persistence, and live Access verification fo
 - Red: synchronization tests failed on missing throttle/flush controller; later retry and stored-row normalization tests also failed before their implementations.
 - Red/green review regression: account history requests initially serialized `progress: null` when `localStorage` was unavailable; the focused Trainer contract failed before the fallback fix and passed after account payloads began omitting absent progress.
 - Red/green live-preview regression: the branch Access application audience was absent from preview Worker variables, reproducing the authenticated `/login` `401`; the deployment-config test fails when that audience is removed and also proves production is not widened.
-- Red/green logout regression: after the first branded flow, manual preview refresh reproduced immediate reauthentication from global Access SSO. New tests failed on the missing application marker/API, wrong logout sequence, missing Settings return target, and Worker override; the green flow makes the marker authoritative and Access cleanup supplemental.
+- Red for the final session redesign: seven focused failures captured the missing opaque-session module/table, Cloudflare logout removal, public Settings routing, audience narrowing, and login-only Access exchange.
+- Green for the final session redesign: 31 focused tests pass for token generation/hash, exact cookies, rotation/expiry/revocation, D1 storage contract, client logout, public Settings, and Worker route authority.
 - Green targeted suites cover Access JWT issuer/audience/expiry, cookie/header extraction, safe redirects, all client bootstraps, progress validation/freshness, controller timing/retry, migration contract, Trainer wiring, and Videos source selection.
-- Local Wrangler applied migrations `0000` through `0011`; pragma readback proved the four expected columns, defaults, and nullability.
+- Local Wrangler applied migrations through `0012`; pragma readback proved `app_sessions` columns, foreign key, and user/expiry indexes in addition to the video resume fields.
 - Remote preview Wrangler applied the two pending migrations, `0010` and `0011`. A fresh list reports no pending migrations; pragma readback proves `language`, `accent`, `resume_seconds`, `resume_caption_id`, `resume_caption_text`, and nullable `progress_updated_at` with the expected defaults.
+- Final rollout applied `0012_app_sessions.sql` to preview and production; production also applied its pending `0011`. Fresh remote lists report no pending migrations, and aggregate-safe pragma readback proves all four session columns plus primary-key, user, and expiry indexes in both databases.
 - Authenticated live-preview smoke after migration loads Practice without the former empty-JSON alert and loads Videos account history with a valid empty state and Sign out action.
-- The first full wildcard run passed 162/164 and exposed two obsolete assertions for the old no-progress signatures; both were reconciled with the intentional contract. The fresh logout follow-up build plus wildcard suite passes 176/176.
-- Regression sensitivity proof: temporarily routing the client probe to `/api/me` made its focused tests fail as expected. For the logout follow-up, temporarily disabling the exact signed-out marker value made `tests/app-session.test.mjs` fail 1/3; restoring it passed the focused 20/20 and full 176/176 suites.
+- The fresh final build and wildcard suite pass 178/178, followed by TypeScript, lint, feature-document lint, and diff checks.
+- Regression sensitivity proof: temporarily changing the required 43-character token length to 42 made all four opaque-session tests fail; restoring 43 passed 4/4 and the full 178/178 suite.
 
 ### Named remaining gaps
 
-- The current harness separately proves Access JWT verification, optional response shape, and Worker routing order, but does not execute the bundled Worker with an injected Access verifier. It also proves subject scoping from SQL/source contracts but does not execute `app/api/videos/route.ts` against a two-user D1 fixture. A future Worker integration harness should close these unchecked integration cases.
+- Pure session behavior is runtime-tested with a fake store and the D1 schema/store/Worker boundary has source-contract coverage. A full bundled-Worker/D1 integration harness remains desirable if Vinext permits handler and D1 injection.
 - No line/branch coverage reporter is configured. Coverage claims are therefore contract/test-case based, not a numeric line percentage.
-- The current signed-in preview session proves Practice and Videos account reads after the migration. Sign-in return from every surface, write/update/delete persistence, cross-browser restore, and live Sign out still require the remaining authorized deployment smoke.
+- The prior preview proved Practice and Videos account reads under the old Access-backed session. The new D1 application-session exchange, write/update/delete persistence, cross-browser restore, and live Sign out require the authorized deployment smoke.
 
 ## Manual Testing
 
 - Check desktop and mobile headers for consistent account action and no auth-state flicker that exposes account data.
 - Verify Google Access login from Library, Practice, Videos, Trainer, and Settings without entering credentials into automation.
-- Verify Sign out, refresh, and navigation across all public pages remain guest even while global Access SSO is active; verify protected APIs return `401` and Settings triggers explicit Sign in; then verify explicit Sign in restores the account.
+- Verify Sign out, refresh, and navigation across all public pages including Settings remain guest while global Access SSO is active; verify account APIs return Worker JSON `401`; then verify explicit Sign in creates a new application session.
 - Query only aggregate D1 counts/metadata before and after smoke; do not print subjects, email, queries, captions, or tokens.
 
 ## Performance Testing

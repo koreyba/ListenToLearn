@@ -1,60 +1,77 @@
 ---
 phase: deployment
 title: Authentication Session and Video Persistence Deployment
-description: Ordered D1, Worker, and Cloudflare Access rollout with exact readback and rollback gates
+description: D1 session migration, Worker rollout, Access login-only cutover, and verified rollback
 ---
 
 # Authentication Session and Video Persistence Deployment
 
 ## Infrastructure
 
-- Cloudflare Worker/Vinext application `listen-to-learn`; preview Worker `listen-to-learn-preview`.
+- Current production Worker `listen-to-learn`; preview Worker `listen-to-learn-preview`.
 - Production D1 `listen-to-learn-db`; preview D1 `listen-to-learn-preview-db`.
-- Existing Cloudflare Access account application `0d7ca644-4813-47a7-b973-bfa748141aff` and separate Settings application remain in place.
-- Production accepts the current account and Settings audiences. Preview alone additionally accepts the stable `preview_worker` Access application audience; no application merge or policy replacement is part of this release.
+- Main Google Access application `0d7ca644-4813-47a7-b973-bfa748141aff` becomes login-only.
+- Redundant Settings/Integrations Access application `3e672ae7-ea8a-4d57-8b8e-53f4716c30fa` is removed after Worker cutover.
+- Preview-wide Access application may remain an owner-only administrative gate. It is not an Unmumble session and its assertion is ignored outside `/login`.
+- Separate `unmumble-*` Workers/Access resources belong to the blue/green rename work and are not deleted by this feature.
 
 ## Release Preconditions
 
-- Review-ready branch with all gates in the testing doc green.
-- Explicit authorization for each remote mutation. Preview D1 migrations were authorized and applied on 2026-08-25; Access, preview promotion, and production rollout remain separately gated.
-- Fresh Access application GET readback immediately before mutation.
-- Real Google-authenticated browser session available for manual smoke; credentials/tokens are never copied into logs or automation.
+- Requirements/design/planning/testing docs validate and all local gates pass.
+- Fresh Access GET snapshots are saved without tokens/cookies before mutation.
+- `app_sessions` migration exists, applies locally, and is additive.
+- A real Google-authenticated browser is available for manual smoke; automation never enters or prints credentials.
+- Rollback Worker version and exact Access application representations are known.
 
 ## Ordered Rollout
 
-1. Capture aggregate-only preview D1 baseline: migration list, total `saved_videos`, rows with `progress_updated_at`.
-2. Apply every pending additive migration to preview D1. On 2026-08-25 this applied `0010_early_angel.sql` and `0011_tranquil_siren.sql`; a fresh migration-list readback is empty and all six added `saved_videos` columns match their expected defaults/nullability.
-3. Deploy the preview Worker through the repository's preview deployment command.
-4. Update the existing account Access application by adding only the exact preview and production `/api/videos` destinations. Preserve application ID, audience, 24-hour session, existing destinations, CORS/cookie settings, and policy.
-5. Read the Access application back and diff every field; stop on any drift beyond the two destinations.
-6. Preview smoke: guest public pages and optional session; unauthenticated `/api/videos` Access redirect; authenticated session, video create/progress/read/delete; Settings continuity; Sign out followed by refresh/navigation while global SSO remains active; explicit Sign in restores the account.
-7. Apply the additive migration to production D1 and read back schema.
-8. Deploy production Worker.
-9. Repeat the production smoke and aggregate D1 delta. Do not print subject, email, query, caption, cookie, or token values.
+### Database and Worker preparation
+
+1. Capture aggregate-only D1 baselines and list pending migrations in preview and production.
+2. Apply `app_sessions` to preview D1 and read back table/index metadata.
+3. Apply every pending migration to production D1 and read back table/index metadata.
+4. Deploy the preview Worker while existing Access routes remain.
+5. Deploy the same verified production Worker while existing Access routes remain.
+6. Visit explicit `/login` in each environment, verify an application session row is created, and verify `/api/session` plus one account API.
+
+Both Workers must be ready before the Access edit because the main Access application currently spans both environments.
+
+### Shared Access cutover and smoke
+
+1. Update the main Access application so its only product destinations are exact production and stable-preview `/login` paths. Preserve Google IdP, allow policy, audience, and session duration.
+2. Delete the redundant Settings/Integrations Access application after snapshotting it for rollback.
+3. Keep or narrow preview-wide Access as an operational gate; verify ordinary assertion injection does not create a product session.
+4. Read all remaining Access apps back and compare destinations/policies/audiences with the approved target.
+5. In preview and production, smoke guest pages, Settings, JSON `401`s, explicit login return, video/integration persistence, logout, refresh/navigation, and explicit re-login.
+6. Confirm aggregate session/video changes match only authenticated smoke; guest navigation causes no D1 delta.
 
 ## Validation Gates
 
-- Guest `GET /`, `/practice`, `/videos`, and `/trainer` remain `200`; `/integrations` remains Access-protected.
-- Guest `GET /api/session` returns `200`, `no-store`, `{ "user": null }`.
-- Unauthenticated `/api/videos` receives the Access flow rather than Worker `401`.
-- Authenticated `/api/session` returns a verified user; `/api/videos` create/read/update/delete succeeds and a second browser restores resume data.
-- Sign out via public `/logout` sets the application HttpOnly marker, invokes `/cdn-cgi/access/logout` as supplemental cleanup, returns to Library without exposing Cloudflare service HTML, and remains guest after refresh/navigation until explicit Sign in.
-- Aggregate D1 change matches the smoke and guest navigation causes no D1 delta.
+- Guest `GET /`, `/practice`, `/videos`, `/trainer`, and `/settings` return public UI without Access redirects.
+- Guest `GET /api/session` returns `200 no-store` with null user.
+- Guest account APIs return Worker JSON `401`, not Cloudflare redirect/HTML.
+- Explicit `/login` enters Access, returns to the allowlisted UI target, sets `__Host-unmumble_session`, and creates one hashed D1 session row.
+- The raw cookie value is absent from D1; expiry is at most 30 days.
+- Authenticated phrase/example/video/integration APIs resolve one D1 user; video write/read/update/delete and cross-browser resume pass.
+- Logout deletes the current D1 session, clears the cookie, stays branded, and Settings remains guest while Access global SSO is still active.
+- Explicit Sign in after logout creates a different session token/hash.
+- Main Access app protects only `/login`; redundant Settings app is absent; no unrelated Access app changed.
 
 ## Migration and Rollback
 
-- Migration is additive and compatible with old rows through defaults; backfill is unnecessary.
-- If schema application fails, stop before Worker deployment and investigate; do not hand-edit migration history.
-- If Worker behavior fails but schema is healthy, roll back the Worker version. Leave additive columns in place.
-- If Access routing fails, restore the exact pre-change Access application representation, then read back and verify. Do not delete either Access application.
-- If account data isolation or identity verification fails, immediately restore the previous Worker and Access configuration and suspend further smoke writes.
+- Migration is additive; old learning rows require no backfill.
+- If migration fails, stop before Worker deployment and do not edit migration history manually.
+- If Worker smoke fails before Access cutover, restore the previous Worker version.
+- If Access cutover fails, restore the main application from its exact snapshot and recreate the Settings application from its snapshot, then read back both.
+- If product authorization fails after cutover, restore Access first to close the gap, then roll back Worker.
+- `app_sessions` may remain after rollback. Deleting all session rows is explicitly allowed and forces clean login.
 
 ## Secrets and Privacy
 
-- `ACCESS_TEAM_DOMAIN` and accepted audiences stay in Worker variables; no new secret is introduced.
-- Access cookies/JWTs and Google credentials are never displayed or persisted in artifacts.
-- D1 verification uses counts/schema only unless a dedicated synthetic test account record is queried by a non-sensitive generated ID.
+- No new application secret is introduced. Session tokens use Web Crypto and only SHA-256 hashes are stored.
+- Access JWTs, application cookies, session hashes, Google credentials, subjects, emails, captions, and queries are never displayed in artifacts or logs.
+- D1 verification uses schema/index metadata and aggregate counts; browser smoke reports statuses and UI state only.
 
 ## Current Status
 
-Local implementation and local D1 migration verification are complete. PR #19 has an automatically uploaded branch preview version. Authorized preview D1 migrations `0010` and `0011` were applied on 2026-08-25; a fresh list reports no pending migrations, and authenticated Practice/Videos reads pass. The application-level logout follow-up awaits its new preview deployment and manual refresh/navigation confirmation. Persistence-write/cross-browser smoke and production rollout remain open.
+Migrations through `0012` are applied and read back in preview and production with no pending migrations. Both Worker deployments, shared Access cutover, and live smoke remain and must be proven in the order above.

@@ -31,7 +31,7 @@ test("unified site navigation exposes every primary section", async () => {
     ["/", "Library"],
     ["/practice", "Practice"],
     ["/videos", "Videos"],
-    ["/integrations", "Settings"],
+    ["/settings", "Settings"],
   ]) {
     assert.match(navigation, new RegExp(`href: "${href.replaceAll("/", "\\/")}"`));
     assert.match(navigation, new RegExp(`label: "${label}"`));
@@ -961,7 +961,7 @@ test("integrations keep provider keys server-side and expose only status", async
   assert.match(schema, /userId: text\("user_id"\)/);
 });
 
-test("Worker authenticates through Cloudflare Access and strips client identity headers", async () => {
+test("Worker exchanges Access login identity for a D1 application session and strips client identity", async () => {
   const worker = await readFile(
     new URL("../worker/index.ts", import.meta.url),
     "utf8",
@@ -974,11 +974,22 @@ test("Worker authenticates through Cloudflare Access and strips client identity 
     new URL("../lib/access-session.ts", import.meta.url),
     "utf8",
   );
+  const appSession = await readFile(
+    new URL("../lib/app-session.ts", import.meta.url),
+    "utf8",
+  );
+  const sessionStore = await readFile(
+    new URL("../lib/d1-app-sessions.ts", import.meta.url),
+    "utf8",
+  );
 
   assert.match(access, /jwtVerify/);
   assert.match(access, /Cf-Access-Jwt-Assertion/);
-  assert.match(access, /CF_Authorization/);
+  assert.doesNotMatch(access, /CF_Authorization/);
   assert.match(worker, /verifyAccessJwtIdentity/);
+  assert.match(worker, /issueAppSession/);
+  assert.match(worker, /resolveAppSession/);
+  assert.match(worker, /revokeAppSession/);
   assert.match(worker, /ACCESS_TEAM_DOMAIN/);
   assert.match(worker, /ACCESS_AUD/);
   assert.match(worker, /headers\.delete\(AUTHENTICATED_USER_HEADER\)/);
@@ -986,4 +997,7 @@ test("Worker authenticates through Cloudflare Access and strips client identity 
   assert.match(worker, /return unauthorizedResponse\(\)/);
   assert.match(context, /decodeUserContext/);
   assert.match(context, /AUTHENTICATED_USER_HEADER/);
+  assert.match(appSession, /crypto\.getRandomValues/);
+  assert.match(appSession, /crypto\.subtle\.digest\("SHA-256"/);
+  assert.match(sessionStore, /JOIN users/);
 });

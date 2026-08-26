@@ -1,91 +1,89 @@
 ---
 phase: requirements
 title: Authentication Session and Video Persistence Requirements
-description: Make authentication state consistent on every public page and persist signed-in video history and resume data in D1
+description: Public learning pages, application-owned sessions, and D1-backed personalized history
 ---
 
 # Authentication Session and Video Persistence Requirements
 
 ## Problem Statement
 
-ListenToLearn deliberately keeps Library, Practice, Videos, and Trainer public, while Settings and account APIs require Google authentication through Cloudflare Access. The public clients currently infer authentication from `listen-to-learn-authenticated-v1` in `localStorage` instead of asking an authoritative session boundary. This creates false guest states after a valid login, especially when entering through Settings, another tab, or a browser where the hint is absent or stale.
+Unmumble is a public learning application with optional personalization. Every learning page, including Settings, must remain usable as a guest. A learner who explicitly signs in with Google gets account-scoped phrases, examples, integrations, video history, and resume progress from D1.
 
-Videos has a second production defect. `/api/videos` is absent from the account Access application's protected paths. A live unauthenticated check therefore reaches the Worker without `Cf-Access-Jwt-Assertion` and returns `401` instead of entering the Access flow. Production D1 contains three user rows and zero `saved_videos` rows, consistent with signed-in video writes never reaching an authenticated route.
+The previous design used Cloudflare Access both as the Google identity broker and as the application's long-lived session boundary. Path-level Access applications protected different pages and APIs, while a Worker-side signed-out marker tried to override Access global SSO. This caused three systemic defects: Settings could silently reauthenticate a signed-out user before the Worker ran, `/api/videos` was omitted from the Access path list, and preview-wide Access made guest behavior dependent on infrastructure policy.
 
-The existing account video record stores the Continue Watching item in D1, but resume seconds and the last observed caption anchor were intentionally browser-local. The new product requirement supersedes that boundary: signed-in learning history must survive another browser/device; guests must remain browser-local.
+The product needs one clear ownership model: Cloudflare Access proves Google identity only during explicit login; Unmumble owns its session from that point onward.
 
 ## Goals & Objectives
 
 ### Goals
 
-- Keep `/`, `/practice`, `/videos`, and `/trainer` usable without login; keep `/integrations` protected.
-- Make every public page derive Sign in/Sign out and guest/account mode from a verified current session, never a client hint alone.
-- Make Sign in return to the public page where it started through a same-origin allowlisted `returnTo` value.
-- Make Sign out persist application guest mode, use the official Cloudflare Access application-domain logout endpoint as supplemental cleanup, then return to the public Library without exposing Cloudflare's service page.
-- Protect `/api/videos` with the same account Access policy as `/login`, `/api/me`, `/api/phrases`, `/api/examples`, and `/api/translate`.
-- Persist signed-in Continue Watching records, resume seconds, last observed caption ID/text, and progress timestamp in user-scoped D1 rows.
-- Keep guest video history and resume progress bounded in `localStorage`.
-- Preserve phrase progress, custom phrases, saved examples, and integrations as their existing D1-backed account data.
+- Keep `/`, `/practice`, `/videos`, `/trainer`, and `/settings` public and useful without login.
+- Keep account data and mutations available only through a valid Unmumble session.
+- Use the existing Google identity configured in Cloudflare Access without introducing another OAuth provider or client secret.
+- Accept an Access JWT only on explicit `/login`, then exchange it for a revocable application session.
+- Store only a cryptographic hash of the opaque session token in D1.
+- Make Sign out delete the server-side session and clear the host-only cookie without navigating to a Cloudflare service page.
+- Make refresh and navigation remain signed out until the learner explicitly selects Sign in again, even while Cloudflare global SSO remains active.
+- Persist signed-in video history, resume seconds, and the last observed caption anchor in subject-owned D1 rows; keep guest history browser-local.
+- Preserve the existing safe `returnTo`, phrase, example, integration, video-progress, and provider behavior.
 
 ### Non-goals
 
-- Making Settings or any user-owned mutation API public.
-- Automatically importing or merging guest phrases, clips, history, or resume progress into an account at login.
-- Persisting UI-only preferences such as sort order, playback speed, selected accent, panel state, or transient caption history in D1.
-- Persisting a full transcript or captions that the learner did not observe.
-- Guaranteeing exact-second cold YouGlish restore; the accepted contract remains restore at the last observed caption boundary.
-- Replacing Cloudflare Access with application-owned Google OAuth.
+- Direct Google OAuth or replacing Cloudflare Access as the upstream identity proof in this release.
+- Automatic guest-to-account history merge.
+- Persisting UI-only preferences such as sort order, playback speed, selected accent, or panel state.
+- Supporting authenticated PR branch previews for anonymous external reviewers. Preview-wide Access may remain an administrative gate, but it is not an Unmumble session.
+- Preserving current user/session data during the migration; the owner explicitly permits account/session data loss.
 
 ## User Stories & Use Cases
 
-- As a guest, I can open every learning page and use browser-local history without being forced to authenticate.
-- As a signed-in learner, I see the same account state and Sign out action on Library, Practice, Videos, and Trainer, regardless of which protected route established the Access session.
-- As a learner who chooses Sign in from Videos or Trainer, I return to that page after Google authentication instead of being forced to the Library.
-- As a signed-in learner, choosing `Continue in video` creates or refreshes one D1 history row for that YouTube video.
-- As a signed-in learner, my last observed caption anchor and approximate resume seconds are available on another browser/device.
-- As a guest, the same actions never create or update D1 rows.
-- As a learner who signs out, the next public page renders guest state and cannot read the former account's data.
-- As a learner with an active Cloudflare global SSO session, refresh/navigation after Sign out remains guest until I explicitly choose Sign in again.
+- As a guest, I can open every page and use browser-local learning history without an authentication redirect.
+- As a learner, I sign in explicitly with Google and return to the page where I started.
+- As a signed-in learner, every page reads one authoritative Unmumble session and the same account-scoped D1 data.
+- As a learner, Sign out immediately invalidates my server session, clears account state in the browser, and keeps me on the branded site.
+- As a signed-out learner, opening Settings or any other public page never creates a new application session.
+- As a learner with Cloudflare global SSO, only choosing Sign in again may create another Unmumble session.
+- As a signed-in learner, video history and resume progress are available on another browser after that browser signs in.
 
-### Edge cases
+### Edge Cases
 
-- Missing, malformed, expired, revoked, wrong-issuer, or wrong-audience Access token: session is guest and protected APIs fail closed.
-- A client forges `x-listen-to-learn-user` or identity headers: the Worker removes them before routing.
-- A malicious `returnTo` uses another origin, protocol-relative URL, encoded traversal, query injection, or an unapproved path: redirect to `/`.
-- Browser storage is unavailable: authoritative session detection and D1 persistence still work; guest state may remain in memory with a warning.
-- D1 progress write fails or the page closes during a write: same-browser progress remains in a bounded local mirror and the UI reports/safely retries later; it must not claim server persistence.
-- Account A signs out and Account B signs in in the same browser: local retry/progress keys are user-namespaced and never shown across accounts.
-- Duplicate history write for the same `videoId`: update one `(user_id, youtube_video_id)` row and retain its original `created_at`.
-- Invalid resume seconds/caption metadata: reject or normalize without damaging the existing valid history row.
+- Missing, malformed, expired, revoked, wrong-issuer, or wrong-audience Access assertion on `/login`: fail closed with `401` and create no user/session.
+- Access identity headers on any path other than `/login`: strip and ignore them.
+- Missing, malformed, unknown, or expired Unmumble session cookie: resolve guest; protected APIs return `401`.
+- A forged internal user header: strip before routing and derive identity only from the D1 session lookup.
+- A malicious `returnTo`: redirect to `/` unless it is a bounded same-origin allowlisted UI path.
+- Login when an old application session exists: revoke the old session and rotate to a new random token.
+- Logout with D1 unavailable: do not claim server revocation; return a retryable failure without exposing credentials.
+- Account A signs out and Account B signs in in the same browser: session rotation and user-namespaced retry keys prevent cross-account display.
+- Expired session records: reject immediately and remove opportunistically; new login also prunes expired records.
 
 ## Success Criteria
 
-- Fresh automated coverage proves Library/Practice, Videos, and Trainer probe an authoritative session and do not gate account bootstrap solely on `localStorage`.
-- A verified Access JWT supplied as the protected-route assertion or cryptographically verified application cookie resolves the same user; missing/invalid identity resolves guest.
-- `GET /api/session` is public, `no-store`, returns only verified current-user display/session data or `{ user: null }`, and never accepts query/body/client headers as identity.
-- Sign in links carry only safe relative return targets; successful `/login` redirects to the allowlisted target with a bootstrap marker.
-- `POST /api/logout` sets a host-only HttpOnly application marker; while present, `/api/session` returns guest and protected application APIs fail closed even if Access silently issues a fresh application token.
-- A verified explicit `/login` clears the application marker; ordinary public navigation never clears it.
-- All learning pages use consistent `Sign in with Google` / `Sign out` wording; Settings remains protected and exposes Sign out only after Access authentication.
-- `/api/videos` is covered by Cloudflare Access in preview and production; an unauthenticated live request receives an Access redirect, not the Worker's bare `401`.
-- D1 migration adds bounded resume fields to `saved_videos`; account GET/POST round-trips them under the verified subject.
-- During continuous playback, account progress writes are throttled to at most one background write per 15 seconds, with a final keepalive flush on pause/navigation/pagehide when data changed.
-- Guest history/progress performs zero D1 writes. Account A cannot read, update, or delete Account B history or progress.
-- Video cards use account resume data in account mode and guest local resume data in guest mode; account data can restore on a second browser.
-- Existing warm transition, one-fetch cold restore, caption controls, phrase/clip behavior, and optional DeepL behavior do not regress.
-- Feature lint, targeted red/green regression tests, full tests, typecheck, lint, build, migration checks, and live auth/D1 smoke all pass.
+- `GET /api/session` is public, `no-store`, and returns either the D1-resolved session user or `{ "user": null }`.
+- `/login` is the only application path that accepts `Cf-Access-Jwt-Assertion` as authority; `CF_Authorization` is never parsed by application code.
+- Successful `/login` verifies issuer, audience, signature, lifetime, and subject; ensures the D1 user; creates a 256-bit random opaque token; stores only its SHA-256 hash; and sets `__Host-unmumble_session` with `Path=/`, `HttpOnly`, `Secure`, and `SameSite=Lax`.
+- Application sessions have a fixed 30-day maximum lifetime and are revocable by deleting their D1 row.
+- All protected APIs authorize through the Unmumble session and never require Access path protection.
+- `POST /api/logout` deletes the current D1 session before clearing its cookie and returns branded JSON with `Cache-Control: no-store`.
+- Sign out, refresh, navigation, and Settings remain guest until explicit `/login` is selected again.
+- All UI routes are public at Cloudflare Access; the product Access application protects only exact `/login` destinations. A separate preview-wide administrative gate may protect branch previews.
+- The redundant Settings/Integrations Access application no longer protects UI or API paths.
+- Existing signed-out marker cookies are cleared during login/logout and are no longer consulted for authorization.
+- D1 migrations add `app_sessions` with token-hash primary key, user foreign key, expiry index, and timestamps; account data remains user-scoped.
+- Signed-in video GET/POST/DELETE and progress persistence work through the application session; guest actions cause zero D1 writes.
+- Targeted TDD, full tests, typecheck, lint, build, migration readback, Access readback, deployed guest smoke, and authenticated login/logout/persistence smoke pass.
 
 ## Constraints & Assumptions
 
-- Runtime remains Cloudflare Worker + Vinext + D1 + Cloudflare Access Free; no new paid service is introduced.
-- Access identity remains the verified JWT `sub`; email is display/legacy-migration data, not a mutable primary key.
-- Cloudflare documents that Access adds `Cf-Access-Jwt-Assertion` to protected origin requests and that the browser application token is a signed `CF_Authorization` cookie. The Worker may accept that cookie only after the same issuer/audience/signature verification used for the header.
-- Cloudflare exposes separate application and global Access cookies and does not support per-application logout from the global SSO session. The public `/logout` flow therefore sets an application-owned HttpOnly signed-out marker first, then requests application-domain `/cdn-cgi/access/logout` in the background. The marker, not Access token disappearance, is authoritative until explicit `/login` clears it.
-- Automatic guest-to-account merge stays explicitly deferred to avoid silently combining unrelated local and personal histories.
-- Learning/domain data is in scope for D1; presentation preferences remain browser-local by design.
+- Runtime remains Cloudflare Worker + Vinext + D1 + Cloudflare Access Free.
+- Access `sub` remains the stable D1 user ID; email and display name are mutable profile fields.
+- Session tokens use Web Crypto randomness and SHA-256; no application session secret is required or committed.
+- Cookie authentication uses `SameSite=Lax` and a `__Host-` cookie. Mutation APIs retain same-origin browser behavior and never accept identity from request bodies or query parameters.
+- Access global SSO may silently satisfy an explicit `/login`; that is acceptable because the user initiated Sign in. It must never create an application session during ordinary navigation.
+- Preview-wide Access is operational access control, not product authentication. Worker authorization ignores its assertion outside `/login`.
+- Destructive cleanup of current users/sessions is allowed, but migrations remain structurally reversible by Worker rollback and do not delete learning rows unless explicitly needed.
 
 ## Questions & Open Items
 
-No material product question remains. The chosen scope is: authoritative session on every learning page, no automatic guest merge, D1-backed account video history plus last-caption resume, and browser-local UI preferences.
-
-Deployment still requires an operational Cloudflare Access edit and live Google-session smoke. That change must preserve the current allow policy and audiences while adding `/api/videos`; it is not inferred from code deployment alone.
+No material product or architecture question remains. The approved target is an application-owned, D1-backed session exchanged from a verified Access Google identity only on explicit `/login`.

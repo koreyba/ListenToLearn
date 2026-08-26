@@ -1,7 +1,6 @@
 import { jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
 
 const ACCESS_ASSERTION_HEADER = "Cf-Access-Jwt-Assertion";
-const ACCESS_AUTHORIZATION_COOKIE = "CF_Authorization";
 const MAX_ACCESS_TOKEN_LENGTH = 16_384;
 
 export type VerifiedAccessIdentity = {
@@ -41,23 +40,8 @@ function boundedToken(value: string | null | undefined) {
   return token && token.length <= MAX_ACCESS_TOKEN_LENGTH ? token : "";
 }
 
-function cookieValue(header: string | null, name: string) {
-  if (!header) return "";
-  for (const part of header.split(";")) {
-    const separator = part.indexOf("=");
-    if (separator < 0 || part.slice(0, separator).trim() !== name) continue;
-    return boundedToken(part.slice(separator + 1));
-  }
-  return "";
-}
-
-export function accessTokenFromRequest(
-  request: Request,
-  options: { allowCookie?: boolean } = {},
-) {
-  const assertion = boundedToken(request.headers.get(ACCESS_ASSERTION_HEADER));
-  if (assertion || !options.allowCookie) return assertion;
-  return cookieValue(request.headers.get("Cookie"), ACCESS_AUTHORIZATION_COOKIE);
+export function accessTokenFromRequest(request: Request) {
+  return boundedToken(request.headers.get(ACCESS_ASSERTION_HEADER));
 }
 
 export function optionalSessionResponse(identity: VerifiedAccessIdentity | null) {

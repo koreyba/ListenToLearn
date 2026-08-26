@@ -19,6 +19,8 @@ const publicLoginReturnPaths = new Set([
   "/videos/",
   "/integrations",
   "/integrations/",
+  "/settings",
+  "/settings/",
 ]);
 
 export function isPublicGuestRequest(request: Request) {
@@ -33,6 +35,10 @@ export function isPublicGuestRequest(request: Request) {
     || pathname === "/practice/"
     || pathname === "/videos"
     || pathname === "/videos/"
+    || pathname === "/settings"
+    || pathname === "/settings/"
+    || pathname === "/integrations"
+    || pathname === "/integrations/"
     || pathname === "/logout"
     || pathname === "/api/session"
     || publicAssetPaths.has(pathname)

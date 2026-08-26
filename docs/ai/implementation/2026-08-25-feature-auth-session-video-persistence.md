@@ -1,90 +1,76 @@
 ---
 phase: implementation
 title: Authentication Session and Video Persistence Implementation
-description: Implemented trust boundary, D1 resume model, client mode selection, and throttled account synchronization
+description: Access login exchange, revocable D1 sessions, public learning UI, and account video resume
 ---
 
 # Authentication Session and Video Persistence Implementation
 
 ## Development Setup
 
-- Isolated worktree: `.worktrees/feature-auth-session-video-persistence` on branch `feature-auth-session-video-persistence`, based on `9683bdf`.
-- Dependencies installed with `npm ci`; baseline and final Vinext builds pass.
+- Isolated worktree: `.worktrees/feature-auth-session-video-persistence` on branch `feature-auth-session-video-persistence`.
 - Durable AI DevKit task: `121411b4-6fa8-41f4-99c6-c7477ebe2c89`.
-- Local D1 verification uses Wrangler's local state. PR #19 is published and Workers Builds uploaded its isolated branch preview version. Authorized preview D1 migrations `0010` and `0011` were applied and read back on 2026-08-25; no Access edit, preview promotion, production migration, or production deployment has been performed.
+- PR #19 already contains the earlier video-resume work; this revision replaces the interim signed-out marker with application-owned sessions.
+- Wrangler applied migration `0012` to local, preview, and production D1; production also applied its pending `0011`. Fresh lists report no pending migrations and both remote databases expose the expected `app_sessions` columns and indexes.
 
 ## Code Structure
 
-- `lib/access-session.ts`: bounded header/cookie token extraction, cryptographic Access JWT verification, and minimal optional-session response.
-- `lib/app-session.ts`: host-only HttpOnly signed-out marker parsing, set response, and explicit-login clearing cookie.
-- `lib/guest-access.ts`: public route matrix including `/logout`, plus bounded allowlisted `returnTo` normalization.
-- `lib/client-session.ts`: browser session probe, persistent application logout followed by supplemental Access cleanup, consistent links, and subject-namespaced progress keys.
-- `app/logout/page.tsx`: branded sign-out transition that returns to Library and exposes a retry state instead of Cloudflare service HTML.
-- `worker/index.ts`: public `GET/HEAD /api/session`, application logout override, explicit-login marker clearing, and verified identity propagation for account routes.
-- `lib/video-history.ts`: progress payload and stored-row normalization.
-- `db/schema.ts`, `drizzle/0011_tranquil_siren.sql`: additive resume columns.
-- `app/api/videos/route.ts`: subject-scoped GET/POST/DELETE with optional atomic progress upsert.
-- `public/video-progress-sync.js`: deterministic 15-second coalescing controller with changed-only writes, keepalive flush, and retained failed snapshot.
-- Library/Practice, Videos, Trainer, and Settings surfaces now use one Sign in/Sign out contract.
+- `lib/access-session.ts`: accepts only the Access assertion injected on explicit `/login` and verifies it cryptographically.
+- `lib/app-session.ts`: exact cookie parsing, 256-bit token issue, SHA-256 hashing, fixed expiry, rotation, resolution, revocation, and cookie helpers.
+- `lib/d1-app-sessions.ts`: injected D1 adapter for transactional rotation, user join, and revocation.
+- `worker/index.ts`: login exchange, public session probe, logout, public-route routing, and app-session authorization for every account API.
+- `db/schema.ts`, `drizzle/0012_app_sessions.sql`: hashed application-session table plus user and expiry indexes.
+- `lib/client-session.ts`, `app/logout/page.tsx`: branded application logout without Cloudflare logout navigation.
+- `/settings`: public shell that loads `/api/integrations` only after an application session; legacy `/integrations` redirects to it.
+- Existing video resume schema/API, throttled progress controller, and Library/Practice, Videos, and Trainer integrations remain intact.
 
-## Implementation Notes
+## Authoritative Session
 
-### Authoritative session
+1. The learner explicitly opens `/login?returnTo=...`; Cloudflare Access supplies a Google-backed assertion only there.
+2. The Worker verifies issuer, audience, signature, lifetime, and subject; it never accepts the Access cookie as product authorization.
+3. The Worker upserts the user and generates 32 Web Crypto random bytes.
+4. The raw unpadded base64url token is set only in `__Host-unmumble_session`; D1 stores only its SHA-256 hash.
+5. `/api/session` and account APIs hash the cookie and join the active session to `users`; client-supplied identity and Access headers are stripped.
+6. Login rotates the current browser session and prunes expired rows. Sessions have a fixed 30-day lifetime.
 
-- Public clients call `GET /api/session`; `listen-to-learn-authenticated-v1` has been removed as an authority.
-- The protected-request assertion remains authoritative. Only the optional session endpoint may fall back to the exact `CF_Authorization` cookie.
-- Cookie and assertion tokens pass the same `jose` issuer, audience, signature, expiry, and subject validation.
-- `/login` accepts only `/`, `/practice`, `/videos`, `/trainer`, or protected Settings return paths (including bounded trainer query data); all other targets return to `/`.
+The old `__Host-listen_to_learn_signed_out` cookie is no longer an authority. Login and logout clear it only for rollout compatibility.
 
-### Persistent application logout
+## Logout and Public Pages
 
-- `completeSignOut()` first posts to `/api/logout`; a non-success response leaves the branded retry state.
-- The Worker sets a `__Host-` HttpOnly marker with no identity or secret data. Marker-bearing optional session probes resolve guest, account APIs fail before Access identity is accepted, and Settings redirects through explicit login.
-- The official Access logout request is retained as best-effort cleanup, but global SSO cannot override the marker. A verified `/login` response clears it.
+- `completeSignOut()` posts only to `/api/logout`. It never calls `/cdn-cgi/access/logout`.
+- The Worker deletes the current token hash before returning success, clears both application cookies, and leaves the learner on Unmumble.
+- A revocation failure returns a no-store `503`; the branded page stays in a retryable error state instead of claiming success.
+- `/`, `/practice`, `/videos`, `/trainer`, `/settings`, and `/logout` are public UI. `/integrations` redirects to `/settings` before session resolution.
+- Guest clients keep bounded browser-local learning state. Signed-in clients use the existing subject-scoped D1 APIs.
 
-### Account video persistence
+## Account Video Persistence
 
-- `saved_videos` adds `resume_seconds`, `resume_caption_id`, `resume_caption_text`, and `progress_updated_at` without changing existing keys or indexes.
-- `POST /api/videos` validates origin and optional progress before D1 access. Omitted progress preserves existing resume fields; supplied progress updates them and a server timestamp in the same upsert.
-- `GET /api/videos` normalizes stored resume fields again before returning them.
-- Videos merges D1 progress with only the same subject's newer local retry mirror; guest mode uses the anonymous key.
+- `saved_videos` stores bounded resume seconds, caption ID/text, and progress timestamp per `(user_id, youtube_video_id)`.
+- POST validates optional progress and preserves existing resume fields when progress is omitted; GET normalizes stored values again.
+- The Trainer mirrors changes locally, starts at most one background account write per 15 seconds, flushes meaningful exits, and retains the latest failed snapshot for retry.
+- Videos uses D1 plus only the same subject's newer retry mirror for accounts; guests use anonymous local storage.
 
-### Trainer synchronization
+## Cloudflare Integration
 
-- Every observed full-video progress change is written to the current local mirror immediately.
-- The controller sends the first changed account snapshot immediately, coalesces later snapshots to one background start per 15 seconds, ignores an already-delivered identical snapshot, and retains a failed latest snapshot for retry.
-- Pause, leaving Full Video, popstate, and pagehide flush pending progress; pagehide uses Fetch `keepalive`.
-- The initial Full Video action includes current caption progress, avoiding a history-create/progress-update race.
-- If browser storage is unavailable, the account request omits `progress` instead of sending `null`, so the D1 Continue Watching row is still created or refreshed safely.
+- Production accepts only the main login application's audience. Preview additionally accepts the branch-preview administrative audience.
+- The main Access application is to protect exact production and stable-preview `/login` destinations only.
+- The redundant Settings/Integrations Access application is removed after the new Worker is deployed.
+- Separate `unmumble-*` blue/green resources are not changed by this feature.
 
-## Integration Points
+## Error Handling and Security
 
-- Cloudflare Access still owns Google login. Production accepts the existing account and Settings audiences; preview additionally accepts the verified `preview_worker` application audience without widening production.
-- Cloudflare Access configuration must add exact preview and production `/api/videos` destinations to the existing account application before release.
-- D1 migration `0011_tranquil_siren.sql` must precede the Worker deployment.
-- YouGlish restore behavior remains caption-boundary based; no provider fetch/seek contract was changed.
-
-## Error Handling
-
-- Invalid/missing session degrades public pages to guest mode; protected APIs remain fail-closed.
-- Failure to persist the signed-out marker is visible and retryable; failure of supplemental Access cleanup still leaves the application safely signed out.
-- Account page data failures keep the verified Sign out state and show an error instead of falsely showing Sign in.
-- Failed account progress sync leaves the subject-namespaced local mirror intact and displays a sync warning.
-- Invalid progress returns `400`; unexpected D1 failures return no-store `500` responses without logging request bodies or identity values.
-
-## Performance and Security
-
-- Optional session and account responses are `no-store`; static/public cache rules remain unchanged.
-- Progress payloads remain under the existing 16 KiB body limit and are bounded to seven days, 160 caption-ID characters, and 1,000 caption-text characters.
-- Every video SQL read/update/delete includes the verified subject; the client cannot supply identity.
-- Identity headers are stripped before guest routing; JWTs, cookies, subjects, emails, queries, captions, and request bodies are not logged.
-- The signed-out cookie is host-only, HttpOnly, Secure, SameSite=Lax, carries no privilege, and is cleared only after verified explicit login.
+- Missing/unknown/expired sessions render public pages as guest and return JSON `401` from account APIs.
+- D1 session lookup/create/revoke failure returns no-store `503`; it never falls back to Access identity.
+- Session and account responses are `no-store`; public document caching remains bounded by existing rules.
+- Tokens, hashes, cookies, Access JWTs, subjects, emails, captions, queries, and request bodies are not logged.
+- Cookie attributes are host-only by construction: `__Host-`, `Path=/`, HttpOnly, Secure, SameSite=Lax, no Domain.
+- Every account SQL operation remains scoped by the session-derived subject; neither request body nor client header supplies identity.
 
 ## Verification Snapshot
 
-- Red-first tests captured missing session bootstrap, D1 progress schema/API, synchronization, retry, and stored-row normalization.
-- The first full run discovered 164 tests; two obsolete expectations were updated for the intentional progress-aware signatures. The final review also caught and red/green-tested the unavailable-`localStorage` fallback. The later live logout reproduction added application-marker, client sequencing, safe Settings return, and Worker ordering coverage; the fresh build plus full suite passes 176/176.
-- Live PR preview diagnosis reproduced an authenticated `/login` `401`: Access issued the branch-preview application's audience while the deployed preview Worker accepted only the two production audiences. A red/green configuration test now requires the third audience in preview and rejects it in production.
-- `npx tsc --noEmit`, `npm run lint`, `npm run build`, feature lint, `git diff --check`, and local D1 migration/schema readback pass.
-- No P0/P1 code or design blocker remains in local review. The named runtime-harness and live-environment gaps remain explicit in the testing doc.
-- Remaining release evidence is operational: production migration, Access edit/readback, authenticated preview write/update/delete and cross-browser restore, deployed guest smoke, and aggregate remote D1 delta. Authenticated preview Practice/Videos reads now pass after the preview migration.
+- Red-first focused suite failed seven assertions for the intentionally missing D1-session architecture.
+- Green focused suite passes 31/31.
+- Sensitivity proof: changing the exact token length from 43 to 42 makes 4/4 session tests fail; restoring it passes 4/4.
+- Fresh full evidence: Vinext build and 178/178 tests pass, followed by `npx tsc --noEmit`, ESLint with only two generated-type warnings, AI DevKit feature lint, and `git diff --check`.
+- Local migration `0012` applies with no pending migrations; pragma readback proves its columns and indexes.
+- Remote preview and production migrations are complete. Remaining evidence is Worker deployment, Access cutover/readback, and deployed login/account/logout/Settings smoke.

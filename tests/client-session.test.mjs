@@ -6,7 +6,6 @@ import {
   completeSignOut,
   signInHref,
   APP_LOGOUT_HREF,
-  ACCESS_LOGOUT_HREF,
   SIGN_OUT_HREF,
 } from "../lib/client-session.ts";
 
@@ -33,10 +32,9 @@ test("account links preserve approved public return paths and keep logout inside
   assert.equal(signInHref("/trainer?phrase=get+it"), "/login?returnTo=%2Ftrainer%3Fphrase%3Dget%2Bit");
   assert.equal(SIGN_OUT_HREF, "/logout");
   assert.equal(APP_LOGOUT_HREF, "/api/logout");
-  assert.equal(ACCESS_LOGOUT_HREF, "/cdn-cgi/access/logout");
 });
 
-test("logout persists guest mode before clearing the Access session and returning home", async () => {
+test("logout revokes the Unmumble session and returns home without Access navigation", async () => {
   const calls = [];
   const completed = await completeSignOut(
     async (input, init) => {
@@ -53,11 +51,6 @@ test("logout persists guest mode before clearing the Access session and returnin
       cache: "no-store",
       credentials: "same-origin",
     }],
-    ["/cdn-cgi/access/logout", {
-      cache: "no-store",
-      credentials: "same-origin",
-      redirect: "manual",
-    }],
     ["navigate", "/"],
   ]);
 });
@@ -70,18 +63,4 @@ test("logout stays on the app error state when persistent guest mode cannot be s
   );
   assert.equal(completed, false);
   assert.deepEqual(navigations, []);
-});
-
-test("logout remains successful when supplemental Access logout is unavailable", async () => {
-  const calls = [];
-  const completed = await completeSignOut(
-    async (input) => {
-      calls.push(input);
-      if (input === "/api/logout") return Response.json({ signedOut: true });
-      return new Response("unavailable", { status: 503 });
-    },
-    (target) => calls.push(target),
-  );
-  assert.equal(completed, true);
-  assert.deepEqual(calls, ["/api/logout", "/cdn-cgi/access/logout", "/"]);
 });

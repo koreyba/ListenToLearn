@@ -1,4 +1,4 @@
-/** Cloudflare Worker entry point for the Unmumble application. */
+/** Cloudflare Worker entry point for Unmumble. */
 import handler from "vinext/server/app-router-entry";
 import { createRemoteJWKSet } from "jose";
 import { backfillTranslations } from "@/app/api/phrases/route";
@@ -221,7 +221,7 @@ const worker = {
       && request.method === "GET"
       && pathname === "/api/phrases"
       && !searchParams.has("id")
-      && response.headers.get("X-ListenToLearn-Backfill") === "1"
+      && response.headers.get("X-Unmumble-Backfill") === "1"
     ) {
       scheduleBackfill(identity.subject, forwardedRequest, ctx);
     }

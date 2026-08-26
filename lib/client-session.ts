@@ -11,7 +11,9 @@ type SessionFetcher = (
 
 export const SIGN_OUT_HREF = "/logout";
 export const APP_LOGOUT_HREF = "/api/logout";
-const YOUTUBE_PROGRESS_STORAGE_PREFIX = "listen-to-learn-youtube-progress-v1:";
+const YOUTUBE_PROGRESS_STORAGE_PREFIX = "unmumble-youtube-progress-v1:";
+const LEGACY_YOUTUBE_PROGRESS_STORAGE_PREFIX = "listen-to-learn-youtube-progress-v1:";
+const LEGACY_YOUTUBE_PROGRESS_STORAGE_KEY = "listen-to-learn-youtube-progress-v1";
 
 type SignOutNavigator = (target: string) => void;
 
@@ -40,6 +42,14 @@ export function signInHref(returnTo: string) {
 
 export function youtubeProgressStorageKey(userId: string | null | undefined) {
   return YOUTUBE_PROGRESS_STORAGE_PREFIX + (userId ? encodeURIComponent(userId) : "anonymous");
+}
+
+export function legacyYoutubeProgressStorageKeys(userId: string | null | undefined) {
+  const identity = userId ? encodeURIComponent(userId) : "anonymous";
+  return [
+    LEGACY_YOUTUBE_PROGRESS_STORAGE_PREFIX + identity,
+    LEGACY_YOUTUBE_PROGRESS_STORAGE_KEY,
+  ];
 }
 
 export async function accountSession(fetcher: SessionFetcher = fetch) {

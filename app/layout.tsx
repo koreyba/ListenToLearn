@@ -2,17 +2,17 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Connected Speech Trainer",
-  description: "An interactive trainer for understanding connected English speech with YouGlish examples.",
+  title: "Unmumble",
+  description: "Improve your English listening with real speech from YouGlish and Tatoeba.",
   other: { "codex-preview": "development" },
   openGraph: {
-    title: "Connected Speech Trainer",
+    title: "Unmumble",
     description: "Listen. Notice. Understand.",
     images: ["/og.png"],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Connected Speech Trainer",
+    title: "Unmumble",
     description: "Listen. Notice. Understand.",
     images: ["/og.png"],
   },

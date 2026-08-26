@@ -1,4 +1,5 @@
-export const YOUTUBE_PROGRESS_STORAGE_KEY = "listen-to-learn-youtube-progress-v1";
+export const YOUTUBE_PROGRESS_STORAGE_KEY = "unmumble-youtube-progress-v1";
+export const LEGACY_YOUTUBE_PROGRESS_STORAGE_KEYS = ["listen-to-learn-youtube-progress-v1"] as const;
 const MAX_PROGRESS_SECONDS = 604_800;
 const COMPLETION_THRESHOLD_SECONDS = 10;
 const MAX_PROGRESS_VIDEOS = 200;

@@ -1,12 +1,20 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "listen-to-learn",
+  "name": "unmumble-prod",
   "main": "worker/index.ts",
   "compatibility_date": "2026-08-23",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "unmumble.online",
+      "custom_domain": true
+    }
+  ],
   "vars": {
     "ACCESS_TEAM_DOMAIN": "listen-to-learn-koreyba.cloudflareaccess.com",
-    "ACCESS_AUD": "315a0118e28bc19c5d5cc5298a8fb4704ad351ebe58774f9966cd678458d8ff0"
+    "ACCESS_AUD": "9b29b79b8bca8308e4933c030f464d5a1da798497182652fe75a1fd304975a29"
   },
   "assets": {
     "directory": "./dist/client",
@@ -15,17 +23,19 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "listen-to-learn-db",
-      "database_id": "27fe4c19-48ce-4047-b5d5-f486cb9dc23c",
+      "database_name": "unmumble-prod-db",
+      "database_id": "9e187b50-9012-45d9-aeec-40a573e59d79",
       "migrations_dir": "./drizzle"
     }
   ],
   "env": {
     "preview": {
-      "name": "listen-to-learn-preview",
+      "name": "unmumble-preview",
+      "workers_dev": true,
+      "preview_urls": true,
       "vars": {
         "ACCESS_TEAM_DOMAIN": "listen-to-learn-koreyba.cloudflareaccess.com",
-        "ACCESS_AUD": "315a0118e28bc19c5d5cc5298a8fb4704ad351ebe58774f9966cd678458d8ff0,c3e7906e8ce42cf58b85e2c72d27df691fdb0fec681cedd8093ada530e9c2518"
+        "ACCESS_AUD": "85d7b3fcc999788239cf6f922a2bcf6b63be99dd2e05df2af5e66e7645bea1a4"
       },
       "assets": {
         "directory": "./dist/client",
@@ -34,8 +44,8 @@
       "d1_databases": [
         {
           "binding": "DB",
-          "database_name": "listen-to-learn-preview-db",
-          "database_id": "2c137ca2-8b12-498f-98df-127eaa39e6d8",
+          "database_name": "unmumble-preview-db",
+          "database_id": "0d361b44-60ef-4c5b-b2ea-fe9d4d5020f1",
           "migrations_dir": "./drizzle"
         }
       ]

@@ -5,7 +5,8 @@ import test from "node:test";
 test("signed-in trainer mirrors progress locally and throttles D1 writes", async () => {
   const trainer = await readFile(new URL("../public/trainer.html", import.meta.url), "utf8");
 
-  assert.match(trainer, /YOUTUBE_PROGRESS_STORAGE_KEY = "listen-to-learn-youtube-progress-v1:" \+ encodeURIComponent\(sessionUser\.id\)/);
+  assert.match(trainer, /YOUTUBE_PROGRESS_STORAGE_KEY = "unmumble-youtube-progress-v1:" \+ encodeURIComponent\(sessionUser\.id\)/);
+  assert.match(trainer, /LEGACY_YOUTUBE_PROGRESS_STORAGE_KEYS = \[\s*"listen-to-learn-youtube-progress-v1:" \+ encodeURIComponent\(sessionUser\.id\),\s*"listen-to-learn-youtube-progress-v1"\s*\]/);
   assert.match(trainer, /accountVideoProgressSync = window\.ListenToLearnVideoProgressSync\.create/);
   assert.match(trainer, /intervalMs: 15_000/);
   assert.match(trainer, /const payload = snapshot\.progress[\s\S]*?\{ \.\.\.snapshot\.origin, progress: snapshot\.progress \}/);

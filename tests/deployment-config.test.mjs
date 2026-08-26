@@ -19,18 +19,30 @@ const packageConfig = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
 );
 const PREVIEW_WORKER_ACCESS_AUD =
-  "c3e7906e8ce42cf58b85e2c72d27df691fdb0fec681cedd8093ada530e9c2518";
+  "85d7b3fcc999788239cf6f922a2bcf6b63be99dd2e05df2af5e66e7645bea1a4";
 const LOGIN_ACCESS_AUD =
-  "315a0118e28bc19c5d5cc5298a8fb4704ad351ebe58774f9966cd678458d8ff0";
-const LEGACY_SETTINGS_ACCESS_AUD =
-  "a68b687d83c86b363a5c14f609b7026721dc8c6c77b7293c4337390d5dc45341";
+  "9b29b79b8bca8308e4933c030f464d5a1da798497182652fe75a1fd304975a29";
 
-test("preview Wrangler environment has its own Worker name", () => {
-  assert.equal(sourceConfig.env?.preview?.name, "listen-to-learn-preview");
-  assert.equal(previewConfig.name, "listen-to-learn-preview");
+test("Unmumble environments have explicit Worker and D1 names", () => {
+  assert.equal(sourceConfig.name, "unmumble-prod");
+  assert.equal(sourceConfig.env?.preview?.name, "unmumble-preview");
+  assert.equal(previewConfig.name, "unmumble-preview");
   assert.equal(
     previewConfig.d1_databases[0].database_name,
-    "listen-to-learn-preview-db",
+    "unmumble-preview-db",
+  );
+  assert.equal(
+    previewConfig.d1_databases[0].database_id,
+    "0d361b44-60ef-4c5b-b2ea-fe9d4d5020f1",
+  );
+  assert.equal(productionConfig.name, "unmumble-prod");
+  assert.equal(
+    productionConfig.d1_databases[0].database_name,
+    "unmumble-prod-db",
+  );
+  assert.equal(
+    productionConfig.d1_databases[0].database_id,
+    "9e187b50-9012-45d9-aeec-40a573e59d79",
   );
 });
 
@@ -69,23 +81,24 @@ test("preview URLs stay enabled through Wrangler deployments", () => {
   assert.equal(previewConfig.preview_urls, true);
 });
 
+test("production routes the Unmumble domain to the Unmumble Worker", () => {
+  assert.deepEqual(productionConfig.routes, [
+    { pattern: "unmumble.online", custom_domain: true },
+  ]);
+});
+
 test("preview accepts its Access application without widening production", () => {
   const previewAudiences = previewConfig.vars.ACCESS_AUD.split(",");
   const sourcePreviewAudiences = sourceConfig.env.preview.vars.ACCESS_AUD.split(",");
   const productionAudiences = productionConfig.vars.ACCESS_AUD.split(",");
   const sourceProductionAudiences = sourceConfig.vars.ACCESS_AUD.split(",");
 
-  assert.ok(previewAudiences.includes(PREVIEW_WORKER_ACCESS_AUD));
-  assert.ok(sourcePreviewAudiences.includes(PREVIEW_WORKER_ACCESS_AUD));
-  assert.ok(!productionAudiences.includes(PREVIEW_WORKER_ACCESS_AUD));
-  assert.ok(!sourceProductionAudiences.includes(PREVIEW_WORKER_ACCESS_AUD));
+  assert.deepEqual(previewAudiences, [PREVIEW_WORKER_ACCESS_AUD]);
+  assert.deepEqual(sourcePreviewAudiences, [PREVIEW_WORKER_ACCESS_AUD]);
   assert.deepEqual(productionAudiences, [LOGIN_ACCESS_AUD]);
   assert.deepEqual(sourceProductionAudiences, [LOGIN_ACCESS_AUD]);
-  assert.deepEqual(new Set(previewAudiences), new Set([LOGIN_ACCESS_AUD, PREVIEW_WORKER_ACCESS_AUD]));
-  assert.deepEqual(new Set(sourcePreviewAudiences), new Set([LOGIN_ACCESS_AUD, PREVIEW_WORKER_ACCESS_AUD]));
-  for (const audiences of [previewAudiences, sourcePreviewAudiences, productionAudiences, sourceProductionAudiences]) {
-    assert.ok(!audiences.includes(LEGACY_SETTINGS_ACCESS_AUD));
-  }
+  assert.ok(!previewAudiences.includes(LOGIN_ACCESS_AUD));
+  assert.ok(!productionAudiences.includes(PREVIEW_WORKER_ACCESS_AUD));
 });
 
 test("production deploy is opt-in", () => {
@@ -108,5 +121,5 @@ test("production deploy is opt-in", () => {
     `${result.stdout}\n${result.stderr}`,
     /ALLOW_PRODUCTION_DEPLOY=1/,
   );
-  assert.equal(productionConfig.name, "listen-to-learn");
+  assert.equal(productionConfig.name, "unmumble-prod");
 });

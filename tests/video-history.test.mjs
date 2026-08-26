@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { youtubeProgressStorageKey } from "../lib/client-session.ts";
+import {
+  legacyYoutubeProgressStorageKeys,
+  youtubeProgressStorageKey,
+} from "../lib/client-session.ts";
 import { normalizeStoredVideoProgress, readVideoProgressInput } from "../lib/video-history.ts";
 
 test("missing account progress preserves an existing resume anchor", () => {
@@ -27,10 +30,18 @@ test("account video progress is bounded and normalized before D1 persistence", (
   }
 });
 
-test("progress retry mirrors are isolated for guests and Access subjects", () => {
-  assert.equal(youtubeProgressStorageKey(null), "listen-to-learn-youtube-progress-v1:anonymous");
-  assert.equal(youtubeProgressStorageKey("subject/A"), "listen-to-learn-youtube-progress-v1:subject%2FA");
+test("progress retry mirrors use Unmumble keys and recognize legacy keys", () => {
+  assert.equal(youtubeProgressStorageKey(null), "unmumble-youtube-progress-v1:anonymous");
+  assert.equal(youtubeProgressStorageKey("subject/A"), "unmumble-youtube-progress-v1:subject%2FA");
   assert.notEqual(youtubeProgressStorageKey("subject/A"), youtubeProgressStorageKey("subject/B"));
+  assert.deepEqual(legacyYoutubeProgressStorageKeys(null), [
+    "listen-to-learn-youtube-progress-v1:anonymous",
+    "listen-to-learn-youtube-progress-v1",
+  ]);
+  assert.deepEqual(legacyYoutubeProgressStorageKeys("subject/A"), [
+    "listen-to-learn-youtube-progress-v1:subject%2FA",
+    "listen-to-learn-youtube-progress-v1",
+  ]);
 });
 
 test("stored D1 progress is normalized again before it reaches the browser", () => {

@@ -1,4 +1,11 @@
-export const GUEST_LIBRARY_STORAGE_KEY = "listen-to-learn-guest-library-v1";
+export {
+  readMigratedStorage,
+  removeMigratedStorage,
+  writeMigratedStorage,
+} from "./browser-storage.ts";
+
+export const GUEST_LIBRARY_STORAGE_KEY = "unmumble-guest-library-v1";
+export const LEGACY_GUEST_LIBRARY_STORAGE_KEYS = ["listen-to-learn-guest-library-v1"] as const;
 
 export const guestStatuses = ["pick", "to_learn", "learning_now", "learnt"] as const;
 export type GuestPhraseStatus = (typeof guestStatuses)[number];

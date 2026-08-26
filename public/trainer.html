@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="color-scheme" content="dark" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
-  <title>Connected Speech Trainer</title>
+  <title>Unmumble</title>
   <style>
     :root {
       --bg: #0f1115;
@@ -1183,7 +1183,7 @@
 <body class="viewer-mode">
   <header class="site-navigation">
     <div class="site-navigation-inner">
-      <a class="site-brand" href="/" aria-label="ListenToLearn library">ListenToLearn</a>
+      <a class="site-brand" href="/" aria-label="Unmumble library">Unmumble</a>
       <nav class="site-primary-links" aria-label="Primary navigation">
         <a class="site-primary-link" href="/">Library</a>
         <a class="site-primary-link" href="/practice" aria-current="page">Practice</a>
@@ -1425,8 +1425,36 @@
     "use strict";
 
     const initialViewerParams = new URLSearchParams(window.location.search);
-    let YOUTUBE_PROGRESS_STORAGE_KEY = "listen-to-learn-youtube-progress-v1:anonymous";
+    let YOUTUBE_PROGRESS_STORAGE_KEY = "unmumble-youtube-progress-v1:anonymous";
+    let LEGACY_YOUTUBE_PROGRESS_STORAGE_KEYS = [
+      "listen-to-learn-youtube-progress-v1:anonymous",
+      "listen-to-learn-youtube-progress-v1"
+    ];
+    const GUEST_TRAINER_STORAGE_KEY = "unmumble-trainer-v1:anonymous";
+    const LEGACY_GUEST_TRAINER_STORAGE_KEYS = ["connected-speech-trainer-v1:anonymous"];
     const MAX_OBSERVED_CAPTIONS = 200;
+
+    function readMigratedStorage(currentKey, legacyKeys = []) {
+      const currentValue = localStorage.getItem(currentKey);
+      if (currentValue !== null) return currentValue;
+      for (const legacyKey of legacyKeys) {
+        const legacyValue = localStorage.getItem(legacyKey);
+        if (legacyValue === null) continue;
+        localStorage.setItem(currentKey, legacyValue);
+        return legacyValue;
+      }
+      return null;
+    }
+
+    function writeMigratedStorage(currentKey, legacyKeys, value) {
+      localStorage.setItem(currentKey, value);
+      legacyKeys.forEach(legacyKey => localStorage.setItem(legacyKey, value));
+    }
+
+    function removeMigratedStorage(currentKey, legacyKeys) {
+      localStorage.removeItem(currentKey);
+      legacyKeys.forEach(legacyKey => localStorage.removeItem(legacyKey));
+    }
 
     const BASE_PHRASES = [
       {"q":"I don't know if it's","p":"[I don't know] [if it's]","ipa":"aɪɾəˈnoʊ ɪfɪts","tag":"negation"},
@@ -1481,7 +1509,8 @@
       {"q":"d'you know what I mean","p":"[d'you know] [what I mean]","ipa":"dʒənoʊ wʌɾaɪmiːn","tag":"chunks"}
     ].map((item, i) => ({ ...item, id: `base-${i}` }));
 
-    let STORAGE_KEY = "connected-speech-trainer-v1:anonymous";
+    let STORAGE_KEY = GUEST_TRAINER_STORAGE_KEY;
+    let LEGACY_STORAGE_KEYS = [...LEGACY_GUEST_TRAINER_STORAGE_KEYS];
     const DEFAULT_STATE = {
       version: 2,
       done: [],
@@ -1516,7 +1545,7 @@
     let exampleMode = "all";
     let savedExampleSequenceKey = "";
     let savedExampleSequence = [];
-    const captionNavigation = window.ListenToLearnCaptionNavigation || null;
+    const captionNavigation = window.UnmumbleCaptionNavigation || null;
     let captionHistory = [];
     let captionHistoryIndex = -1;
     const captionVideoStates = new Map();
@@ -1744,7 +1773,7 @@
 
     function safeLoad() {
       try {
-        const raw = localStorage.getItem(STORAGE_KEY);
+        const raw = readMigratedStorage(STORAGE_KEY, LEGACY_STORAGE_KEYS);
         if (!raw) return cloneDefaultState();
         const parsed = JSON.parse(raw);
         return normalizeState(parsed);
@@ -1783,7 +1812,8 @@
       return s;
     }
 
-    const GUEST_LIBRARY_STORAGE_KEY = "listen-to-learn-guest-library-v1";
+    const GUEST_LIBRARY_STORAGE_KEY = "unmumble-guest-library-v1";
+    const LEGACY_GUEST_LIBRARY_STORAGE_KEYS = ["listen-to-learn-guest-library-v1"];
     const GUEST_STATUSES = new Set(["pick", "to_learn", "learning_now", "learnt"]);
     const GUEST_PROVIDERS = new Set(["youglish", "tatoeba"]);
 
@@ -1809,7 +1839,7 @@
     function safeLoadGuestLibrary() {
       const empty = createGuestLibrary();
       try {
-        const raw = localStorage.getItem(GUEST_LIBRARY_STORAGE_KEY);
+        const raw = readMigratedStorage(GUEST_LIBRARY_STORAGE_KEY, LEGACY_GUEST_LIBRARY_STORAGE_KEYS);
         if (!raw) return empty;
         const parsed = JSON.parse(raw) || {};
         const statuses = {};
@@ -1895,7 +1925,11 @@
 
     function saveGuestLibrary() {
       try {
-        localStorage.setItem(GUEST_LIBRARY_STORAGE_KEY, JSON.stringify(guestLibrary));
+        writeMigratedStorage(
+          GUEST_LIBRARY_STORAGE_KEY,
+          LEGACY_GUEST_LIBRARY_STORAGE_KEYS,
+          JSON.stringify(guestLibrary)
+        );
       } catch (error) {
         el.stateMessage.textContent = "Could not save guest library to this browser's localStorage.";
       }
@@ -2055,7 +2089,7 @@
 
     function saveState() {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        writeMigratedStorage(STORAGE_KEY, LEGACY_STORAGE_KEYS, JSON.stringify(state));
       } catch (err) {
         el.stateMessage.textContent = "Could not save state to this browser's localStorage.";
       }
@@ -3054,13 +3088,13 @@
     }
 
     function ensureYouglishApi() {
-      if (widgetReady || youglishScriptLoading || document.querySelector("script[data-listen-to-learn-youglish]")) return;
+      if (widgetReady || youglishScriptLoading || document.querySelector("script[data-unmumble-youglish]")) return;
       youglishScriptLoading = true;
       const script = document.createElement("script");
       script.src = "https://youglish.com/public/emb/widget.js";
       script.async = true;
       script.defer = true;
-      script.dataset.listenToLearnYouglish = "true";
+      script.dataset.unmumbleYouglish = "true";
       script.onload = () => { youglishScriptLoading = false; };
       script.onerror = () => {
         youglishScriptLoading = false;
@@ -3414,7 +3448,7 @@
       savedExampleIndex = 0;
       currentYouglishVideoId = "";
       el.viewerPhrase.textContent = query;
-      document.title = `${query} · Connected speech trainer`;
+      document.title = `${query} · Unmumble`;
       const url = new URL(window.location.href);
       url.search = "";
       url.searchParams.set("phrase", query);
@@ -3598,7 +3632,9 @@
 
     function readFullVideoProgress(videoId) {
       try {
-        const parsed = JSON.parse(localStorage.getItem(YOUTUBE_PROGRESS_STORAGE_KEY) || "null");
+        const parsed = JSON.parse(
+          readMigratedStorage(YOUTUBE_PROGRESS_STORAGE_KEY, LEGACY_YOUTUBE_PROGRESS_STORAGE_KEYS) || "null"
+        );
         const entry = parsed && parsed.videos && parsed.videos[videoId];
         if (!entry || !Number.isFinite(Number(entry.seconds))) return null;
         return {
@@ -3615,7 +3651,9 @@
     function writeFullVideoProgress(videoId, seconds, captionId, captionText) {
       if (!/^[A-Za-z0-9_-]{11}$/.test(videoId) || !Number.isFinite(Number(seconds))) return null;
       try {
-        const parsed = JSON.parse(localStorage.getItem(YOUTUBE_PROGRESS_STORAGE_KEY) || "null");
+        const parsed = JSON.parse(
+          readMigratedStorage(YOUTUBE_PROGRESS_STORAGE_KEY, LEGACY_YOUTUBE_PROGRESS_STORAGE_KEYS) || "null"
+        );
         const videos = parsed && parsed.videos && typeof parsed.videos === "object" ? parsed.videos : {};
         const progress = {
           seconds: Math.max(0, Number(seconds)),
@@ -3627,7 +3665,11 @@
         const newest = Object.entries(videos)
           .sort((left, right) => Date.parse(right[1].updatedAt || 0) - Date.parse(left[1].updatedAt || 0))
           .slice(0, 200);
-        localStorage.setItem(YOUTUBE_PROGRESS_STORAGE_KEY, JSON.stringify({ version: 1, videos: Object.fromEntries(newest) }));
+        writeMigratedStorage(
+          YOUTUBE_PROGRESS_STORAGE_KEY,
+          LEGACY_YOUTUBE_PROGRESS_STORAGE_KEYS,
+          JSON.stringify({ version: 1, videos: Object.fromEntries(newest) })
+        );
         return progress;
       } catch (_) {
         return null;
@@ -3688,7 +3730,7 @@
         document.title = `${fullVideoOrigin.originalQuery} · Full video`;
       } else {
         el.viewerPhrase.textContent = VIEWER_PHRASE;
-        document.title = `${VIEWER_PHRASE} · Connected speech trainer`;
+        document.title = `${VIEWER_PHRASE} · Unmumble`;
       }
       renderSource();
     }
@@ -4184,7 +4226,7 @@
     function exportState() {
       const payload = {
         exportedAt: new Date().toISOString(),
-        app: "connected-speech-trainer",
+        app: "unmumble",
         state
       };
 
@@ -4193,7 +4235,7 @@
       const a = document.createElement("a");
       const stamp = new Date().toISOString().slice(0, 10);
       a.href = url;
-      a.download = `connected-speech-trainer-${stamp}.json`;
+      a.download = `unmumble-${stamp}.json`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -4425,7 +4467,7 @@
     el.viewerPhrase = document.getElementById("viewerPhrase");
     el.backBtn = document.getElementById("backBtn");
     el.viewerPhrase.textContent = VIEWER_PHRASE;
-    document.title = `${VIEWER_PHRASE} · Connected speech trainer`;
+    document.title = `${VIEWER_PHRASE} · Unmumble`;
     el.backBtn.addEventListener("click", () => {
       if (history.length > 1) history.back();
       else window.location.href = "/";
@@ -4499,12 +4541,15 @@
 
     window.addEventListener("storage", event => {
       if (!trainerReady || isAuthenticated) return;
-      if (event.key === GUEST_LIBRARY_STORAGE_KEY) {
+      if ([GUEST_LIBRARY_STORAGE_KEY, ...LEGACY_GUEST_LIBRARY_STORAGE_KEYS].includes(event.key)) {
         guestLibrary = safeLoadGuestLibrary();
         VIEWER_PHRASE_STATUS = guestPhraseStatus(VIEWER_PHRASE_ID);
         void loadSavedExamples();
         renderExampleTools();
-      } else if (event.key === "connected-speech-trainer-v1:anonymous" && event.newValue === null) {
+      } else if (
+        [GUEST_TRAINER_STORAGE_KEY, ...LEGACY_GUEST_TRAINER_STORAGE_KEYS].includes(event.key)
+        && event.newValue === null
+      ) {
         state = cloneDefaultState();
         exampleMode = state.exampleMode;
         savedExampleSequenceKey = "";
@@ -4525,8 +4570,13 @@
 
       if (sessionUser) {
         isAuthenticated = true;
-        STORAGE_KEY = "connected-speech-trainer-v1:" + encodeURIComponent(sessionUser.id);
-        YOUTUBE_PROGRESS_STORAGE_KEY = "listen-to-learn-youtube-progress-v1:" + encodeURIComponent(sessionUser.id);
+        STORAGE_KEY = "unmumble-trainer-v1:" + encodeURIComponent(sessionUser.id);
+        LEGACY_STORAGE_KEYS = ["connected-speech-trainer-v1:" + encodeURIComponent(sessionUser.id)];
+        YOUTUBE_PROGRESS_STORAGE_KEY = "unmumble-youtube-progress-v1:" + encodeURIComponent(sessionUser.id);
+        LEGACY_YOUTUBE_PROGRESS_STORAGE_KEYS = [
+          "listen-to-learn-youtube-progress-v1:" + encodeURIComponent(sessionUser.id),
+          "listen-to-learn-youtube-progress-v1"
+        ];
         if (window.ListenToLearnVideoProgressSync) {
           accountVideoProgressSync = window.ListenToLearnVideoProgressSync.create({
             intervalMs: 15_000,
@@ -4556,12 +4606,8 @@
           if (!response.ok || !data) throw new Error("account data unavailable");
 
           accountPhraseData = data;
-          if (!localStorage.getItem(STORAGE_KEY) && data.user && data.user.legacyStateAvailable) {
-            const legacyState = localStorage.getItem("connected-speech-trainer-v1");
-            if (legacyState) {
-              localStorage.setItem(STORAGE_KEY, legacyState);
-              localStorage.removeItem("connected-speech-trainer-v1");
-            }
+          if (data.user && data.user.legacyStateAvailable) {
+            LEGACY_STORAGE_KEYS.push("connected-speech-trainer-v1");
           }
           state = safeLoad();
           exampleMode = state.exampleMode;
@@ -4574,7 +4620,8 @@
       }
 
       if (!isAuthenticated) {
-        STORAGE_KEY = "connected-speech-trainer-v1:anonymous";
+        STORAGE_KEY = GUEST_TRAINER_STORAGE_KEY;
+        LEGACY_STORAGE_KEYS = [...LEGACY_GUEST_TRAINER_STORAGE_KEYS];
         guestLibrary = safeLoadGuestLibrary();
         state = safeLoad();
         exampleMode = state.exampleMode;

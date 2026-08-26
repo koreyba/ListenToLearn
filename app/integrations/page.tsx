@@ -100,7 +100,7 @@ export default function IntegrationsPage() {
       <>
         <SiteNavigation active="settings" />
         <main className="integrations-shell">
-          <p className="eyebrow">Connected speech trainer</p>
+          <p className="eyebrow">Unmumble</p>
           <h1>Settings</h1>
           <p className="integrations-intro" role="status">Checking your account…</p>
         </main>
@@ -116,7 +116,7 @@ export default function IntegrationsPage() {
           account={<a className="site-account-link" href={signInHref("/settings")}>Sign in with Google</a>}
         />
         <main className="integrations-shell">
-          <p className="eyebrow">Connected speech trainer</p>
+          <p className="eyebrow">Unmumble</p>
           <h1>Settings</h1>
           <p className="integrations-intro">Your learning pages remain available in guest mode.</p>
           <section className="integration-card" aria-labelledby="settings-sign-in-title">
@@ -143,7 +143,7 @@ export default function IntegrationsPage() {
         account={<SignedInSiteAccount user={session} />}
       />
       <main className="integrations-shell">
-      <p className="eyebrow">Connected speech trainer</p>
+      <p className="eyebrow">Unmumble</p>
       <h1>Settings</h1>
       <p className="integrations-intro">Connect services that help you learn. Keys are never returned to the browser after saving.</p>
 

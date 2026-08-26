@@ -3,9 +3,20 @@
 import { useCallback, useEffect, useState } from "react";
 import { SignedInSiteAccount } from "@/app/components/signed-in-site-account";
 import { SiteNavigation } from "@/app/components/site-navigation";
-import { accountSession, signInHref, youtubeProgressStorageKey, type AccountSessionUser } from "@/lib/client-session";
+import {
+  accountSession,
+  legacyYoutubeProgressStorageKeys,
+  signInHref,
+  youtubeProgressStorageKey,
+  type AccountSessionUser,
+} from "@/lib/client-session";
+import {
+  readMigratedStorage,
+  writeMigratedStorage,
+} from "@/lib/browser-storage";
 import {
   GUEST_LIBRARY_STORAGE_KEY,
+  LEGACY_GUEST_LIBRARY_STORAGE_KEYS,
   normalizeGuestLibrary,
   removeGuestSavedVideo,
   type GuestLibraryState,
@@ -29,16 +40,24 @@ type VideosResponse = { videos?: SavedVideo[]; error?: string };
 
 function readGuestLibrary() {
   try {
-    const raw = window.localStorage.getItem(GUEST_LIBRARY_STORAGE_KEY);
+    const raw = readMigratedStorage(
+      window.localStorage,
+      GUEST_LIBRARY_STORAGE_KEY,
+      LEGACY_GUEST_LIBRARY_STORAGE_KEYS,
+    );
     return normalizeGuestLibrary(raw ? JSON.parse(raw) : null);
   } catch {
     return normalizeGuestLibrary(null);
   }
 }
 
-function readProgressState(storageKey: string) {
+function readProgressState(storageKey: string, legacyKeys: readonly string[]) {
   try {
-    const raw = window.localStorage.getItem(storageKey);
+    const raw = readMigratedStorage(
+      window.localStorage,
+      storageKey,
+      legacyKeys,
+    );
     return normalizeYouTubeProgress(raw ? JSON.parse(raw) : null);
   } catch {
     return normalizeYouTubeProgress(null);
@@ -79,6 +98,9 @@ export default function VideosPage() {
   const [videos, setVideos] = useState<SavedVideo[]>([]);
   const [progress, setProgress] = useState<Record<string, YouTubeProgressEntry>>({});
   const [progressStorageKey, setProgressStorageKey] = useState(() => youtubeProgressStorageKey(null));
+  const [progressLegacyStorageKeys, setProgressLegacyStorageKeys] = useState<readonly string[]>(
+    () => legacyYoutubeProgressStorageKeys(null),
+  );
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
   const [notice, setNotice] = useState("");
@@ -87,10 +109,12 @@ export default function VideosPage() {
   const loadGuest = useCallback(() => {
     const next = readGuestLibrary();
     const storageKey = youtubeProgressStorageKey(null);
-    const guestProgress = readProgressState(storageKey);
+    const legacyKeys = legacyYoutubeProgressStorageKeys(null);
+    const guestProgress = readProgressState(storageKey, legacyKeys);
     setMode("guest");
     setViewer(null);
     setProgressStorageKey(storageKey);
+    setProgressLegacyStorageKeys(legacyKeys);
     setGuestLibrary(next);
     setVideos(next.savedVideos);
     setProgress(guestProgress.videos);
@@ -100,9 +124,11 @@ export default function VideosPage() {
 
   const loadAccount = useCallback(async (sessionUser: AccountSessionUser) => {
     const storageKey = youtubeProgressStorageKey(sessionUser.id);
+    const legacyKeys = legacyYoutubeProgressStorageKeys(sessionUser.id);
     setMode("account");
     setViewer(sessionUser);
     setProgressStorageKey(storageKey);
+    setProgressLegacyStorageKeys(legacyKeys);
     try {
       const response = await fetch("/api/videos", { cache: "no-store" });
       const data = await response.json() as VideosResponse;
@@ -115,7 +141,7 @@ export default function VideosPage() {
           .filter((video) => video.progress?.updatedAt)
           .map((video) => [video.videoId, video.progress])),
       });
-      const mergedProgress = mergeYouTubeProgress(serverProgress, readProgressState(storageKey));
+      const mergedProgress = mergeYouTubeProgress(serverProgress, readProgressState(storageKey, legacyKeys));
       setProgress(mergedProgress.videos);
       setLoading(false);
       openLegacyDirectLink(mergedProgress.videos);
@@ -140,17 +166,29 @@ export default function VideosPage() {
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
-      if (event.key === GUEST_LIBRARY_STORAGE_KEY && mode === "guest") loadGuest();
-      if (event.key === progressStorageKey) setProgress(readProgressState(progressStorageKey).videos);
+      if (
+        [GUEST_LIBRARY_STORAGE_KEY, ...LEGACY_GUEST_LIBRARY_STORAGE_KEYS].includes(event.key || "")
+        && mode === "guest"
+      ) loadGuest();
+      if (
+        [progressStorageKey, ...progressLegacyStorageKeys].includes(event.key || "")
+      ) setProgress(readProgressState(progressStorageKey, progressLegacyStorageKeys).videos);
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [loadGuest, mode, progressStorageKey]);
+  }, [loadGuest, mode, progressLegacyStorageKeys, progressStorageKey]);
 
   function clearCurrentProgress(videoId: string) {
     const next = clearYouTubeProgress({ version: 1, videos: progress }, videoId);
     setProgress(next.videos);
-    try { window.localStorage.setItem(progressStorageKey, JSON.stringify(next)); } catch { /* optional mirror */ }
+    try {
+      writeMigratedStorage(
+        window.localStorage,
+        progressStorageKey,
+        progressLegacyStorageKeys,
+        JSON.stringify(next),
+      );
+    } catch { /* optional mirror */ }
   }
 
   function persistGuest(next: GuestLibraryState) {
@@ -158,7 +196,12 @@ export default function VideosPage() {
     setGuestLibrary(normalized);
     setVideos(normalized.savedVideos);
     try {
-      window.localStorage.setItem(GUEST_LIBRARY_STORAGE_KEY, JSON.stringify(normalized));
+      writeMigratedStorage(
+        window.localStorage,
+        GUEST_LIBRARY_STORAGE_KEY,
+        LEGACY_GUEST_LIBRARY_STORAGE_KEYS,
+        JSON.stringify(normalized),
+      );
     } catch {
       setError("Could not update the guest video library in this browser.");
     }

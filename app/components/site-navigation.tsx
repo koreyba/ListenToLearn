@@ -33,7 +33,19 @@ export function SiteNavigation({
             >{link.label}</Link>
           ))}
         </nav>
-        <div className="site-account">{account}</div>
+        <div className="site-account">
+          <button
+            aria-label="Change color theme"
+            aria-pressed="false"
+            className="theme-toggle"
+            data-theme-toggle
+            type="button"
+          >
+            <span aria-hidden="true" className="theme-toggle-sun">☀</span>
+            <span aria-hidden="true" className="theme-toggle-moon">☾</span>
+          </button>
+          {account}
+        </div>
       </div>
     </header>
   );

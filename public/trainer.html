@@ -3,24 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="color-scheme" content="dark" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" content="#0d1116" />
   <meta name="referrer" content="strict-origin-when-cross-origin" />
   <title>Unmumble</title>
   <style>
-    :root {
-      --bg: #0f1115;
-      --panel: #171a20;
-      --panel-2: #1d2129;
-      --line: #2a303a;
-      --text: #eef2f7;
-      --muted: #9aa5b1;
-      --accent: #7dd3fc;
-      --accent-2: #b6e8ff;
-      --ok: #89d9a6;
-      --danger: #ff9b9b;
-      --shadow: 0 10px 30px rgba(0,0,0,.28);
-      --radius: 16px;
-    }
+    :root { --radius: 16px; }
 
     * { box-sizing: border-box; }
     html {
@@ -28,18 +16,18 @@
       overflow-x: hidden;
       overflow-y: scroll;
       scroll-behavior: smooth;
-      scrollbar-color: #465160 #171a20;
+      scrollbar-color: var(--color-scrollbar) var(--color-surface);
       scrollbar-gutter: stable;
     }
 
     html::-webkit-scrollbar { width: 12px; }
-    html::-webkit-scrollbar-track { background: #171a20; }
+    html::-webkit-scrollbar-track { background: var(--color-surface); }
     html::-webkit-scrollbar-thumb {
-      background: #465160;
-      border: 3px solid #171a20;
+      background: var(--color-scrollbar);
+      border: 3px solid var(--color-surface);
       border-radius: 999px;
     }
-    html::-webkit-scrollbar-thumb:hover { background: #657487; }
+    html::-webkit-scrollbar-thumb:hover { background: var(--color-scrollbar-hover); }
 
     body {
       min-height: 100%;
@@ -47,7 +35,7 @@
       overflow-x: hidden;
       background: var(--bg);
       color: var(--text);
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: var(--app-ui-font);
       line-height: 1.45;
     }
 
@@ -68,9 +56,9 @@
       padding: 9px 12px;
     }
 
-    button:hover { border-color: #465160; }
+    button:hover { border-color: var(--color-border-strong); }
     button:focus-visible, input:focus-visible, select:focus-visible {
-      outline: 2px solid var(--accent);
+      outline: 2px solid var(--color-focus);
       outline-offset: 2px;
     }
 
@@ -89,8 +77,9 @@
 
     .back-button {
       flex: 0 0 auto;
-      background: transparent;
-      color: var(--accent-2);
+      border-color: var(--color-action-secondary-border);
+      background: var(--color-action-secondary-background);
+      color: var(--color-action-secondary-text);
     }
 
     .viewer-account-link {
@@ -130,7 +119,7 @@
       z-index: 20;
       margin: 0 -12px;
       padding: max(10px, env(safe-area-inset-top)) 12px 12px;
-      background: rgba(15,17,21,.96);
+      background: var(--color-sticky-background);
       backdrop-filter: blur(10px);
       border-bottom: 1px solid var(--line);
       display: grid;
@@ -145,20 +134,20 @@
       grid-area: workspace;
       min-width: 0;
       padding: 12px;
-      border: 1px solid rgba(69, 81, 96, .72);
+      border: 1px solid var(--color-border);
       border-radius: 16px;
-      background: linear-gradient(145deg, rgba(27,34,43,.96), rgba(16,20,26,.96));
-      box-shadow: 0 14px 34px rgba(0,0,0,.18);
+      background: var(--app-card-background);
+      box-shadow: var(--shadow-card);
     }
 
     .media-panel {
       grid-area: media;
       min-width: 200px;
       padding: 10px;
-      border: 1px solid rgba(69, 81, 96, .72);
+      border: 1px solid var(--color-border);
       border-radius: 16px;
-      background: linear-gradient(145deg, rgba(27,34,43,.96), rgba(16,20,26,.96));
-      box-shadow: 0 14px 34px rgba(0,0,0,.18);
+      background: var(--app-card-background);
+      box-shadow: var(--shadow-card);
     }
 
     .media-full-video-btn {
@@ -167,11 +156,11 @@
       gap: 7px;
       min-height: 44px;
       padding: 8px 13px;
-      border: 1px solid rgba(125, 211, 252, .72);
+      border: 1px solid var(--color-interactive-border);
       border-radius: 12px;
-      background: linear-gradient(135deg, #38bdf8, #7dd3fc);
-      color: #07131a;
-      box-shadow: 0 6px 18px rgba(56, 189, 248, .18), inset 0 1px 0 rgba(255, 255, 255, .38);
+      background: var(--color-interactive-surface);
+      color: var(--color-on-interactive);
+      box-shadow: 0 8px 20px var(--color-interactive-shadow), inset 0 1px 0 var(--color-overlay-strong);
       font-size: 12px;
       font-weight: 800;
       white-space: nowrap;
@@ -179,10 +168,10 @@
     }
 
     .media-full-video-btn:hover:not(:disabled) {
-      border-color: #b6e8ff;
+      border-color: var(--color-focus);
       filter: brightness(1.06);
       transform: translateY(-1px);
-      box-shadow: 0 9px 24px rgba(56, 189, 248, .24), inset 0 1px 0 rgba(255, 255, 255, .48);
+      box-shadow: var(--shadow-card), inset 0 1px 0 var(--color-overlay-strong);
     }
 
     .media-full-video-btn svg {
@@ -205,7 +194,7 @@
       width: 100%;
       min-height: 260px;
       min-width: 200px;
-      background: #000;
+      background: var(--color-media-canvas);
       border: 1px solid var(--line);
       border-radius: 14px;
       overflow: hidden;
@@ -235,10 +224,10 @@
       gap: 10px;
       margin-bottom: 9px;
       padding-bottom: 9px;
-      border-bottom: 1px solid rgba(69, 81, 96, .52);
+      border-bottom: 1px solid var(--color-border);
     }
     .source-row > span {
-      color: #c6d1dc;
+      color: var(--color-label);
       font-size: 11px;
       font-weight: 750;
       letter-spacing: .09em;
@@ -268,15 +257,15 @@
       min-height: 260px;
       padding: 22px;
       background:
-        radial-gradient(circle at 90% 15%, rgba(125,211,252,.14), transparent 34%),
-        linear-gradient(145deg, #111820, #090d12);
+        radial-gradient(circle at 90% 15%, var(--color-brand-soft), transparent 34%),
+        var(--color-provider-background);
       display: grid;
       align-content: center;
       gap: 15px;
     }
     .tatoeba-player[hidden] { display: none; }
     .tatoeba-kicker {
-      color: var(--accent);
+      color: var(--color-label);
       font-size: 12px;
       font-weight: 800;
       letter-spacing: .1em;
@@ -304,12 +293,12 @@
     .tatoeba-timeline::-webkit-slider-runnable-track {
       height: 7px;
       border-radius: 999px;
-      background: linear-gradient(to right, var(--accent) var(--progress, 0%), #29313b var(--progress, 0%));
+      background: linear-gradient(to right, var(--accent) var(--progress, 0%), var(--color-range-track) var(--progress, 0%));
     }
     .tatoeba-timeline::-moz-range-track {
       height: 7px;
       border-radius: 999px;
-      background: linear-gradient(to right, var(--accent) var(--progress, 0%), #29313b var(--progress, 0%));
+      background: linear-gradient(to right, var(--accent) var(--progress, 0%), var(--color-range-track) var(--progress, 0%));
     }
     .tatoeba-timeline::-webkit-slider-thumb {
       appearance: none;
@@ -336,7 +325,7 @@
       color: var(--muted);
       font-size: 12px;
     }
-    .tatoeba-meta a { color: #b9dbea; }
+    .tatoeba-meta a { color: var(--color-link); }
 
     .player-controls {
       display: flex;
@@ -344,10 +333,10 @@
       gap: 4px;
       margin-top: 0;
       padding: 6px;
-      border: 1px solid rgba(86, 102, 119, .42);
+      border: 1px solid var(--color-border);
       border-radius: 16px;
-      background: linear-gradient(180deg, rgba(20, 27, 35, .98), rgba(13, 18, 24, .98));
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035), 0 8px 22px rgba(0, 0, 0, .18);
+      background: var(--color-surface);
+      box-shadow: inset 0 1px 0 var(--color-overlay-soft), var(--shadow-soft);
     }
 
     .control-group {
@@ -371,7 +360,9 @@
     .control-group button:disabled,
     .caption-navigation button:disabled {
       cursor: not-allowed;
-      opacity: .3;
+      background: var(--color-action-disabled-background);
+      color: var(--color-action-disabled-text);
+      opacity: .64;
     }
 
     .player-controls button {
@@ -383,10 +374,10 @@
       min-width: 0;
       min-height: 44px;
       padding: 8px 5px;
-      border: 1px solid transparent;
+      border: 1px solid var(--color-control-border);
       border-radius: 11px;
-      background: transparent;
-      color: #b9c5d0;
+      background: var(--color-control-background);
+      color: var(--color-action-secondary-text);
       font-size: 13px;
       font-weight: 650;
       white-space: nowrap;
@@ -422,18 +413,18 @@
     .player-controls .button-label { display: none; }
 
     .player-controls button:hover:not(:disabled) {
-      border-color: rgba(125, 211, 252, .16);
-      background: #202a35;
+      border-color: var(--color-border-strong);
+      background: var(--color-control-background-hover);
       color: var(--text);
     }
 
     .player-controls button:active:not(:disabled) { transform: scale(.96); }
 
     #repeatCaptionBtn[aria-pressed="true"] {
-      border-color: rgba(125, 211, 252, .52);
-      background: linear-gradient(135deg, #1f5a70, #17475a);
-      color: #f1fbff;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12), 0 4px 14px rgba(23, 71, 90, .35);
+      border-color: var(--color-interactive-border);
+      background: var(--color-interactive-surface);
+      color: var(--color-on-interactive);
+      box-shadow: inset 0 1px 0 var(--color-overlay-strong), var(--shadow-soft);
     }
 
     .example-tools {
@@ -443,10 +434,10 @@
       gap: 4px;
       margin-top: 9px;
       padding: 6px;
-      border: 1px solid rgba(86, 102, 119, .42);
+      border: 1px solid var(--color-border);
       border-radius: 16px;
-      background: linear-gradient(180deg, rgba(20, 27, 35, .98), rgba(13, 18, 24, .98));
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035), 0 8px 22px rgba(0, 0, 0, .18);
+      background: var(--color-surface);
+      box-shadow: inset 0 1px 0 var(--color-overlay-soft), var(--shadow-soft);
     }
 
     .example-tools[hidden] { display: none; }
@@ -479,43 +470,43 @@
       min-height: 44px;
       padding-left: 7px;
       padding-right: 7px;
-      border: 1px solid transparent;
+      border: 1px solid var(--color-control-border);
       border-radius: 11px;
-      background: transparent;
-      color: #aebbc7;
+      background: var(--color-control-background);
+      color: var(--color-action-secondary-text);
       font-size: 13px;
       font-weight: 650;
       white-space: nowrap;
     }
 
     .example-settings .segmented button:hover:not(:disabled) {
-      border-color: rgba(125, 211, 252, .12);
-      background: rgba(125, 211, 252, .06);
-      color: #eef7fb;
+      border-color: var(--color-border-strong);
+      background: var(--color-control-background-hover);
+      color: var(--color-text-primary);
     }
 
     .example-settings .segmented button.active {
-      border-color: rgba(125, 211, 252, .18);
-      background: rgba(125, 211, 252, .11);
-      color: #dff7ff;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .045);
+      border-color: var(--color-interactive-border);
+      background: var(--color-interactive-soft-hover);
+      color: var(--color-interactive);
+      box-shadow: inset 0 1px 0 var(--color-overlay-soft);
     }
 
     .save-example-btn {
       min-width: 118px;
-      border: 1px solid transparent;
+      border: 1px solid var(--color-control-border);
       border-radius: 11px;
-      background: transparent;
-      color: #aebbc7;
+      background: var(--color-control-background);
+      color: var(--color-action-secondary-text);
       box-shadow: none;
       font-size: 13px;
       font-weight: 650;
     }
 
     .save-example-btn:hover:not(:disabled) {
-      border-color: rgba(125, 211, 252, .12);
-      background: rgba(125, 211, 252, .06);
-      color: #eef7fb;
+      border-color: var(--color-border-strong);
+      background: var(--color-control-background-hover);
+      color: var(--color-text-primary);
     }
 
     .example-actions {
@@ -526,7 +517,7 @@
       gap: 4px;
       max-width: 430px;
       padding-left: 4px;
-      border-left: 1px solid rgba(86, 102, 119, .28);
+      border-left: 1px solid var(--color-border);
     }
 
     .example-actions button {
@@ -541,21 +532,24 @@
       padding: 0 5px;
       place-items: center;
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.1);
+      background: var(--color-overlay-soft);
       font-size: 11px;
     }
 
     .save-example-btn.saved {
-      border-color: rgba(125, 211, 252, .18);
-      background: rgba(125, 211, 252, .11);
-      color: #dff6ff;
+      border-color: var(--color-interactive-border);
+      background: var(--color-interactive-soft-hover);
+      color: var(--color-interactive);
     }
 
     .save-example-btn:disabled,
     .example-actions button:disabled,
     .example-mode button:disabled {
       cursor: not-allowed;
-      opacity: 0.5;
+      border-color: var(--color-control-border);
+      background: var(--color-action-disabled-background);
+      color: var(--color-action-disabled-text);
+      opacity: .72;
     }
 
     .example-message {
@@ -569,10 +563,10 @@
     .example-message.error { color: var(--danger); }
 
     .slow-playback-btn[aria-pressed="true"] {
-      border-color: rgba(125, 211, 252, .34) !important;
-      background: #253d4d !important;
-      color: #7dd3fc;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08);
+      border-color: var(--color-interactive-border) !important;
+      background: var(--color-interactive-soft-hover) !important;
+      color: var(--color-interactive);
+      box-shadow: inset 0 1px 0 var(--color-overlay-soft);
     }
 
     .control-select {
@@ -588,10 +582,10 @@
       min-width: 0;
       min-height: 44px;
       padding: 8px 5px;
-      border: 1px solid transparent;
+      border: 1px solid var(--color-control-border);
       border-radius: 11px;
-      background: transparent;
-      color: #b9c5d0;
+      background: var(--color-control-background);
+      color: var(--color-action-secondary-text);
       font-size: 12px;
       font-weight: 700;
       text-align: center;
@@ -600,9 +594,9 @@
     }
 
     .control-select:hover select {
-      border-color: rgba(125, 211, 252, .16);
-      background: rgba(125, 211, 252, .06);
-      color: #eef7fb;
+      border-color: var(--color-border-strong);
+      background: var(--color-control-background-hover);
+      color: var(--color-text-primary);
     }
 
     .control-select[hidden] { display: none; }
@@ -621,7 +615,7 @@
       margin-top: 8px;
       padding: 12px;
       background: var(--panel);
-      border: 1px solid var(--line);
+      border: 1px solid var(--color-card-border);
       border-radius: 14px;
     }
 
@@ -631,7 +625,7 @@
       justify-content: space-between;
       gap: 10px;
       margin-bottom: 8px;
-      color: var(--muted);
+      color: var(--color-label);
       font-size: 12px;
       text-transform: uppercase;
       letter-spacing: .06em;
@@ -653,14 +647,14 @@
     }
     .caption-word:hover,
     .caption-word:focus-visible {
-      background: #263640;
+      background: var(--color-interactive-soft-hover);
       color: var(--accent-2);
       outline: none;
     }
     .caption-word.query-word {
       color: var(--accent-2);
       text-decoration: underline;
-      text-decoration-color: #52788d;
+      text-decoration-color: var(--color-interactive-border);
       text-underline-offset: 3px;
     }
 
@@ -717,8 +711,8 @@
       display: none;
       margin-top: 8px;
       padding: 10px 12px;
-      background: #25191b;
-      border: 1px solid #5a3036;
+      background: var(--color-danger-background);
+      border: 1px solid var(--color-danger-border);
       border-radius: 12px;
       font-size: 14px;
     }
@@ -756,7 +750,7 @@
     .phrase-pattern {
       margin-top: 12px;
       font-size: 19px;
-      color: #dbe4ee;
+      color: var(--color-text-primary);
       line-height: 1.9;
     }
 
@@ -774,15 +768,15 @@
       right: 4%;
       bottom: .02em;
       height: .34em;
-      border-bottom: 1px solid #748496;
+      border-bottom: 1px solid var(--color-border-strong);
       border-radius: 0 0 50% 50%;
       pointer-events: none;
     }
 
     .ipa {
       margin-top: 10px;
-      color: var(--accent);
-      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      color: var(--color-phonetic);
+      font-family: var(--app-phonetic-font);
       font-size: clamp(18px, 5vw, 24px);
       overflow-wrap: anywhere;
     }
@@ -840,12 +834,12 @@
 
     .segmented {
       display: inline-flex;
-      background: #11171e;
-      border: 1px solid rgba(82, 97, 113, .4);
+      background: var(--color-surface);
+      border: 1px solid var(--color-border);
       border-radius: 14px;
       padding: 4px;
       gap: 4px;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .025);
+      box-shadow: inset 0 1px 0 var(--color-overlay-soft);
     }
     fieldset.segmented {
       min-inline-size: 0;
@@ -855,15 +849,15 @@
       min-height: 34px;
       border: 0;
       border-radius: 10px;
-      background: transparent;
-      color: #b9c4cf;
+      background: var(--color-control-background);
+      color: var(--color-text-secondary);
       padding: 6px 11px;
       transition: background .15s ease, color .15s ease, box-shadow .15s ease;
     }
     .segmented button.active {
-      background: linear-gradient(180deg, #2d3947, #26313d);
-      color: #e8f6fd;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, .22), inset 0 1px 0 rgba(255, 255, 255, .06);
+      background: var(--color-interactive-soft-hover);
+      color: var(--color-interactive);
+      box-shadow: var(--shadow-soft), inset 0 1px 0 var(--color-overlay-soft);
     }
 
     .toggle {
@@ -921,13 +915,13 @@
       align-items: start;
       padding: 13px;
       background: var(--panel);
-      border: 1px solid var(--line);
+      border: 1px solid var(--color-card-border);
       border-radius: var(--radius);
     }
 
     .phrase-card.selected {
-      border-color: #557486;
-      box-shadow: inset 3px 0 0 var(--accent);
+      border-color: var(--color-interactive-border);
+      box-shadow: inset 3px 0 0 var(--color-interactive);
     }
 
     .phrase-card.done {
@@ -940,6 +934,7 @@
     }
 
     .phrase-q {
+      color: var(--color-card-title);
       font-size: 17px;
       font-weight: 650;
       overflow-wrap: anywhere;
@@ -955,7 +950,7 @@
     .phrase-card .ipa {
       margin-top: 5px;
       font-size: 13px;
-      color: #86cfe8;
+      color: var(--color-phonetic);
     }
 
     .meta {
@@ -968,8 +963,10 @@
     }
 
     .tag {
-      border: 1px solid #37404c;
+      border: 1px solid var(--color-tag-border);
       border-radius: 999px;
+      background: var(--color-tag-background);
+      color: var(--color-tag-text);
       padding: 2px 7px;
     }
 
@@ -983,13 +980,13 @@
       font-size: 13px;
     }
     .heard.on {
-      border-color: #467a5a;
+      border-color: var(--color-success-border);
       color: var(--ok);
-      background: #18261d;
+      background: var(--color-success-background);
     }
 
     .delete {
-      color: #ffc2c2;
+      color: var(--color-danger);
       font-size: 12px;
     }
 
@@ -1021,7 +1018,7 @@
     }
 
     footer a {
-      color: #b9dbea;
+      color: var(--color-link);
       margin-right: 14px;
     }
 
@@ -1150,21 +1147,21 @@
         justify-content: center;
       }
       .save-example-btn {
-        border: 1px solid rgba(104, 121, 139, .2);
-        background: rgba(255, 255, 255, .025);
-        color: #c4d0da;
+        border: 1px solid var(--color-border);
+        background: var(--color-surface);
+        color: var(--color-text-secondary);
         box-shadow: none;
       }
       .media-full-video-btn {
         margin-left: 0;
-        border: 1px solid rgba(125, 211, 252, .24);
-        background: rgba(125, 211, 252, .08);
-        color: #aee8ff;
+        border: 1px solid var(--color-interactive-border);
+        background: var(--color-interactive-soft);
+        color: var(--color-interactive);
         box-shadow: none;
       }
       .media-full-video-btn:hover:not(:disabled) {
-        border-color: rgba(125, 211, 252, .36);
-        background: rgba(125, 211, 252, .12);
+        border-color: var(--color-interactive-border);
+        background: var(--color-interactive-soft-hover);
         filter: none;
         transform: none;
         box-shadow: none;
@@ -1180,6 +1177,7 @@
   </style>
   <link rel="stylesheet" href="/app-theme.css" />
   <link rel="stylesheet" href="/site-navigation.css" />
+  <script src="/theme-controller.js"></script>
 </head>
 <body class="viewer-mode">
   <header class="site-navigation">
@@ -1192,6 +1190,10 @@
         <a class="site-primary-link" href="/settings">Settings</a>
       </nav>
       <div class="site-account">
+        <button aria-label="Change color theme" aria-pressed="false" class="theme-toggle" data-theme-toggle type="button">
+          <span aria-hidden="true" class="theme-toggle-sun">☀</span>
+          <span aria-hidden="true" class="theme-toggle-moon">☾</span>
+        </button>
         <span id="accountEmail" class="site-account-name" hidden></span>
         <a id="loginLink" class="site-account-link" href="/login">Sign in with Google</a>
       </div>
@@ -4110,16 +4112,18 @@
 
     window.onYouglishAPIReady = function onYouglishAPIReady() {
       try {
+        const providerTheme = getComputedStyle(document.documentElement);
+        const providerColor = (name) => providerTheme.getPropertyValue(name).trim();
         // Dictionary support requires Caption, so 128 is a nonzero mask with no
         // visible widget chrome. Zero is treated as the default full component set.
         widget = new YG.Widget("yg-widget", {
           components: 128,
           autoStart: fullVideoMode ? 0 : 1,
-          backgroundColor: "#000000",
-          textColor: "#d9e2ec",
-          captionColor: "#7dd3fc",
-          markerColor: "#f5d76e",
-          queryColor: "#7dd3fc",
+          backgroundColor: providerColor("--color-media-canvas"),
+          textColor: providerColor("--color-provider-text"),
+          captionColor: providerColor("--color-provider-caption"),
+          markerColor: providerColor("--color-provider-marker"),
+          queryColor: providerColor("--color-provider-caption"),
           events: {
             onFetchDone,
             onVideoChange,

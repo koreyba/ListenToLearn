@@ -100,6 +100,10 @@ description: Ordered tasks for typed content, D1 projection, optional analysis, 
   - Outcome: implementation/testing/planning docs reflect completed work, actual evidence, deferred deployment, and any residual risks.
   - Dependencies: Tasks 4.1–4.2.
   - Validation: `lint --feature connected-speech-catalog` and `git diff --check`.
+- [x] **Task 4.4 — Reconcile Library with the shared application theme.**
+  - Outcome: merge latest `origin/main`, replace remaining legacy-blue Library controls with shared Forest & Clay tokens, and keep mobile formats swipeable without a native scrollbar.
+  - Dependencies: Task 4.3 and unified application theme PR #23.
+  - Validation: RED/GREEN theme contracts, 221-test full suite, build/typecheck/lint, and desktop/390px browser review without document overflow.
 
 ## Dependencies
 
@@ -128,7 +132,7 @@ description: Ordered tasks for typed content, D1 projection, optional analysis, 
 
 ## Progress Summary
 
-All four milestones are complete. The typed 140-card catalog generates migration `0013_kind_trauma.sql`, projects through public/account APIs with optional analysis, and powers the dedicated responsive `/library` experience. A preview missing-table incident proved the Worker version could be uploaded before its D1 migration. The authorized preview migration is now applied and verified; branch-preview and named-preview deployment wrappers apply pending preview migrations first and fail closed. Full verification passes; next is to publish the incident fix and verify renewed PR checks.
+All four milestones are complete. The typed 140-card catalog generates migration `0013_kind_trauma.sql`, projects through public/account APIs with optional analysis, and powers the dedicated responsive `/library` experience. A preview missing-table incident proved the Worker version could be uploaded before its D1 migration. The authorized preview migration is now applied and verified; branch-preview and named-preview deployment wrappers apply pending preview migrations first and fail closed. Latest `main` is merged, Library now follows the shared Forest & Clay application theme, and all local lifecycle checks pass. PR merge and production rollout remain separately gated.
 
 ## Resources Needed
 

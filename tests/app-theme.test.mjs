@@ -48,6 +48,18 @@ test("navigation and content cards use the shared surface tokens", async () => {
   assert.doesNotMatch(`${globals}\n${navigation}`, /#3f7d96|#c8efff|#79d6ff/i);
 });
 
+test("Library controls and analysis badges use the shared application theme", async () => {
+  const globals = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+
+  for (const selector of ["mechanism-filter", "custom-phrase-form"]) {
+    assert.match(globals, new RegExp(`\\.${selector} \\{[^}]*background: var\\(--app-surface-glass\\)`, "s"));
+  }
+  assert.match(globals, /\.mechanism-option\.active \{[^}]*border-color: var\(--app-action-border\);[^}]*color: var\(--app-action-text\)/s);
+  assert.match(globals, /\.mechanism-badge \{[^}]*border: 1px solid var\(--app-action-border\);[^}]*background: var\(--accent-soft\);[^}]*color: var\(--app-action-text\)/s);
+  assert.match(globals, /@media \(max-width: 480px\) \{[\s\S]*?\.tabs \{[^}]*overflow-x: auto;[^}]*scrollbar-width: none;/);
+  assert.match(globals, /\.tabs::-webkit-scrollbar \{ display: none; \}/);
+});
+
 test("interface typography stays readable while landing headings keep their display face", async () => {
   const [theme, globals, navigation] = await Promise.all([
     readFile(new URL("../public/app-theme.css", import.meta.url), "utf8"),

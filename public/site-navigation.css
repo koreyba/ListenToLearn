@@ -25,18 +25,18 @@
 .site-brand,
 .site-primary-link,
 .site-account-link {
-  color: var(--text, #f1f5f2);
+  color: var(--text);
   text-decoration: none;
 }
 
 .site-brand {
   width: max-content;
   font-size: 15px;
-  font-weight: 850;
+  font-weight: 800;
   letter-spacing: -.025em;
 }
 
-.site-brand[aria-current="page"] { color: #afc1a3; }
+.site-brand[aria-current="page"] { color: var(--text); }
 
 .site-primary-links {
   display: flex;
@@ -54,19 +54,19 @@
   padding: 0 16px;
   border-radius: 10px;
   place-items: center;
-  color: var(--muted, #9ca9a1);
+  color: var(--muted);
   font-size: 13px;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .site-primary-link:hover {
-  color: var(--text, #f1f5f2);
+  color: var(--text);
 }
 
 .site-primary-link[aria-current="page"] {
   background: var(--panel-2, #1d2420);
-  color: var(--accent, #afc1a3);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, .2);
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--app-sage), 0 6px 18px rgba(0, 0, 0, .2);
 }
 
 .site-brand:focus-visible,
@@ -85,19 +85,19 @@
 }
 
 .site-account-link {
-  color: var(--muted, #9ca9a1);
+  color: var(--muted);
   font-size: 12px;
   font-weight: 700;
 }
 
 .site-account-link:hover {
-  color: var(--accent, #afc1a3);
+  color: var(--text);
 }
 
 .site-account-name {
   max-width: 150px;
   overflow: hidden;
-  color: var(--muted, #9ca9a1);
+  color: var(--muted);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;

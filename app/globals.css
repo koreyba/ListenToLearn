@@ -9,7 +9,7 @@ button { cursor: pointer; }
 .landing-page {
   --landing-lime: var(--app-sage);
   --landing-blue: var(--app-clay);
-  --landing-display-font: "Avenir Next", Avenir, "Helvetica Neue", Arial, sans-serif;
+  --landing-display-font: var(--app-display-font);
   min-height: calc(100svh - var(--site-navigation-offset));
   overflow: hidden;
   background: transparent;

@@ -47,3 +47,31 @@ test("navigation and content cards use the shared surface tokens", async () => {
   assert.match(navigation, /\.site-navigation \{[^}]*background: var\(--app-nav-background\)/s);
   assert.doesNotMatch(`${globals}\n${navigation}`, /#3f7d96|#c8efff|#79d6ff/i);
 });
+
+test("interface typography stays readable while landing headings keep their display face", async () => {
+  const [theme, globals, navigation] = await Promise.all([
+    readFile(new URL("../public/app-theme.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../public/site-navigation.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(theme, /--app-ui-font: Inter, ui-sans-serif, system-ui/);
+  assert.match(theme, /--app-display-font: "Avenir Next", Avenir/);
+  assert.match(theme, /body \{[^}]*font-family: var\(--app-ui-font\)/s);
+  assert.match(globals, /--landing-display-font: var\(--app-display-font\)/);
+  assert.match(navigation, /\.site-brand \{[^}]*font-weight: 800/s);
+  assert.match(navigation, /\.site-primary-link \{[^}]*font-weight: 700/s);
+});
+
+test("interface titles stay neutral while sage is only an active marker", async () => {
+  const [theme, navigation] = await Promise.all([
+    readFile(new URL("../public/app-theme.css", import.meta.url), "utf8"),
+    readFile(new URL("../public/site-navigation.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(theme, /--app-text: #f4f5f6/);
+  assert.match(theme, /--app-muted: #a7adb2/);
+  assert.match(navigation, /\.site-brand\[aria-current="page"\] \{ color: var\(--text\); \}/);
+  assert.match(navigation, /\.site-primary-link\[aria-current="page"\] \{[^}]*color: var\(--text\);[^}]*box-shadow: inset 0 -2px 0 var\(--app-sage\)/s);
+  assert.match(navigation, /\.site-account-link:hover \{[^}]*color: var\(--text\)/s);
+});

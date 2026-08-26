@@ -21,6 +21,8 @@ const backfillInFlight = new Map<string, Promise<void>>();
 
 const PUBLIC_DOCUMENT_PATHS = new Set([
   "/",
+  "/library",
+  "/library/",
   "/trainer",
   "/trainer/",
   "/trainer.html",

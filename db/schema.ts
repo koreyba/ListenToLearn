@@ -38,6 +38,28 @@ export const phrases = sqliteTable("phrases", {
   index("idx_phrases_text_nocase").on(sql`${table.text} COLLATE NOCASE`),
 ]);
 
+export const catalogPhraseAnalysis = sqliteTable("catalog_phrase_analysis", {
+  phraseId: text("phrase_id").primaryKey().references(() => phrases.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull(),
+  rank: integer("rank").notNull(),
+  pattern: text("pattern").notNull(),
+  ipa: text("ipa").notNull(),
+  searchQuery: text("search_query").notNull(),
+  alternateQuery: text("alternate_query"),
+  active: integer("active").notNull().default(1),
+}, (table) => [
+  index("idx_catalog_analysis_active_kind_rank").on(table.active, table.kind, table.rank),
+]);
+
+export const phraseMechanisms = sqliteTable("phrase_mechanisms", {
+  phraseId: text("phrase_id").notNull().references(() => phrases.id, { onDelete: "cascade" }),
+  mechanism: text("mechanism").notNull(),
+  displayOrder: integer("display_order").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.phraseId, table.mechanism] }),
+  index("idx_phrase_mechanisms_mechanism_phrase").on(table.mechanism, table.phraseId),
+]);
+
 export const phraseProgress = sqliteTable("phrase_progress", {
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   phraseId: text("phrase_id").notNull().references(() => phrases.id, { onDelete: "cascade" }),

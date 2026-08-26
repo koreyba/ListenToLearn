@@ -31,7 +31,7 @@ export default function LogoutPage() {
         {failed && (
           <p>
             <button className="primary" onClick={() => window.location.reload()} type="button">Retry</button>{" "}
-            <Link href="/">Return to Library</Link>
+            <Link href="/library">Return to Library</Link>
           </p>
         )}
       </main>

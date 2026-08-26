@@ -12,6 +12,8 @@ function request(path, method = "GET") {
 test("guest allowlist exposes only UI, static assets and read-only Tatoeba", () => {
   for (const path of [
     "/",
+    "/library",
+    "/library/",
     "/trainer",
     "/trainer/",
     "/trainer.html",
@@ -25,6 +27,7 @@ test("guest allowlist exposes only UI, static assets and read-only Tatoeba", () 
     "/integrations/",
     "/logout",
     "/api/session",
+    "/api/catalog",
     "/caption-navigation.js",
     "/video-progress-sync.js",
     "/favicon.svg",
@@ -50,12 +53,13 @@ test("guest allowlist rejects account APIs, integrations, login and unknown path
     assert.equal(isPublicGuestRequest(request(path)), false, path);
   }
   assert.equal(isPublicGuestRequest(request("/api/tatoeba", "POST")), false);
+  assert.equal(isPublicGuestRequest(request("/api/catalog", "POST")), false);
 });
 
 test("login redirect is fixed to the public home marker and cannot become an open redirect", () => {
   assert.equal(
     guestLoginRedirect(request("/login?returnTo=https%3A%2F%2Fevil.example")).toString(),
-    "https://listen-to-learn.example/?signedIn=1",
+    "https://listen-to-learn.example/library?signedIn=1",
   );
 });
 
@@ -85,7 +89,7 @@ test("login redirect returns to an approved public page and rejects unsafe targe
   ]) {
     assert.equal(
       guestLoginRedirect(request(`/login?returnTo=${encodeURIComponent(target)}`)).toString(),
-      "https://listen-to-learn.example/?signedIn=1",
+      "https://listen-to-learn.example/library?signedIn=1",
       target,
     );
   }

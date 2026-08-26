@@ -1,5 +1,5 @@
-import { PhraseWorkspace } from "@/app/components/phrase-workspace";
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return <PhraseWorkspace surface="library" />;
+  redirect("/library");
 }

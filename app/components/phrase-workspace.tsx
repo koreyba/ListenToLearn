@@ -8,8 +8,16 @@ import {
   removeMigratedStorage,
   writeMigratedStorage,
 } from "@/lib/browser-storage";
+import type { CatalogAnalysis } from "@/lib/catalog/catalog-api";
+import { mergeGuestCatalog, type WorkspacePhrase } from "@/lib/catalog/guest-catalog";
+import {
+  CONNECTED_SPEECH_MECHANISMS,
+  LEGACY_PRESET_PHRASES,
+  PRACTICE_FORMATS,
+  type ConnectedSpeechMechanism,
+  type PracticeFormat,
+} from "@/lib/catalog/connected-speech-catalog";
 import { accountSession, signInHref, type AccountSessionUser } from "@/lib/client-session";
-import { PRESET_PHRASES } from "@/lib/preset-phrases";
 import {
   GUEST_LIBRARY_STORAGE_KEY,
   LEGACY_GUEST_LIBRARY_STORAGE_KEYS,
@@ -22,20 +30,10 @@ import {
 } from "@/lib/guest-library";
 
 type PhraseStatus = "pick" | "to_learn" | "learning_now" | "learnt";
-type Phrase = {
-  id: string;
-  text: string;
-  pattern: string;
-  ipa: string;
-  translation: string;
-  context: string;
-  source_type: "preset" | "custom";
-  catalog_order: number | null;
-  status: PhraseStatus;
-  created_at: string;
-  updated_at: string;
-};
+type Phrase = WorkspacePhrase;
 type PhrasesResponse = { phrases: Phrase[]; user?: Viewer; error?: string };
+type CatalogCard = { id: string; text: string; sourceType: "catalog"; analysis: CatalogAnalysis };
+type CatalogResponse = { cards?: CatalogCard[]; error?: string };
 type PhraseMutationResponse = {
   id?: string;
   status?: PhraseStatus;
@@ -55,19 +53,31 @@ const practiceTabs: Array<{ id: Exclude<PhraseStatus, "pick">; label: string; hi
   { id: "learnt", label: "Learned", hint: "Phrases you have already mastered." },
 ];
 
-type PhraseSort = "added_desc" | "added_asc" | "alpha_asc" | "alpha_desc";
+type PhraseSort = "recommended" | "added_desc" | "added_asc" | "alpha_asc" | "alpha_desc";
 
 const PHRASE_SORT_STORAGE_KEY = "unmumble-library-sort-v1";
 const LEGACY_PHRASE_SORT_STORAGE_KEYS = ["listen-to-learn-library-sort-v1"] as const;
 const GUEST_TRAINER_STORAGE_KEY = "unmumble-trainer-v1:anonymous";
 const LEGACY_GUEST_TRAINER_STORAGE_KEYS = ["connected-speech-trainer-v1:anonymous"] as const;
-const GUEST_PRESET_CREATED_AT = "1970-01-01T00:00:00.000Z";
-const phraseSortOptions: Array<{ value: PhraseSort; label: string }> = [
+const practiceSortOptions: Array<{ value: PhraseSort; label: string }> = [
   { value: "added_desc", label: "Added · newest first" },
   { value: "added_asc", label: "Added · oldest first" },
   { value: "alpha_asc", label: "Alphabetical · A–Z" },
   { value: "alpha_desc", label: "Alphabetical · Z–A" },
 ];
+const catalogSortOptions: Array<{ value: PhraseSort; label: string }> = [
+  { value: "recommended", label: "Recommended order" },
+  { value: "alpha_asc", label: "Alphabetical · A–Z" },
+  { value: "alpha_desc", label: "Alphabetical · Z–A" },
+];
+const practiceFormatTabs = Object.entries(PRACTICE_FORMATS) as Array<[
+  PracticeFormat,
+  (typeof PRACTICE_FORMATS)[PracticeFormat],
+]>;
+const mechanismChoices = Object.entries(CONNECTED_SPEECH_MECHANISMS) as Array<[
+  ConnectedSpeechMechanism,
+  (typeof CONNECTED_SPEECH_MECHANISMS)[ConnectedSpeechMechanism],
+]>;
 
 function phraseTieBreaker(a: Phrase, b: Phrase) {
   const catalogA = a.catalog_order ?? Number.MAX_SAFE_INTEGER;
@@ -76,6 +86,10 @@ function phraseTieBreaker(a: Phrase, b: Phrase) {
 }
 
 function comparePhrases(a: Phrase, b: Phrase, sort: PhraseSort) {
+  if (sort === "recommended") {
+    return (a.analysis?.rank ?? Number.MAX_SAFE_INTEGER) - (b.analysis?.rank ?? Number.MAX_SAFE_INTEGER)
+      || phraseTieBreaker(a, b);
+  }
   if (sort === "alpha_asc" || sort === "alpha_desc") {
     const alphabetic = a.text.localeCompare(b.text, "en", { sensitivity: "base" });
     return (sort === "alpha_asc" ? alphabetic : -alphabetic) || phraseTieBreaker(a, b);
@@ -95,39 +109,9 @@ function renderPattern(pattern: string) {
   );
 }
 
-function guestPhrases(state: GuestLibraryState): Phrase[] {
-  return [
-    ...PRESET_PHRASES.map((phrase, index) => ({
-      id: `preset-${index}`,
-      text: phrase.text,
-      pattern: phrase.pattern,
-      ipa: phrase.ipa,
-      translation: "",
-      context: "",
-      source_type: "preset" as const,
-      catalog_order: index,
-      status: state.statuses[`preset-${index}`] || "pick" as const,
-      created_at: GUEST_PRESET_CREATED_AT,
-      updated_at: GUEST_PRESET_CREATED_AT,
-    })),
-    ...state.customPhrases.map((phrase) => ({
-      id: phrase.id,
-      text: phrase.text,
-      pattern: phrase.pattern,
-      ipa: phrase.ipa,
-      translation: phrase.translation,
-      context: phrase.context,
-      source_type: "custom" as const,
-      catalog_order: null,
-      status: phrase.status,
-      created_at: phrase.createdAt,
-      updated_at: phrase.updatedAt,
-    })),
-  ];
-}
-
 export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }) {
   const [phrases, setPhrases] = useState<Phrase[]>([]);
+  const [catalogCards, setCatalogCards] = useState<CatalogCard[]>([]);
   const [mode, setMode] = useState<"guest" | "account">("guest");
   const [guestLibrary, setGuestLibrary] = useState<GuestLibraryState>(() => createGuestLibrary());
   const [activeTab, setActiveTab] = useState<PhraseStatus>(
@@ -138,7 +122,11 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [customText, setCustomText] = useState("");
-  const [phraseSort, setPhraseSort] = useState<PhraseSort>("added_desc");
+  const [phraseSort, setPhraseSort] = useState<PhraseSort>(surface === "library" ? "recommended" : "added_desc");
+  const [activeFormat, setActiveFormat] = useState<PracticeFormat>("atom");
+  const [activeMechanism, setActiveMechanism] = useState<ConnectedSpeechMechanism | "all">("all");
+  const [catalogSearch, setCatalogSearch] = useState("");
+  const [recentlyAdded, setRecentlyAdded] = useState<string | null>(null);
   const phraseSortReady = useRef(false);
 
   useEffect(() => {
@@ -149,7 +137,8 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
           PHRASE_SORT_STORAGE_KEY,
           LEGACY_PHRASE_SORT_STORAGE_KEYS,
         );
-        if (phraseSortOptions.some((option) => option.value === stored)) {
+        const storedSortOptions = surface === "library" ? catalogSortOptions : practiceSortOptions;
+        if (storedSortOptions.some((option) => option.value === stored)) {
           setPhraseSort(stored as PhraseSort);
         }
       } catch {
@@ -159,7 +148,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
       }
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [surface]);
 
   useEffect(() => {
     if (!phraseSortReady.current) return;
@@ -181,7 +170,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     setMode("guest");
     setViewer(null);
     setGuestLibrary(normalized);
-    setPhrases(guestPhrases(normalized));
+    setPhrases(mergeGuestCatalog(normalized, catalogCards, LEGACY_PRESET_PHRASES));
     try {
       writeMigratedStorage(
         window.localStorage,
@@ -192,9 +181,11 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     } catch {
       setNotice("Guest progress only lasts while this tab is open because localStorage is unavailable.");
     }
-  }, []);
+  }, [catalogCards]);
 
-  const loadGuestState = useCallback(() => {
+  const loadGuestState = useCallback(async () => {
+    setLoading(true);
+    setError("");
     let next = createGuestLibrary();
     try {
       const raw = readMigratedStorage(
@@ -209,8 +200,20 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     setMode("guest");
     setViewer(null);
     setGuestLibrary(next);
-    setPhrases(guestPhrases(next));
-    setLoading(false);
+    try {
+      const response = await fetch("/api/catalog");
+      const data = await response.json() as CatalogResponse;
+      if (!response.ok || !Array.isArray(data.cards)) {
+        throw new Error(data.error || "Could not load the connected-speech catalog.");
+      }
+      setCatalogCards(data.cards);
+      setPhrases(mergeGuestCatalog(next, data.cards, LEGACY_PRESET_PHRASES));
+    } catch (reason) {
+      setPhrases(mergeGuestCatalog(next, [], LEGACY_PRESET_PHRASES));
+      setError(reason instanceof Error ? reason.message : "Could not load the connected-speech catalog.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const loadAccount = useCallback(async (sessionUser: AccountSessionUser) => {
@@ -240,7 +243,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     const timer = window.setTimeout(() => {
       void accountSession().then((sessionUser) => {
         if (sessionUser) void loadAccount(sessionUser);
-        else loadGuestState();
+        else void loadGuestState();
       });
     }, 0);
     return () => window.clearTimeout(timer);
@@ -252,7 +255,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
         ![GUEST_LIBRARY_STORAGE_KEY, ...LEGACY_GUEST_LIBRARY_STORAGE_KEYS].includes(event.key || "")
         || mode !== "guest"
       ) return;
-      loadGuestState();
+      void loadGuestState();
     };
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
@@ -265,13 +268,23 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     ])
   ) as Record<PhraseStatus, number>, [phrases]);
 
+  const formatCounts = useMemo(() => Object.fromEntries(practiceFormatTabs.map(([kind]) => [
+    kind,
+    phrases.filter((phrase) => phrase.status === "pick" && phrase.analysis?.kind === kind).length,
+  ])) as Record<PracticeFormat, number>, [phrases]);
+
   const visible = useMemo(
     () => phrases
       .filter((phrase) => surface === "library"
         ? phrase.status === "pick"
+          && phrase.analysis?.kind === activeFormat
+          && (activeMechanism === "all" || phrase.analysis.mechanisms.includes(activeMechanism))
+          && (!catalogSearch.trim() || `${phrase.text} ${phrase.analysis.pattern}`
+            .toLocaleLowerCase("en")
+            .includes(catalogSearch.trim().toLocaleLowerCase("en")))
         : phrase.status === activeTab)
       .sort((a, b) => comparePhrases(a, b, phraseSort)),
-    [activeTab, phraseSort, phrases, surface]
+    [activeFormat, activeMechanism, activeTab, catalogSearch, phraseSort, phrases, surface]
   );
 
   async function changeStatus(id: string, status: PhraseStatus) {
@@ -279,8 +292,14 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     setError("");
     if (mode === "guest") {
       persistGuestState(setGuestPhraseStatus(guestLibrary, id, status));
-      setActiveTab(status);
-      setNotice("Guest progress is saved only in this browser.");
+      if (surface === "practice") setActiveTab(status);
+      if (surface === "library" && status === "to_learn") {
+        setRecentlyAdded(id);
+        setNotice("Added to To Learn. Guest progress is saved in this browser.");
+      } else if (status === "pick") {
+        setRecentlyAdded(null);
+        setNotice("Returned to the catalog.");
+      }
       setBusyId(null);
       return;
     }
@@ -301,11 +320,23 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
           }
         : phrase));
       if (surface === "practice") setActiveTab(data.status || status);
+      if (surface === "library" && status === "to_learn") {
+        setRecentlyAdded(id);
+        setNotice("Added to To Learn.");
+      } else if (status === "pick") {
+        setRecentlyAdded(null);
+        setNotice("Returned to the catalog.");
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not update the phrase status.");
     } finally {
       setBusyId(null);
     }
+  }
+
+  async function undoAdded() {
+    if (!recentlyAdded) return;
+    await changeStatus(recentlyAdded, "pick");
   }
 
   async function removePhrase(phrase: Phrase) {
@@ -371,18 +402,37 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
       if (!response.ok) throw new Error(data.error || "Could not add the phrase.");
       setCustomText("");
       const nextStatus = data.status || "to_learn";
+      if (data.created === false && data.id) {
+        setPhrases((currentPhrases) => currentPhrases.map((phrase) => phrase.id === data.id
+          ? {
+              ...phrase,
+              status: nextStatus,
+              translation: data.translation ?? phrase.translation,
+              context: data.context ?? phrase.context,
+              updated_at: data.updated_at || phrase.updated_at,
+            }
+          : phrase));
+        setActiveTab(nextStatus);
+        const translationNotice = data.translationPending
+          ? " Translation is currently unavailable, but the phrase was saved."
+          : "";
+        setNotice(`This phrase is already in your library.${translationNotice}`);
+        return;
+      }
       const nextPhrase: Phrase = {
         id: data.id || `custom-${Date.now()}`,
         text,
-        pattern: `[${text}]`,
+        pattern: text,
         ipa: "",
         translation: data.translation || "",
         context: data.context || "",
         source_type: "custom",
+        sourceType: "custom",
         catalog_order: null,
         status: nextStatus,
         created_at: data.created_at || new Date().toISOString(),
         updated_at: data.updated_at || new Date().toISOString(),
+        analysis: null,
       };
       setPhrases((currentPhrases) => {
         const existing = currentPhrases.some((phrase) => phrase.id === nextPhrase.id);
@@ -420,15 +470,16 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
   }
 
   const current = surface === "library"
-    ? { id: "pick", label: "New phrases", hint: "Choose phrases to add to your practice queue." }
+    ? { id: "pick", label: PRACTICE_FORMATS[activeFormat].title, hint: PRACTICE_FORMATS[activeFormat].hint }
     : practiceTabs.find((tab) => tab.id === activeTab) || practiceTabs[1];
+  const sortOptions = surface === "library" ? catalogSortOptions : practiceSortOptions;
 
   return (
     <>
       <SiteNavigation
         active={surface}
         account={mode === "guest" || !viewer ? (
-          <a className="site-account-link" href={signInHref(surface === "practice" ? "/practice" : "/")}>Sign in with Google</a>
+          <a className="site-account-link" href={signInHref(surface === "practice" ? "/practice" : "/library")}>Sign in with Google</a>
         ) : (
           <SignedInSiteAccount user={viewer} />
         )}
@@ -438,7 +489,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
         <div>
           <p className="eyebrow">Unmumble</p>
           <h1>{surface === "library" ? (
-            <>Find useful phrases.<br />Choose what to learn.</>
+            <>Train connected speech.<br />Know what changes.</>
           ) : (
             <>Practice your phrases.<br />Learn through real speech.</>
           )}</h1>
@@ -446,8 +497,8 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
         <div className="header-tools">
           {mode === "guest" && <button className="account-link" onClick={resetGuest} type="button">Clear guest data</button>}
           <div className="header-total">
-            <strong>{surface === "library" ? counts.pick : phrases.length - counts.pick}</strong>
-            <span>{surface === "library" ? "new phrases" : "phrases in practice"}</span>
+            <strong>{surface === "library" ? visible.length : phrases.length - counts.pick}</strong>
+            <span>{surface === "library" ? "matching cards" : "phrases in practice"}</span>
           </div>
         </div>
       </header>
@@ -471,10 +522,64 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
       </nav>
       )}
 
+      {surface === "library" && (
+        <>
+          <nav className="tabs catalog-formats" aria-label="Practice formats" role="tablist">
+            {practiceFormatTabs.map(([kind, format]) => (
+              <button
+                aria-selected={activeFormat === kind}
+                className={activeFormat === kind ? "tab active" : "tab"}
+                key={kind}
+                onClick={() => setActiveFormat(kind)}
+                role="tab"
+                type="button"
+              >
+                <span><b>{format.title}</b><small>{format.hint}</small></span>
+                <strong>{formatCounts[kind]}</strong>
+              </button>
+            ))}
+          </nav>
+          <section className="mechanism-filter" aria-labelledby="mechanism-filter-title">
+            <div className="filter-heading">
+              <h2 id="mechanism-filter-title">Phonetic mechanism</h2>
+              <p>Practice one listening challenge at a time, or show all.</p>
+            </div>
+            <div className="mechanism-options">
+              <button
+                aria-pressed={activeMechanism === "all"}
+                className={activeMechanism === "all" ? "mechanism-option active" : "mechanism-option"}
+                onClick={() => setActiveMechanism("all")}
+                type="button"
+              ><b>All mechanisms</b><span>Show every card in this format</span></button>
+              {mechanismChoices.map(([mechanism, metadata]) => (
+                <button
+                  aria-pressed={activeMechanism === mechanism}
+                  className={activeMechanism === mechanism ? "mechanism-option active" : "mechanism-option"}
+                  key={mechanism}
+                  onClick={() => setActiveMechanism(mechanism)}
+                  type="button"
+                ><b>{metadata.title}</b><span>{metadata.hint}</span></button>
+              ))}
+            </div>
+          </section>
+        </>
+      )}
+
       <section className="library-section" role={surface === "practice" ? "tabpanel" : undefined}>
         <div className="section-heading">
           <div><h2>{current.label}</h2><p>{current.hint}</p></div>
           <div className="section-tools">
+            {surface === "library" && (
+              <label className="search-control">
+                <span>Search the catalog</span>
+                <input
+                  onChange={(event) => setCatalogSearch(event.target.value)}
+                  placeholder="Phrase or sound grouping"
+                  type="search"
+                  value={catalogSearch}
+                />
+              </label>
+            )}
             <label className="sort-control">
               <span>Sort</span>
               <select
@@ -483,29 +588,34 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                 onChange={(event) => setPhraseSort(event.target.value as PhraseSort)}
                 value={phraseSort}
               >
-                {phraseSortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                {sortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
-            {surface === "library" && <form className="add-form" onSubmit={addCustom}>
-              <input
-                aria-label="Your word or phrase"
-                maxLength={240}
-                onChange={(event) => setCustomText(event.target.value)}
-                placeholder="Enter a word or phrase"
-                value={customText}
-              />
-              <button disabled={busyId === "new" || !customText.trim()} type="submit">+ To Learn</button>
-            </form>}
           </div>
         </div>
 
+        {surface === "library" && <form className="add-form custom-phrase-form" onSubmit={addCustom}>
+          <div><strong>Add your own</strong><span>Text is enough. Phonetic analysis is optional.</span></div>
+          <input
+            aria-label="Your word or phrase"
+            maxLength={240}
+            onChange={(event) => setCustomText(event.target.value)}
+            placeholder="Enter a word or phrase"
+            value={customText}
+          />
+          <button disabled={busyId === "new" || !customText.trim()} type="submit">+ To Learn</button>
+        </form>}
+
         {error && <div className="notice error" role="alert">{error}</div>}
-        {notice && <div className="notice success" role="status">{notice}</div>}
+        {notice && <div className="notice success notice-action" role="status">
+          <span>{notice}</span>
+          {recentlyAdded && <button disabled={busyId === recentlyAdded} onClick={() => void undoAdded()} type="button">Undo</button>}
+        </div>}
         {loading ? <div className="notice">Loading library…</div> : visible.length === 0 ? (
           <div className="empty-state">
             <strong>Nothing here yet</strong>
             <span>{surface === "library"
-              ? "All available phrases have been added to Practice."
+              ? "No cards match this format, mechanism and search."
               : activeTab === "learning_now"
               ? "Start a phrase from To Learn."
               : "Move your first phrase here."}</span>
@@ -516,20 +626,32 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
               <article className="phrase-card" key={phrase.id}>
                 {surface === "practice" ? (
                 <button className="phrase-open" onClick={() => openPhrase(phrase)} type="button">
+                  <span className="phrase-type">{phrase.sourceType === "custom" ? "Your phrase" : phrase.sourceType === "legacy" ? "Saved phrase" : PRACTICE_FORMATS[phrase.analysis!.kind].title}</span>
                   <span className="phrase-text">{phrase.text}</span>
                   {phrase.status !== "pick" && phrase.translation && (
                     <span className="phrase-translation">{phrase.translation}</span>
                   )}
                   {phrase.context && <span className="phrase-context">Context: {phrase.context}</span>}
-                  <span className="phrase-pattern">{renderPattern(phrase.pattern)}</span>
-                  <span className="phrase-ipa">{phrase.ipa || "Transcription will appear later"}</span>
+                  {phrase.analysis && <>
+                    <span className="phrase-pattern">{renderPattern(phrase.analysis.pattern)}</span>
+                    <span className="phrase-ipa">{phrase.analysis.ipa}</span>
+                    <span className="mechanism-badges">{phrase.analysis.mechanisms.map((mechanism) => (
+                      <span className="mechanism-badge" key={mechanism}>{CONNECTED_SPEECH_MECHANISMS[mechanism].title}</span>
+                    ))}</span>
+                  </>}
                   <span className="listen-link">Practice <span aria-hidden="true">↗</span></span>
                 </button>
                 ) : (
                 <div className="phrase-open phrase-summary">
+                  <span className="phrase-type">{PRACTICE_FORMATS[phrase.analysis!.kind].title} · #{phrase.analysis!.rank}</span>
                   <span className="phrase-text">{phrase.text}</span>
-                  <span className="phrase-pattern">{renderPattern(phrase.pattern)}</span>
-                  <span className="phrase-ipa">{phrase.ipa || "Transcription will appear later"}</span>
+                  {phrase.analysis && <>
+                    <span className="phrase-pattern">{renderPattern(phrase.analysis.pattern)}</span>
+                    <span className="phrase-ipa">{phrase.analysis.ipa}</span>
+                    <span className="mechanism-badges">{phrase.analysis.mechanisms.map((mechanism) => (
+                      <span className="mechanism-badge" key={mechanism}>{CONNECTED_SPEECH_MECHANISMS[mechanism].title}</span>
+                    ))}</span>
+                  </>}
                 </div>
                 )}
                 <div className="card-actions">

@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 type SiteSection = "library" | "practice" | "videos" | "settings";
 
 const primaryLinks: Array<{ href: string; label: string; section: SiteSection }> = [
-  { href: "/", label: "Library", section: "library" },
+  { href: "/library", label: "Library", section: "library" },
   { href: "/practice", label: "Practice", section: "practice" },
   { href: "/videos", label: "Videos", section: "videos" },
   { href: "/settings", label: "Settings", section: "settings" },
@@ -22,7 +22,7 @@ export function SiteNavigation({
   return (
     <header className="site-navigation">
       <div className="site-navigation-inner">
-        <Link aria-label="Unmumble library" className="site-brand" href="/">Unmumble</Link>
+        <Link aria-label="Unmumble library" className="site-brand" href="/library">Unmumble</Link>
         <nav aria-label="Primary navigation" className="site-primary-links">
           {primaryLinks.map((link) => (
             <Link

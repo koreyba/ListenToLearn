@@ -1,25 +1,12 @@
 import { getD1 } from "@/db";
 import { getCurrentUser, LEGACY_OWNER_EMAIL, unauthorizedResponse } from "@/lib/auth";
+import { mapPhraseRows, type CatalogJoinedRow } from "@/lib/catalog/catalog-api";
 import { DeepLError, translateEnglishToRussian } from "@/lib/deepl";
 
 export const dynamic = "force-dynamic";
 
 const statuses = new Set(["pick", "to_learn", "learning_now", "learnt"]);
 type PhraseStatus = "pick" | "to_learn" | "learning_now" | "learnt";
-
-type PhraseRow = {
-  id: string;
-  text: string;
-  pattern: string;
-  ipa: string;
-  translation: string;
-  context: string;
-  source_type: "preset" | "custom";
-  catalog_order: number | null;
-  status: PhraseStatus;
-  created_at: string;
-  updated_at: string;
-};
 
 type EmbeddedExampleRow = {
   example_id: string | null;
@@ -32,8 +19,6 @@ type EmbeddedExampleRow = {
   example_metadata: string | null;
   example_created_at: string | null;
 };
-
-type EmbeddedPhraseRow = PhraseRow & EmbeddedExampleRow;
 
 type ExampleMetadata = {
   sentenceId?: string;
@@ -132,6 +117,43 @@ function cleanText(value: unknown) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
 }
 
+const catalogMetadataFields = [
+  "analysis",
+  "kind",
+  "rank",
+  "pattern",
+  "ipa",
+  "mechanisms",
+  "searchQuery",
+  "alternateQuery",
+] as const;
+
+function containsCatalogMetadata(payload: Record<string, unknown>) {
+  return catalogMetadataFields.some((field) => Object.hasOwn(payload, field));
+}
+
+const phraseProjection = `
+  SELECT
+    p.id, p.text, p.pattern, p.ipa, p.translation, p.context, p.source_type, p.catalog_order,
+    COALESCE(progress.status, 'pick') AS status,
+    p.created_at, p.updated_at,
+    analysis.kind AS analysis_kind,
+    analysis.rank AS analysis_rank,
+    analysis.pattern AS analysis_pattern,
+    analysis.ipa AS analysis_ipa,
+    analysis.search_query AS analysis_search_query,
+    analysis.alternate_query AS analysis_alternate_query,
+    mechanisms.mechanism,
+    mechanisms.display_order AS mechanism_order
+  FROM phrases AS p
+  LEFT JOIN phrase_progress AS progress
+    ON progress.phrase_id = p.id AND progress.user_id = ?
+  LEFT JOIN catalog_phrase_analysis AS analysis
+    ON analysis.phrase_id = p.id AND analysis.active = 1
+  LEFT JOIN phrase_mechanisms AS mechanisms
+    ON mechanisms.phrase_id = p.id
+`;
+
 export async function GET(request: Request) {
   const user = await getCurrentUser(request);
   if (!user) return unauthorizedResponse();
@@ -140,66 +162,44 @@ export async function GET(request: Request) {
     const db = getD1();
     const phraseId = cleanText(new URL(request.url).searchParams.get("id")).slice(0, 120);
     if (phraseId) {
-      const result = await db.prepare(`
-        SELECT
-          p.id, p.text, p.pattern, p.ipa, p.translation, p.context, p.source_type, p.catalog_order,
-          COALESCE(progress.status, 'pick') AS status,
-          p.created_at, p.updated_at,
-          examples.id AS example_id,
-          examples.phrase_id AS example_phrase_id,
-          examples.provider AS example_provider,
-          examples.external_id AS example_external_id,
-          examples.query AS example_query,
-          examples.caption AS example_caption,
-          examples.accent AS example_accent,
-          examples.metadata AS example_metadata,
-          examples.created_at AS example_created_at
-        FROM phrases AS p
-        LEFT JOIN phrase_progress AS progress
-          ON progress.phrase_id = p.id AND progress.user_id = ?
-        LEFT JOIN phrase_examples AS examples
-          ON examples.phrase_id = p.id AND examples.user_id = ?
+      const result = await db.prepare(`${phraseProjection}
         WHERE p.id = ? AND (p.source_type = 'preset' OR p.owner_id = ?)
-        ORDER BY examples.created_at DESC
-      `).bind(user.subject, user.subject, phraseId, user.subject).all<EmbeddedPhraseRow>();
-      const first = result.results[0];
-      const phrase = first && {
-        id: first.id,
-        text: first.text,
-        pattern: first.pattern,
-        ipa: first.ipa,
-        translation: first.translation,
-        context: first.context,
-        source_type: first.source_type,
-        catalog_order: first.catalog_order,
-        status: first.status,
-        created_at: first.created_at,
-        updated_at: first.updated_at,
-      } satisfies PhraseRow;
+        ORDER BY mechanisms.display_order
+      `).bind(user.subject, phraseId, user.subject).all<CatalogJoinedRow>();
+      const examples = await db.prepare(`
+        SELECT
+          id AS example_id,
+          phrase_id AS example_phrase_id,
+          provider AS example_provider,
+          external_id AS example_external_id,
+          query AS example_query,
+          caption AS example_caption,
+          accent AS example_accent,
+          metadata AS example_metadata,
+          created_at AS example_created_at
+        FROM phrase_examples
+        WHERE user_id = ? AND phrase_id = ?
+        ORDER BY created_at DESC
+      `).bind(user.subject, phraseId).all<EmbeddedExampleRow>();
       return Response.json({
-        phrases: phrase ? [phrase] : [],
-        examples: embeddedExamples(result.results),
+        phrases: mapPhraseRows(result.results),
+        examples: embeddedExamples(examples.results),
         user: publicUser(user),
       });
     }
 
-    const result = await db.prepare(`
-      SELECT
-        p.id, p.text, p.pattern, p.ipa, p.translation, p.context, p.source_type, p.catalog_order,
-        COALESCE(progress.status, 'pick') AS status,
-        p.created_at, p.updated_at
-      FROM phrases AS p
-      LEFT JOIN phrase_progress AS progress
-        ON progress.phrase_id = p.id AND progress.user_id = ?
+    const result = await db.prepare(`${phraseProjection}
       WHERE p.source_type = 'preset' OR p.owner_id = ?
       ORDER BY
         CASE WHEN COALESCE(progress.status, 'pick') = 'pick' THEN 0 ELSE 1 END,
         CASE WHEN COALESCE(progress.status, 'pick') = 'pick' THEN p.catalog_order END ASC,
-        p.updated_at DESC
-    `).bind(user.subject, user.subject).all<PhraseRow>();
-    const needsBackfill = result.results.some((phrase) => phrase.status !== "pick" && !phrase.translation);
+        p.updated_at DESC,
+        mechanisms.display_order
+    `).bind(user.subject, user.subject).all<CatalogJoinedRow>();
+    const phrases = mapPhraseRows(result.results);
+    const needsBackfill = phrases.some((phrase) => phrase.status !== "pick" && !phrase.translation);
     return Response.json(
-      { phrases: result.results, user: publicUser(user) },
+      { phrases, user: publicUser(user) },
       needsBackfill ? { headers: { "X-Unmumble-Backfill": "1" } } : undefined,
     );
   } catch (error) {
@@ -213,7 +213,10 @@ export async function POST(request: Request) {
   if (!user) return unauthorizedResponse();
 
   try {
-    const payload = (await request.json()) as { text?: unknown; context?: unknown; translation?: unknown };
+    const payload = (await request.json()) as Record<string, unknown>;
+    if (containsCatalogMetadata(payload)) {
+      return Response.json({ error: "Catalog analysis cannot be supplied for a custom phrase." }, { status: 400 });
+    }
     const text = cleanText(payload.text);
     const context = cleanText(payload.context).slice(0, 1_000);
     const suppliedTranslation = cleanText(payload.translation).slice(0, 1_000);
@@ -278,7 +281,7 @@ export async function POST(request: Request) {
         INSERT INTO phrases
           (id, text, pattern, ipa, translation, context, source_type, catalog_order, owner_id, status, created_at, updated_at)
         VALUES (?, ?, ?, '', ?, ?, 'custom', NULL, ?, 'pick', ?, ?)
-      `).bind(id, text, "[" + text + "]", translation.text, context, user.subject, now, now),
+      `).bind(id, text, text, translation.text, context, user.subject, now, now),
       db.prepare(`
         INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
         VALUES (?, ?, 'to_learn', ?, ?)
@@ -286,6 +289,8 @@ export async function POST(request: Request) {
     ]);
     return Response.json({
       id,
+      sourceType: "custom",
+      analysis: null,
       status: "to_learn",
       translation: translation.text,
       context,

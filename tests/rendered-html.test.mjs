@@ -17,7 +17,7 @@ test("unified site navigation exposes every primary section", async () => {
     new URL("../app/components/site-navigation.tsx", import.meta.url),
     "utf8",
   );
-  const library = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const library = await readFile(new URL("../app/library/page.tsx", import.meta.url), "utf8");
   const practice = await readFile(new URL("../app/practice/page.tsx", import.meta.url), "utf8");
   const workspace = await readFile(
     new URL("../app/components/phrase-workspace.tsx", import.meta.url),
@@ -28,7 +28,7 @@ test("unified site navigation exposes every primary section", async () => {
   const trainer = await readFile(new URL("../public/trainer.html", import.meta.url), "utf8");
 
   for (const [href, label] of [
-    ["/", "Library"],
+    ["/library", "Library"],
     ["/practice", "Practice"],
     ["/videos", "Videos"],
     ["/settings", "Settings"],
@@ -71,7 +71,8 @@ test("Library catalogs new phrases while Practice owns the learning queues", asy
   const appEntries = await readdir(new URL("../app/", import.meta.url));
   assert.ok(appEntries.includes("practice"), "Practice needs its own route instead of opening the trainer");
 
-  const library = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const home = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const library = await readFile(new URL("../app/library/page.tsx", import.meta.url), "utf8");
   const practice = await readFile(new URL("../app/practice/page.tsx", import.meta.url), "utf8");
   const workspace = await readFile(
     new URL("../app/components/phrase-workspace.tsx", import.meta.url),
@@ -82,11 +83,12 @@ test("Library catalogs new phrases while Practice owns the learning queues", asy
   const trainer = await readFile(new URL("../public/trainer.html", import.meta.url), "utf8");
 
   assert.match(library, /<PhraseWorkspace surface="library"\s*\/>/);
+  assert.match(home, /redirect\("\/library"\)/);
   assert.match(practice, /<PhraseWorkspace surface="practice"\s*\/>/);
   assert.match(workspace, /const practiceTabs[^=]*=\s*\[[\s\S]*?To Learn[\s\S]*?Learning Now[\s\S]*?Learned[\s\S]*?\];/);
   assert.doesNotMatch(workspace.match(/const practiceTabs[^=]*=\s*\[([\s\S]*?)\];/)?.[1] || "", /Pick/);
   assert.match(workspace, /surface === "practice" \? "learning_now" : "pick"/);
-  assert.match(workspace, /surface === "library"\s*\? phrase\.status === "pick"\s*:\s*phrase\.status === activeTab/);
+  assert.match(workspace, /phrase\.status === "pick"[\s\S]*?phrase\.analysis\?\.kind === activeFormat/);
   assert.match(workspace, /surface === "practice" && \([\s\S]*?aria-label="Learning sections"/);
   assert.match(workspace, /surface === "practice" \? \([\s\S]*?onClick=\{\(\) => openPhrase\(phrase\)\}/);
   assert.match(workspace, /window\.location\.assign\(`\/trainer\?\$\{query\.toString\(\)\}`\)/);
@@ -94,6 +96,7 @@ test("Library catalogs new phrases while Practice owns the learning queues", asy
   assert.match(styles, /\.tabs \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
   assert.match(styles, /\.phrase-summary \{[^}]*cursor: default;/);
   assert.match(worker, /PUBLIC_DOCUMENT_PATHS[^;]*"\/practice"/);
+  assert.match(worker, /PUBLIC_DOCUMENT_PATHS[^;]*"\/library"/);
   assert.match(trainer, /if \(!fullVideoMode && !initialViewerParams\.get\("phrase"\)\?\.trim\(\)\) \{[\s\S]*?window\.location\.replace\("\/practice"\);/);
   assert.doesNotMatch(trainer, /viewerParams\.get\("phrase"\)\?\.trim\(\) \|\| BASE_PHRASES\[0\]\.q/);
 });
@@ -729,7 +732,7 @@ test("library and integration surfaces use English UI labels", async () => {
   ]);
 
   for (const surface of surfaces) assert.doesNotMatch(surface, /[\u0400-\u04FF]/);
-  assert.match(surfaces[0], /Find useful phrases\./);
+  assert.match(surfaces[0], /Train connected speech\./);
   assert.match(surfaces[1], /Translate English phrases into Russian\./);
   assert.match(surfaces[2], /<html lang="en">/);
 });

@@ -45,6 +45,7 @@ export function isPublicGuestRequest(request: Request) {
     || pathname === "/integrations/"
     || pathname === "/logout"
     || pathname === "/api/session"
+    || pathname === "/api/catalog"
     || publicAssetPaths.has(pathname)
   ) return true;
   if (pathname.startsWith("/_next/")) return true;
@@ -53,8 +54,8 @@ export function isPublicGuestRequest(request: Request) {
 
 export function guestLoginRedirect(request: Request) {
   const requestUrl = new URL(request.url);
-  const requested = requestUrl.searchParams.get("returnTo") || "/";
-  let target = new URL("/", requestUrl);
+  const requested = requestUrl.searchParams.get("returnTo") || "/library";
+  let target = new URL("/library", requestUrl);
   const requestedPath = requested.split(/[?#]/, 1)[0];
   const hasDotSegment = requestedPath.split("/").some((segment) => segment === "." || segment === "..");
 

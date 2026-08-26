@@ -92,7 +92,7 @@ test("Library catalogs new phrases while Practice owns the learning queues", asy
   assert.match(workspace, /const practiceTabs[^=]*=\s*\[[\s\S]*?To Learn[\s\S]*?Learning Now[\s\S]*?Learned[\s\S]*?\];/);
   assert.doesNotMatch(workspace.match(/const practiceTabs[^=]*=\s*\[([\s\S]*?)\];/)?.[1] || "", /Pick/);
   assert.match(workspace, /surface === "practice" \? "learning_now" : "pick"/);
-  assert.match(workspace, /surface === "library"\s*\? phrase\.status === "pick"\s*:\s*phrase\.status === activeTab/);
+  assert.match(workspace, /phrase\.status === "pick"[\s\S]*?phrase\.analysis\?\.kind === activeFormat/);
   assert.match(workspace, /surface === "practice" && \([\s\S]*?aria-label="Learning sections"/);
   assert.match(workspace, /surface === "practice" \? \([\s\S]*?onClick=\{\(\) => openPhrase\(phrase\)\}/);
   assert.match(workspace, /window\.location\.assign\(`\/trainer\?\$\{query\.toString\(\)\}`\)/);
@@ -100,6 +100,7 @@ test("Library catalogs new phrases while Practice owns the learning queues", asy
   assert.match(styles, /\.tabs \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);
   assert.match(styles, /\.phrase-summary \{[^}]*cursor: default;/);
   assert.match(worker, /PUBLIC_DOCUMENT_PATHS[^;]*"\/practice"/);
+  assert.match(worker, /PUBLIC_DOCUMENT_PATHS[^;]*"\/library"/);
   assert.match(trainer, /if \(!fullVideoMode && !initialViewerParams\.get\("phrase"\)\?\.trim\(\)\) \{[\s\S]*?window\.location\.replace\("\/practice"\);/);
   assert.doesNotMatch(trainer, /viewerParams\.get\("phrase"\)\?\.trim\(\) \|\| BASE_PHRASES\[0\]\.q/);
 });
@@ -735,7 +736,7 @@ test("library and integration surfaces use English UI labels", async () => {
   ]);
 
   for (const surface of surfaces) assert.doesNotMatch(surface, /[\u0400-\u04FF]/);
-  assert.match(surfaces[0], /Find useful phrases\./);
+  assert.match(surfaces[0], /Train connected speech\./);
   assert.match(surfaces[1], /Translate English phrases into Russian\./);
   assert.match(surfaces[2], /<html lang="en">/);
 });

@@ -18,6 +18,12 @@ const productionConfig = JSON.parse(
 const packageConfig = JSON.parse(
   await readFile(new URL("../package.json", import.meta.url), "utf8"),
 );
+const PREVIEW_WORKER_ACCESS_AUD =
+  "c3e7906e8ce42cf58b85e2c72d27df691fdb0fec681cedd8093ada530e9c2518";
+const LOGIN_ACCESS_AUD =
+  "315a0118e28bc19c5d5cc5298a8fb4704ad351ebe58774f9966cd678458d8ff0";
+const LEGACY_SETTINGS_ACCESS_AUD =
+  "a68b687d83c86b363a5c14f609b7026721dc8c6c77b7293c4337390d5dc45341";
 
 test("preview Wrangler environment has its own Worker name", () => {
   assert.equal(sourceConfig.env?.preview?.name, "listen-to-learn-preview");
@@ -61,6 +67,25 @@ test("Workers Builds has an explicit branch-preview command", () => {
 
 test("preview URLs stay enabled through Wrangler deployments", () => {
   assert.equal(previewConfig.preview_urls, true);
+});
+
+test("preview accepts its Access application without widening production", () => {
+  const previewAudiences = previewConfig.vars.ACCESS_AUD.split(",");
+  const sourcePreviewAudiences = sourceConfig.env.preview.vars.ACCESS_AUD.split(",");
+  const productionAudiences = productionConfig.vars.ACCESS_AUD.split(",");
+  const sourceProductionAudiences = sourceConfig.vars.ACCESS_AUD.split(",");
+
+  assert.ok(previewAudiences.includes(PREVIEW_WORKER_ACCESS_AUD));
+  assert.ok(sourcePreviewAudiences.includes(PREVIEW_WORKER_ACCESS_AUD));
+  assert.ok(!productionAudiences.includes(PREVIEW_WORKER_ACCESS_AUD));
+  assert.ok(!sourceProductionAudiences.includes(PREVIEW_WORKER_ACCESS_AUD));
+  assert.deepEqual(productionAudiences, [LOGIN_ACCESS_AUD]);
+  assert.deepEqual(sourceProductionAudiences, [LOGIN_ACCESS_AUD]);
+  assert.deepEqual(new Set(previewAudiences), new Set([LOGIN_ACCESS_AUD, PREVIEW_WORKER_ACCESS_AUD]));
+  assert.deepEqual(new Set(sourcePreviewAudiences), new Set([LOGIN_ACCESS_AUD, PREVIEW_WORKER_ACCESS_AUD]));
+  for (const audiences of [previewAudiences, sourcePreviewAudiences, productionAudiences, sourceProductionAudiences]) {
+    assert.ok(!audiences.includes(LEGACY_SETTINGS_ACCESS_AUD));
+  }
 });
 
 test("production deploy is opt-in", () => {

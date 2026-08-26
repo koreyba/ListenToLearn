@@ -150,6 +150,7 @@
   }
 
   .site-account-name {
-    display: none;
+    max-width: min(42vw, 150px);
+    font-size: 11px;
   }
 }

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -8,6 +8,16 @@ export const users = sqliteTable("users", {
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
+
+export const appSessions = sqliteTable("app_sessions", {
+  tokenHash: text("token_hash").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: text("created_at").notNull(),
+  expiresAt: text("expires_at").notNull(),
+}, (table) => [
+  index("idx_app_sessions_user").on(table.userId),
+  index("idx_app_sessions_expires").on(table.expiresAt),
+]);
 
 export const phrases = sqliteTable("phrases", {
   id: text("id").primaryKey(),
@@ -66,6 +76,10 @@ export const savedVideos = sqliteTable("saved_videos", {
   originCaption: text("origin_caption").notNull().default(""),
   language: text("language").notNull().default("english"),
   accent: text("accent").notNull().default(""),
+  resumeSeconds: real("resume_seconds").notNull().default(0),
+  resumeCaptionId: text("resume_caption_id").notNull().default(""),
+  resumeCaptionText: text("resume_caption_text").notNull().default(""),
+  progressUpdatedAt: text("progress_updated_at"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 }, (table) => [

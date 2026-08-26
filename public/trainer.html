@@ -1188,9 +1188,10 @@
         <a class="site-primary-link" href="/">Library</a>
         <a class="site-primary-link" href="/practice" aria-current="page">Practice</a>
         <a class="site-primary-link" href="/videos">Videos</a>
-        <a class="site-primary-link" href="/integrations">Settings</a>
+        <a class="site-primary-link" href="/settings">Settings</a>
       </nav>
       <div class="site-account">
+        <span id="accountEmail" class="site-account-name" hidden></span>
         <a id="loginLink" class="site-account-link" href="/login">Sign in with Google</a>
       </div>
     </div>
@@ -1419,11 +1420,12 @@
   </main>
 
   <script src="/caption-navigation.js"></script>
+  <script src="/video-progress-sync.js"></script>
   <script>
     "use strict";
 
     const initialViewerParams = new URLSearchParams(window.location.search);
-    const YOUTUBE_PROGRESS_STORAGE_KEY = "listen-to-learn-youtube-progress-v1";
+    let YOUTUBE_PROGRESS_STORAGE_KEY = "listen-to-learn-youtube-progress-v1:anonymous";
     const MAX_OBSERVED_CAPTIONS = 200;
 
     const BASE_PHRASES = [
@@ -1547,6 +1549,7 @@
     let youglishHasFetched = false;
     let youglishScriptLoading = false;
     let accountPhraseData = null;
+    let accountVideoProgressSync = null;
     let fullVideoMode = initialViewerParams.get("fullVideo") === "1";
     let fullVideoReturnSource = "youglish";
     let fullVideoRestoreShouldPause = fullVideoMode;
@@ -1620,6 +1623,7 @@
       importBtn: document.getElementById("importBtn"),
       importFile: document.getElementById("importFile"),
       stateMessage: document.getElementById("stateMessage"),
+      accountEmail: document.getElementById("accountEmail"),
       loginLink: document.getElementById("loginLink"),
       playerTop: document.getElementById("playerTop"),
       playerControls: document.getElementById("playerControls"),
@@ -3395,7 +3399,7 @@
       if (!query) return;
       const fromFullVideo = fullVideoMode;
       if (fromFullVideo) {
-        persistFullVideoProgress();
+        persistFullVideoProgress({ flush: true });
         if (widgetReady && widget && typeof widget.pause === "function") {
           try { widget.pause(); } catch (_) {}
         }
@@ -3609,33 +3613,54 @@
     }
 
     function writeFullVideoProgress(videoId, seconds, captionId, captionText) {
-      if (!/^[A-Za-z0-9_-]{11}$/.test(videoId) || !Number.isFinite(Number(seconds))) return;
+      if (!/^[A-Za-z0-9_-]{11}$/.test(videoId) || !Number.isFinite(Number(seconds))) return null;
       try {
         const parsed = JSON.parse(localStorage.getItem(YOUTUBE_PROGRESS_STORAGE_KEY) || "null");
         const videos = parsed && parsed.videos && typeof parsed.videos === "object" ? parsed.videos : {};
-        videos[videoId] = {
+        const progress = {
           seconds: Math.max(0, Number(seconds)),
           captionId: cleanFullVideoText(captionId, 160),
           captionText: cleanFullVideoText(captionText, 1000),
           updatedAt: new Date().toISOString()
         };
+        videos[videoId] = progress;
         const newest = Object.entries(videos)
           .sort((left, right) => Date.parse(right[1].updatedAt || 0) - Date.parse(left[1].updatedAt || 0))
           .slice(0, 200);
         localStorage.setItem(YOUTUBE_PROGRESS_STORAGE_KEY, JSON.stringify({ version: 1, videos: Object.fromEntries(newest) }));
-      } catch (_) {}
+        return progress;
+      } catch (_) {
+        return null;
+      }
     }
 
-    function persistFullVideoProgress() {
+    function persistFullVideoProgress(options = {}) {
       if (!fullVideoMode || !/^[A-Za-z0-9_-]{11}$/.test(fullVideoOrigin.videoId)) return;
       const entry = currentCaptionEntry();
       const seconds = entry ? estimatedCaptionTime(entry) : Number(fullVideoOrigin.resumeTime || 0);
-      writeFullVideoProgress(
+      const progress = writeFullVideoProgress(
         fullVideoOrigin.videoId,
         Number.isFinite(seconds) ? seconds : 0,
         entry ? entry.id : fullVideoOrigin.resumeCaptionId,
         entry ? entry.text : (currentCaptionText || fullVideoOrigin.resumeCaption)
       );
+      if (progress && isAuthenticated && accountVideoProgressSync) {
+        accountVideoProgressSync.update({
+          origin: {
+            videoId: fullVideoOrigin.videoId,
+            originPhraseId: fullVideoOrigin.originPhraseId,
+            originQuery: fullVideoOrigin.originalQuery,
+            originCaption: fullVideoOrigin.originCaption,
+            language: fullVideoOrigin.language || "english",
+            accent: fullVideoOrigin.accent || ""
+          },
+          progress
+        });
+        if (options.flush) {
+          void accountVideoProgressSync.flush({ keepalive: Boolean(options.keepalive) });
+        }
+      }
+      return progress;
     }
 
     function fullVideoUrl(origin, progress = null) {
@@ -3679,17 +3704,21 @@
       };
     }
 
-    async function recordCurrentVideoHistory(origin) {
+    async function recordCurrentVideoHistory(origin, progress) {
       try {
         if (!isAuthenticated) {
           saveGuestVideo(origin);
           saveGuestLibrary();
           return;
         }
+        if (accountVideoProgressSync) {
+          accountVideoProgressSync.update({ origin, progress });
+          return;
+        }
         const response = await fetch("/api/videos", {
           method: "POST",
           headers: { "Content-Type": "application/json; charset=utf-8" },
-          body: JSON.stringify(origin)
+          body: JSON.stringify(progress ? { ...origin, progress } : origin)
         });
         const data = await response.json().catch(() => null);
         if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
@@ -3702,7 +3731,14 @@
     function watchCurrentFullVideo() {
       const origin = currentVideoOrigin();
       if (state.source !== "youglish" || !/^[A-Za-z0-9_-]{11}$/.test(origin.videoId) || !origin.originQuery) return;
-      void recordCurrentVideoHistory(origin);
+      const current = currentCaptionEntry();
+      const progress = writeFullVideoProgress(
+        origin.videoId,
+        current ? estimatedCaptionTime(current) : 0,
+        current ? current.id : "",
+        current ? current.text : currentCaptionText
+      );
+      void recordCurrentVideoHistory(origin, progress);
       if (widgetReady && widget && typeof widget.pause === "function") {
         try { widget.pause(); } catch (_) {}
       }
@@ -3720,7 +3756,6 @@
       };
       fullVideoMode = true;
       fullVideoRestoreShouldPause = false;
-      persistFullVideoProgress();
       history.pushState({ fullVideo: true }, "", fullVideoUrl(fullVideoOrigin, readFullVideoProgress(origin.videoId)));
       applyFullVideoMode();
     }
@@ -3929,7 +3964,7 @@
       }
       playerState = nextState;
       renderPlaybackControl();
-      if (fullVideoMode && nextState !== 1) persistFullVideoProgress();
+      if (fullVideoMode && nextState !== 1) persistFullVideoProgress({ flush: true });
       recordCaptionTrace("widget.player-state-applied", { state: nextState });
     }
 
@@ -4421,7 +4456,7 @@
       }
 
       if (fullVideoMode) {
-        persistFullVideoProgress();
+        persistFullVideoProgress({ flush: true });
         if (widgetReady && widget && typeof widget.pause === "function") {
           try { widget.pause(); } catch (_) {}
         }
@@ -4435,21 +4470,29 @@
         fetchPhrase(VIEWER_PHRASE, true);
       }
     });
-    window.addEventListener("pagehide", persistFullVideoProgress);
+    window.addEventListener("pagehide", () => {
+      persistFullVideoProgress({ flush: true, keepalive: true });
+    });
 
-    function clearAuthHint() {
-      try { localStorage.removeItem("listen-to-learn-authenticated-v1"); } catch (_) {}
-    }
-
-    function updateAuthLink() {
+    function updateAuthLink(sessionUser) {
       if (!el.loginLink) return;
       if (isAuthenticated) {
+        if (el.accountEmail) {
+          el.accountEmail.textContent = sessionUser.email;
+          el.accountEmail.title = sessionUser.email;
+          el.accountEmail.hidden = false;
+        }
         el.loginLink.textContent = "Sign out";
-        el.loginLink.href = "/cdn-cgi/access/logout";
-        el.loginLink.onclick = clearAuthHint;
+        el.loginLink.href = "/logout";
+        el.loginLink.onclick = null;
       } else {
+        if (el.accountEmail) {
+          el.accountEmail.textContent = "";
+          el.accountEmail.title = "";
+          el.accountEmail.hidden = true;
+        }
         el.loginLink.textContent = "Sign in with Google";
-        el.loginLink.href = "/login";
+        el.loginLink.href = "/login?returnTo=" + encodeURIComponent(location.pathname + location.search);
         el.loginLink.onclick = null;
       }
     }
@@ -4471,22 +4514,49 @@
     });
 
     async function initializeTrainer() {
-      let authHint = false;
-      try { authHint = localStorage.getItem("listen-to-learn-authenticated-v1") === "1"; } catch (_) {}
+      let sessionUser = null;
+      try {
+        const sessionResponse = await fetch("/api/session", { cache: "no-store", credentials: "same-origin" });
+        const sessionData = await sessionResponse.json().catch(() => null);
+        if (sessionResponse.ok && sessionData && sessionData.user && typeof sessionData.user.id === "string") {
+          sessionUser = sessionData.user;
+        }
+      } catch (_) {}
 
-      if (authHint) {
+      if (sessionUser) {
+        isAuthenticated = true;
+        STORAGE_KEY = "connected-speech-trainer-v1:" + encodeURIComponent(sessionUser.id);
+        YOUTUBE_PROGRESS_STORAGE_KEY = "listen-to-learn-youtube-progress-v1:" + encodeURIComponent(sessionUser.id);
+        if (window.ListenToLearnVideoProgressSync) {
+          accountVideoProgressSync = window.ListenToLearnVideoProgressSync.create({
+            intervalMs: 15_000,
+            send: async (snapshot, options) => {
+              const payload = snapshot.progress
+                ? { ...snapshot.origin, progress: snapshot.progress }
+                : snapshot.origin;
+              const response = await fetch("/api/videos", {
+                method: "POST",
+                headers: { "Content-Type": "application/json; charset=utf-8" },
+                body: JSON.stringify(payload),
+                keepalive: options.keepalive
+              });
+              const data = await response.json().catch(() => null);
+              if (!response.ok) throw new Error(data && data.error ? data.error : `HTTP ${response.status}`);
+            },
+            onError: error => {
+              showExampleMessage("Progress is saved in this browser, but account sync failed.", "error");
+              console.error(error);
+            }
+          });
+        }
         try {
           const query = VIEWER_PHRASE_ID ? `?id=${encodeURIComponent(VIEWER_PHRASE_ID)}` : "";
-          const response = await fetch(`/api/phrases${query}`, { cache: "no-store", redirect: "manual" });
+          const response = await fetch(`/api/phrases${query}`, { cache: "no-store" });
           const data = await response.json().catch(() => null);
-          if (response.type === "opaqueredirect" || !response.ok || !data || !data.user || typeof data.user.id !== "string") {
-            throw new Error("account session unavailable");
-          }
+          if (!response.ok || !data) throw new Error("account data unavailable");
 
-          isAuthenticated = true;
           accountPhraseData = data;
-          STORAGE_KEY = "connected-speech-trainer-v1:" + encodeURIComponent(data.user.id);
-          if (!localStorage.getItem(STORAGE_KEY) && data.user.legacyStateAvailable) {
+          if (!localStorage.getItem(STORAGE_KEY) && data.user && data.user.legacyStateAvailable) {
             const legacyState = localStorage.getItem("connected-speech-trainer-v1");
             if (legacyState) {
               localStorage.setItem(STORAGE_KEY, legacyState);
@@ -4497,9 +4567,9 @@
           exampleMode = state.exampleMode;
           savedExampleSequenceKey = "";
           saveState();
-        } catch (_) {
-          clearAuthHint();
-          isAuthenticated = false;
+        } catch (error) {
+          accountPhraseData = { user: sessionUser, phrases: [] };
+          console.error(error);
         }
       }
 
@@ -4513,7 +4583,7 @@
       }
 
       trainerReady = true;
-      updateAuthLink();
+      updateAuthLink(sessionUser);
 
       if (fullVideoMode) {
         fullVideoReturnSource = state.source;

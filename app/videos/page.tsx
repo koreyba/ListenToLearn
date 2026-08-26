@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { SignedInSiteAccount } from "@/app/components/signed-in-site-account";
 import { SiteNavigation } from "@/app/components/site-navigation";
+import { accountSession, signInHref, youtubeProgressStorageKey, type AccountSessionUser } from "@/lib/client-session";
 import {
   GUEST_LIBRARY_STORAGE_KEY,
   normalizeGuestLibrary,
@@ -10,10 +12,11 @@ import {
   type GuestSavedVideo,
 } from "@/lib/guest-library";
 import {
+  clearYouTubeProgress,
+  mergeYouTubeProgress,
   normalizeYouTubeProgress,
   readYouTubeResume,
   type YouTubeProgressEntry,
-  YOUTUBE_PROGRESS_STORAGE_KEY,
 } from "@/lib/youtube-progress";
 import { buildFullVideoTrainerUrl } from "@/lib/youglish-full-video";
 import {
@@ -21,10 +24,8 @@ import {
   youtubeThumbnailUrl,
 } from "@/lib/youtube-player";
 
-type SavedVideo = GuestSavedVideo;
+type SavedVideo = GuestSavedVideo & { progress?: YouTubeProgressEntry };
 type VideosResponse = { videos?: SavedVideo[]; error?: string };
-
-const AUTH_HINT_STORAGE_KEY = "listen-to-learn-authenticated-v1";
 
 function readGuestLibrary() {
   try {
@@ -35,13 +36,30 @@ function readGuestLibrary() {
   }
 }
 
-function readProgressMap() {
+function readProgressState(storageKey: string) {
   try {
-    const raw = window.localStorage.getItem(YOUTUBE_PROGRESS_STORAGE_KEY);
-    return normalizeYouTubeProgress(raw ? JSON.parse(raw) : null).videos;
+    const raw = window.localStorage.getItem(storageKey);
+    return normalizeYouTubeProgress(raw ? JSON.parse(raw) : null);
   } catch {
-    return {};
+    return normalizeYouTubeProgress(null);
   }
+}
+
+function openLegacyDirectLink(progress: Record<string, YouTubeProgressEntry>) {
+  const searchParams = new URLSearchParams(window.location.search);
+  const requestedVideo = searchParams.get("video") || "";
+  const directOrigin = {
+    videoId: requestedVideo,
+    originPhraseId: (searchParams.get("phraseId") || "").slice(0, 120),
+    originQuery: (searchParams.get("query") || "").slice(0, 240),
+    originCaption: (searchParams.get("caption") || "").slice(0, 1_000),
+    language: "english",
+    accent: (searchParams.get("accent") || "").slice(0, 20),
+  };
+  if (!isYouTubeVideoId(requestedVideo) || !directOrigin.originQuery) return;
+  const resume = readYouTubeResume({ version: 1, videos: progress }, requestedVideo);
+  const fullVideoUrl = buildFullVideoTrainerUrl(directOrigin, resume);
+  if (fullVideoUrl) window.location.replace(fullVideoUrl);
 }
 
 function formatProgress(secondsValue: number) {
@@ -56,9 +74,11 @@ function formatProgress(secondsValue: number) {
 
 export default function VideosPage() {
   const [mode, setMode] = useState<"guest" | "account">("guest");
+  const [viewer, setViewer] = useState<AccountSessionUser | null>(null);
   const [guestLibrary, setGuestLibrary] = useState<GuestLibraryState>(() => normalizeGuestLibrary(null));
   const [videos, setVideos] = useState<SavedVideo[]>([]);
   const [progress, setProgress] = useState<Record<string, YouTubeProgressEntry>>({});
+  const [progressStorageKey, setProgressStorageKey] = useState(() => youtubeProgressStorageKey(null));
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState("");
   const [notice, setNotice] = useState("");
@@ -66,52 +86,52 @@ export default function VideosPage() {
 
   const loadGuest = useCallback(() => {
     const next = readGuestLibrary();
+    const storageKey = youtubeProgressStorageKey(null);
+    const guestProgress = readProgressState(storageKey);
     setMode("guest");
+    setViewer(null);
+    setProgressStorageKey(storageKey);
     setGuestLibrary(next);
     setVideos(next.savedVideos);
+    setProgress(guestProgress.videos);
     setLoading(false);
+    openLegacyDirectLink(guestProgress.videos);
   }, []);
 
-  const loadAccount = useCallback(async () => {
+  const loadAccount = useCallback(async (sessionUser: AccountSessionUser) => {
+    const storageKey = youtubeProgressStorageKey(sessionUser.id);
+    setMode("account");
+    setViewer(sessionUser);
+    setProgressStorageKey(storageKey);
     try {
       const response = await fetch("/api/videos", { cache: "no-store" });
       const data = await response.json() as VideosResponse;
       if (!response.ok || !Array.isArray(data.videos)) {
         throw new Error(data.error || "account session unavailable");
       }
-      setMode("account");
       setVideos(data.videos);
+      const serverProgress = normalizeYouTubeProgress({
+        videos: Object.fromEntries(data.videos
+          .filter((video) => video.progress?.updatedAt)
+          .map((video) => [video.videoId, video.progress])),
+      });
+      const mergedProgress = mergeYouTubeProgress(serverProgress, readProgressState(storageKey));
+      setProgress(mergedProgress.videos);
       setLoading(false);
-    } catch {
-      try { window.localStorage.removeItem(AUTH_HINT_STORAGE_KEY); } catch { /* optional hint */ }
-      loadGuest();
+      openLegacyDirectLink(mergedProgress.videos);
+    } catch (reason) {
+      setMode("account");
+      setError(reason instanceof Error ? reason.message : "Could not load account videos.");
+      setLoading(false);
     }
-  }, [loadGuest]);
+  }, []);
 
   useEffect(() => {
-    const openLegacyDirectLink = () => {
-      const searchParams = new URLSearchParams(window.location.search);
-      const requestedVideo = searchParams.get("video") || "";
-      const directOrigin = {
-        videoId: requestedVideo,
-        originPhraseId: (searchParams.get("phraseId") || "").slice(0, 120),
-        originQuery: (searchParams.get("query") || "").slice(0, 240),
-        originCaption: (searchParams.get("caption") || "").slice(0, 1_000),
-        language: "english",
-        accent: (searchParams.get("accent") || "").slice(0, 20),
-      };
-      if (!isYouTubeVideoId(requestedVideo) || !directOrigin.originQuery) return;
-      const resume = readYouTubeResume({ version: 1, videos: readProgressMap() }, requestedVideo);
-      const fullVideoUrl = buildFullVideoTrainerUrl(directOrigin, resume);
-      if (fullVideoUrl) window.location.replace(fullVideoUrl);
-    };
     const initializationTimer = window.setTimeout(() => {
-      openLegacyDirectLink();
-      setProgress(readProgressMap());
-      let authHint = false;
-      try { authHint = window.localStorage.getItem(AUTH_HINT_STORAGE_KEY) === "1"; } catch { /* optional hint */ }
-      if (authHint) void loadAccount();
-      else loadGuest();
+      void accountSession().then((sessionUser) => {
+        if (sessionUser) void loadAccount(sessionUser);
+        else loadGuest();
+      });
     }, 0);
     return () => {
       window.clearTimeout(initializationTimer);
@@ -121,11 +141,17 @@ export default function VideosPage() {
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
       if (event.key === GUEST_LIBRARY_STORAGE_KEY && mode === "guest") loadGuest();
-      if (event.key === YOUTUBE_PROGRESS_STORAGE_KEY) setProgress(readProgressMap());
+      if (event.key === progressStorageKey) setProgress(readProgressState(progressStorageKey).videos);
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [loadGuest, mode]);
+  }, [loadGuest, mode, progressStorageKey]);
+
+  function clearCurrentProgress(videoId: string) {
+    const next = clearYouTubeProgress({ version: 1, videos: progress }, videoId);
+    setProgress(next.videos);
+    try { window.localStorage.setItem(progressStorageKey, JSON.stringify(next)); } catch { /* optional mirror */ }
+  }
 
   function persistGuest(next: GuestLibraryState) {
     const normalized = normalizeGuestLibrary(next);
@@ -151,6 +177,7 @@ export default function VideosPage() {
     setNotice("");
     if (mode === "guest") {
       persistGuest(removeGuestSavedVideo(guestLibrary, video.id));
+      clearCurrentProgress(video.videoId);
       setNotice("Video removed from Continue watching. Its phrase clips were not changed.");
       setBusyId("");
       return;
@@ -161,6 +188,7 @@ export default function VideosPage() {
       const data = await response.json() as { error?: string };
       if (!response.ok) throw new Error(data.error || "Could not remove the video.");
       setVideos((items) => items.filter((item) => item.id !== video.id));
+      clearCurrentProgress(video.videoId);
       setNotice("Video removed from Continue watching. Its phrase clips were not changed.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not remove the video.");
@@ -173,16 +201,10 @@ export default function VideosPage() {
     <>
       <SiteNavigation
         active="videos"
-        account={mode === "guest" ? (
-          <a className="site-account-link" href="/login">Sign in with Google</a>
+        account={mode === "guest" || !viewer ? (
+          <a className="site-account-link" href={signInHref("/videos")}>Sign in with Google</a>
         ) : (
-          <a
-            className="site-account-link"
-            href="/cdn-cgi/access/logout"
-            onClick={() => {
-              try { window.localStorage.removeItem(AUTH_HINT_STORAGE_KEY); } catch { /* optional hint */ }
-            }}
-          >Log out</a>
+          <SignedInSiteAccount user={viewer} />
         )}
       />
       <main className="videos-shell">
@@ -190,7 +212,7 @@ export default function VideosPage() {
         <div>
           <p className="eyebrow">Long-form listening</p>
           <h1>Videos</h1>
-          <p>Continue a YouGlish video with the trainer&apos;s captions and learning controls. Resume stays in this browser.</p>
+          <p>Continue a YouGlish video with the trainer&apos;s captions and learning controls. Signed-in resume syncs with your account.</p>
         </div>
       </header>
 

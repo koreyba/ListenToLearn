@@ -1,31 +1,227 @@
 :root {
-  --app-background: #101412;
-  --app-sage: #afc1a3;
-  --app-clay: #c88767;
-  --app-grid-line: rgba(255, 255, 255, .025);
   --app-grid-size: 76px;
-  --app-surface: #171c19;
-  --app-surface-raised: #1d2420;
-  --app-surface-glass: rgba(23, 28, 25, .82);
-  --app-card-background: linear-gradient(145deg, rgba(29, 36, 32, .96), rgba(19, 24, 21, .96));
-  --app-nav-background: rgba(16, 20, 18, .9);
-  --app-nav-mobile-background: rgba(16, 20, 18, .97);
-  --app-action-border: rgba(175, 193, 163, .42);
-  --app-action-text: #e5ede1;
-  --app-line: #303a34;
-  --app-text: #f4f5f6;
-  --app-muted: #a7adb2;
   --app-ui-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --app-display-font: "Avenir Next", Avenir, "Helvetica Neue", Arial, sans-serif;
-  --bg: var(--app-background);
-  --panel: var(--app-surface);
-  --panel-2: var(--app-surface-raised);
-  --line: var(--app-line);
-  --text: var(--app-text);
-  --muted: var(--app-muted);
-  --accent: var(--app-sage);
-  --accent-soft: rgba(175, 193, 163, .14);
-  --danger: #ffb4b4;
+  --app-phonetic-font: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --app-background: var(--color-canvas);
+  --app-sage: var(--color-brand);
+  --app-clay: var(--color-brand-secondary);
+  --app-grid-line: var(--color-grid);
+  --app-surface: var(--color-surface);
+  --app-surface-raised: var(--color-surface-raised);
+  --app-surface-glass: var(--color-surface-glass);
+  --app-card-background: var(--color-card-background);
+  --app-nav-background: var(--color-nav-background);
+  --app-nav-mobile-background: var(--color-nav-mobile-background);
+  --app-action-border: var(--color-interactive-border);
+  --app-action-text: var(--color-interactive);
+  --app-control-background: var(--color-control-background);
+  --app-control-hover: var(--color-control-background-hover);
+  --app-control-border: var(--color-control-border);
+  --app-card-border: var(--color-card-border);
+  --app-card-title: var(--color-card-title);
+  --app-label: var(--color-label);
+  --app-phonetic: var(--color-phonetic);
+  --app-line: var(--color-border);
+  --app-text: var(--color-text-primary);
+  --app-muted: var(--color-text-secondary);
+  --bg: var(--color-canvas);
+  --panel: var(--color-surface);
+  --panel-2: var(--color-surface-raised);
+  --line: var(--color-border);
+  --text: var(--color-text-primary);
+  --muted: var(--color-text-secondary);
+  --accent: var(--color-interactive);
+  --accent-2: var(--color-interactive-link);
+  --accent-soft: var(--color-interactive-soft);
+  --ok: var(--color-success);
+  --danger: var(--color-danger);
+  --shadow: var(--shadow-card);
+}
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-canvas: #0d1116;
+  --color-surface: #151a21;
+  --color-surface-raised: #1c232c;
+  --color-surface-subtle: #242c36;
+  --color-surface-glass: rgba(21, 26, 33, .88);
+  --color-card-background: linear-gradient(145deg, rgba(28, 35, 44, .97), rgba(15, 19, 25, .97));
+  --color-nav-background: rgba(13, 17, 22, .92);
+  --color-nav-mobile-background: rgba(13, 17, 22, .98);
+  --color-sticky-background: rgba(13, 17, 22, .96);
+  --color-grid: rgba(255, 255, 255, .025);
+  --color-ambient-clay: rgba(221, 152, 118, .12);
+  --color-ambient-sage: rgba(183, 201, 170, .045);
+  --color-text-primary: #f3f5f2;
+  --color-text-secondary: #b5bec8;
+  --color-text-tertiary: #909ba7;
+  --color-text-inverse: #11160f;
+  --color-border: #343d48;
+  --color-border-strong: #4b5867;
+  --color-card-border: #3e4a57;
+  --color-card-title: #e5ebf1;
+  --color-control-background: #1c232c;
+  --color-control-background-hover: #252f3a;
+  --color-control-border: #475463;
+  --color-focus: #aee8ff;
+  --color-brand: #b7c9aa;
+  --color-brand-secondary: #dd9876;
+  --color-secondary-solid: #dd9876;
+  --color-on-secondary: #28160f;
+  --color-secondary-soft: rgba(221, 152, 118, .16);
+  --color-secondary-border: rgba(221, 152, 118, .34);
+  --color-secondary-surface: linear-gradient(135deg, #251b17, #151512 58%);
+  --color-brand-solid: #b7c9aa;
+  --color-on-brand: #11160f;
+  --color-brand-soft: rgba(183, 201, 170, .14);
+  --color-brand-soft-hover: rgba(183, 201, 170, .21);
+  --color-brand-border: rgba(183, 201, 170, .45);
+  --color-link: #c8efff;
+  --color-interactive: #aee8ff;
+  --color-interactive-solid: #79d6ff;
+  --color-interactive-surface: linear-gradient(135deg, #38bdf8, #7dd3fc);
+  --color-on-interactive: #07131a;
+  --color-interactive-soft: rgba(125, 211, 252, .11);
+  --color-interactive-soft-hover: rgba(125, 211, 252, .18);
+  --color-interactive-border: rgba(125, 211, 252, .48);
+  --color-interactive-link: #c8efff;
+  --color-interactive-shadow: rgba(56, 189, 248, .2);
+  --color-label: #c69c88;
+  --color-phonetic: #c7b8ff;
+  --color-tag-background: rgba(198, 156, 136, .1);
+  --color-tag-border: rgba(198, 156, 136, .3);
+  --color-tag-text: #cda590;
+  --color-action-secondary-background: #202731;
+  --color-action-secondary-border: #546170;
+  --color-action-secondary-text: #eef2ed;
+  --color-action-disabled-background: #191f27;
+  --color-action-disabled-text: #99a4af;
+  --color-success: #9ed9bd;
+  --color-success-background: #15261e;
+  --color-success-border: #416e59;
+  --color-warning: #f0c674;
+  --color-warning-background: #2a2112;
+  --color-warning-border: #755b28;
+  --color-danger: #ffb4b8;
+  --color-danger-background: #2b191c;
+  --color-danger-border: #75444b;
+  --color-info: #a8d8eb;
+  --color-info-background: #14242b;
+  --color-info-border: #3f6878;
+  --color-scrollbar: #4e5a68;
+  --color-scrollbar-hover: #6d7987;
+  --color-media-canvas: #05070a;
+  --color-scrim: rgba(0, 0, 0, .72);
+  --color-overlay-soft: rgba(255, 255, 255, .08);
+  --color-overlay-strong: rgba(255, 255, 255, .14);
+  --color-range-track: #37424e;
+  --color-method-surface: #b7c9aa;
+  --color-method-text: #172019;
+  --color-method-muted: rgba(23, 32, 25, .68);
+  --color-method-line: rgba(23, 32, 25, .24);
+  --color-provider-background: #0b1015;
+  --color-provider-text: #f3f5f2;
+  --color-provider-caption: #b7c9aa;
+  --color-provider-marker: #f0c674;
+  --shadow-color: rgba(0, 0, 0, .32);
+  --shadow-soft: 0 8px 24px rgba(0, 0, 0, .18);
+  --shadow-card: 0 14px 34px rgba(0, 0, 0, .24);
+  --shadow-raised: 0 28px 74px rgba(0, 0, 0, .42);
+  --theme-color: #0d1116;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-canvas: #f5f3ec;
+  --color-surface: #fcfbf7;
+  --color-surface-raised: #ffffff;
+  --color-surface-subtle: #ebece6;
+  --color-surface-glass: rgba(252, 251, 247, .88);
+  --color-card-background: linear-gradient(145deg, rgba(255, 255, 255, .98), rgba(247, 246, 240, .98));
+  --color-nav-background: rgba(245, 243, 236, .9);
+  --color-nav-mobile-background: rgba(252, 251, 247, .97);
+  --color-sticky-background: rgba(245, 243, 236, .96);
+  --color-grid: rgba(24, 32, 26, .045);
+  --color-ambient-clay: rgba(152, 81, 55, .09);
+  --color-ambient-sage: rgba(64, 90, 56, .08);
+  --color-text-primary: #192127;
+  --color-text-secondary: #58646d;
+  --color-text-tertiary: #68757e;
+  --color-text-inverse: #fbfcf8;
+  --color-border: #d4d9dd;
+  --color-border-strong: #b6bec5;
+  --color-card-border: #c4ccd2;
+  --color-card-title: #27313a;
+  --color-control-background: #ffffff;
+  --color-control-background-hover: #edf1f4;
+  --color-control-border: #b7c0c7;
+  --color-focus: #185d78;
+  --color-brand: #405a38;
+  --color-brand-secondary: #985137;
+  --color-secondary-solid: #985137;
+  --color-on-secondary: #fbfcf8;
+  --color-secondary-soft: rgba(152, 81, 55, .12);
+  --color-secondary-border: rgba(152, 81, 55, .32);
+  --color-secondary-surface: linear-gradient(135deg, #fff8f4, #f4ede7 58%);
+  --color-brand-solid: #405a38;
+  --color-on-brand: #fbfcf8;
+  --color-brand-soft: rgba(64, 90, 56, .12);
+  --color-brand-soft-hover: rgba(64, 90, 56, .18);
+  --color-brand-border: rgba(64, 90, 56, .42);
+  --color-link: #174f66;
+  --color-interactive: #185d78;
+  --color-interactive-solid: #246d8a;
+  --color-interactive-surface: linear-gradient(135deg, #246d8a, #3285a5);
+  --color-on-interactive: #f7fcff;
+  --color-interactive-soft: rgba(36, 109, 138, .1);
+  --color-interactive-soft-hover: rgba(36, 109, 138, .16);
+  --color-interactive-border: rgba(24, 93, 120, .42);
+  --color-interactive-link: #174f66;
+  --color-interactive-shadow: rgba(36, 109, 138, .18);
+  --color-label: #7d5b4b;
+  --color-phonetic: #5b4390;
+  --color-tag-background: rgba(125, 91, 75, .08);
+  --color-tag-border: rgba(125, 91, 75, .3);
+  --color-tag-text: #74503f;
+  --color-action-secondary-background: #ffffff;
+  --color-action-secondary-border: #aeb6ad;
+  --color-action-secondary-text: #263029;
+  --color-action-disabled-background: #ebece6;
+  --color-action-disabled-text: #68746c;
+  --color-success: #2f6a50;
+  --color-success-background: #e5f2e9;
+  --color-success-border: #9cc6ad;
+  --color-warning: #81540c;
+  --color-warning-background: #fbf0d4;
+  --color-warning-border: #d8ba72;
+  --color-danger: #a43642;
+  --color-danger-background: #fbe8e8;
+  --color-danger-border: #dbb0b3;
+  --color-info: #315f75;
+  --color-info-background: #e3f0f4;
+  --color-info-border: #9fc4d1;
+  --color-scrollbar: #aab2aa;
+  --color-scrollbar-hover: #858f87;
+  --color-media-canvas: #0b0e0c;
+  --color-scrim: rgba(12, 17, 13, .72);
+  --color-overlay-soft: rgba(24, 32, 26, .07);
+  --color-overlay-strong: rgba(24, 32, 26, .13);
+  --color-range-track: #cbd0c8;
+  --color-method-surface: #dfe8d8;
+  --color-method-text: #1d2a1f;
+  --color-method-muted: #4f6152;
+  --color-method-line: rgba(29, 42, 31, .24);
+  --color-provider-background: #eef0e9;
+  --color-provider-text: #f3f5f2;
+  --color-provider-caption: #c4d9b7;
+  --color-provider-marker: #f0c674;
+  --shadow-color: rgba(24, 32, 26, .14);
+  --shadow-soft: 0 8px 24px rgba(24, 32, 26, .08);
+  --shadow-card: 0 14px 34px rgba(24, 32, 26, .11);
+  --shadow-raised: 0 28px 74px rgba(24, 32, 26, .16);
+  --theme-color: #f5f3ec;
 }
 
 html {
@@ -39,15 +235,20 @@ body {
   background:
     linear-gradient(var(--app-grid-line) 1px, transparent 1px),
     linear-gradient(90deg, var(--app-grid-line) 1px, transparent 1px),
-    radial-gradient(circle at 72% 42%, rgba(200, 135, 103, .12), transparent 25rem),
-    radial-gradient(circle at 24% 72%, rgba(175, 193, 163, .1), transparent 28rem),
+    radial-gradient(circle at 72% 42%, var(--color-ambient-clay), transparent 25rem),
+    radial-gradient(circle at 24% 72%, var(--color-ambient-sage), transparent 28rem),
     var(--bg);
   background-attachment: fixed;
   background-size: var(--app-grid-size) var(--app-grid-size), var(--app-grid-size) var(--app-grid-size), auto, auto, auto;
   color: var(--text);
   font-family: var(--app-ui-font);
+  transition: background-color .2s ease, color .2s ease;
 }
 
 @media (max-width: 760px) {
   :root { --app-grid-size: 54px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body { transition: none; }
 }

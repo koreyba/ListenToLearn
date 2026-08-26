@@ -531,15 +531,15 @@ test("trainer controls use one polished visual system", async () => {
 
   assert.match(
     trainer,
-    /\.player-controls \{[\s\S]*?background: linear-gradient\(180deg, rgba\(20, 27, 35, \.98\), rgba\(13, 18, 24, \.98\)\);[\s\S]*?box-shadow:/,
+    /\.player-controls \{[\s\S]*?background: var\(--color-surface\);[\s\S]*?box-shadow:/,
   );
   assert.match(
     trainer,
-    /\.player-controls button \{[\s\S]*?border: 1px solid transparent;[\s\S]*?border-radius: 11px;[\s\S]*?background: transparent;/,
+    /\.player-controls button \{[\s\S]*?border: 1px solid var\(--color-control-border\);[\s\S]*?border-radius: 11px;[\s\S]*?background: var\(--color-control-background\);[\s\S]*?color: var\(--color-action-secondary-text\);/,
   );
   assert.match(
     trainer,
-    /\.example-tools \{[\s\S]*?padding: 6px;[\s\S]*?border: 1px solid rgba\(86, 102, 119, \.42\);[\s\S]*?border-radius: 16px;[\s\S]*?background: linear-gradient\(180deg, rgba\(20, 27, 35, \.98\), rgba\(13, 18, 24, \.98\)\);/,
+    /\.example-tools \{[\s\S]*?padding: 6px;[\s\S]*?border: 1px solid var\(--color-border\);[\s\S]*?border-radius: 16px;[\s\S]*?background: var\(--color-surface\);/,
   );
   assert.match(
     trainer,
@@ -547,22 +547,22 @@ test("trainer controls use one polished visual system", async () => {
   );
   assert.match(
     trainer,
-    /\.example-settings \.segmented button\.active \{[\s\S]*?border-color: rgba\(125, 211, 252, \.18\);[\s\S]*?background: rgba\(125, 211, 252, \.11\);/,
+    /\.example-settings \.segmented button\.active \{[\s\S]*?border-color: var\(--color-interactive-border\);[\s\S]*?background: var\(--color-interactive-soft-hover\);/,
   );
   assert.match(
     trainer,
-    /\.media-full-video-btn \{[\s\S]*?background: linear-gradient\(135deg, #38bdf8, #7dd3fc\);[\s\S]*?color: #07131a;[\s\S]*?box-shadow:/,
+    /\.media-full-video-btn \{[\s\S]*?background: var\(--color-interactive-surface\);[\s\S]*?color: var\(--color-on-interactive\);[\s\S]*?box-shadow:/,
   );
   assert.match(
     trainer,
-    /\.segmented button\.active \{[\s\S]*?background: linear-gradient\(180deg, #2d3947, #26313d\);[\s\S]*?box-shadow:/,
+    /\.segmented button\.active \{[\s\S]*?background: var\(--color-interactive-soft-hover\);[\s\S]*?box-shadow:/,
   );
   assert.match(trainer, /\.control-select \{[\s\S]*?position: relative;/);
   assert.doesNotMatch(trainer, /\.control-select::after/);
   assert.match(trainer, /\.slow-playback-btn\[aria-pressed="true"\] \{[\s\S]*?background:/);
   assert.match(
     trainer,
-    /\.example-actions \{[\s\S]*?align-items: center;[\s\S]*?border-left: 1px solid rgba\(86, 102, 119, \.28\);/,
+    /\.example-actions \{[\s\S]*?align-items: center;[\s\S]*?border-left: 1px solid var\(--color-border\);/,
   );
   assert.match(
     trainer,
@@ -672,7 +672,7 @@ test("mobile example controls align to two columns and collapse Tatoeba actions"
   assert.match(trainer, /\.example-settings \.segmented button,\s*\.example-actions button \{[\s\S]*?width: 100%;[\s\S]*?min-width: 0;[\s\S]*?min-height: 44px;[\s\S]*?padding: 8px 6px;/);
   assert.match(
     trainer,
-    /\.media-full-video-btn \{[\s\S]*?margin-left: 0;[\s\S]*?border: 1px solid rgba\(125, 211, 252, \.24\);[\s\S]*?background: rgba\(125, 211, 252, \.08\);[\s\S]*?color: #aee8ff;[\s\S]*?box-shadow: none;/,
+    /\.media-full-video-btn \{[\s\S]*?margin-left: 0;[\s\S]*?border: 1px solid var\(--color-interactive-border\);[\s\S]*?background: var\(--color-interactive-soft\);[\s\S]*?color: var\(--color-interactive\);[\s\S]*?box-shadow: none;/,
   );
   assert.match(trainer, /\.example-actions:has\(\.media-full-video-btn\[hidden\]\) \{ grid-template-columns: minmax\(0, 1fr\); \}/);
   assert.match(trainer, /const validYouTubeVideo = isYouGlish && \/\^\[A-Za-z0-9_-\]\{11\}\$\//);
@@ -738,7 +738,7 @@ test("library and integration surfaces use English UI labels", async () => {
   for (const surface of surfaces) assert.doesNotMatch(surface, /[\u0400-\u04FF]/);
   assert.match(surfaces[0], /Train connected speech\./);
   assert.match(surfaces[1], /Translate English phrases into Russian\./);
-  assert.match(surfaces[2], /<html lang="en">/);
+  assert.match(surfaces[2], /<html lang="en" suppressHydrationWarning>/);
 });
 
 test("phrase controls use timing-aware caption events and expose repeat state", async () => {

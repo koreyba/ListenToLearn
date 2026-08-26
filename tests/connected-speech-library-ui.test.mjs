@@ -80,6 +80,31 @@ test("dedicated Library exposes formats, mechanisms, search and Add with Undo", 
   assert.match(workspace, />Undo</);
 });
 
+test("Library and Practice cards reuse one compact Practice action", async () => {
+  const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
+
+  assert.match(workspace, /function PracticeAction\(\{ onClick \}: \{ onClick: \(\) => void \}\)/);
+  assert.equal((workspace.match(/<PracticeAction onClick=\{\(\) => openPhrase\(phrase\)\} \/>/g) ?? []).length, 1);
+  assert.doesNotMatch(workspace, /practice-action/);
+});
+
+test("To Learn cards move to Learning Now and remain removable", async () => {
+  const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
+
+  assert.match(workspace, /phrase\.status === "to_learn" && <button[^\n]*>Move to Learning Now<\/button>/);
+  assert.doesNotMatch(workspace, />Start Learning<\/button>/);
+  assert.match(workspace, /\{phrase\.status !== "pick" && <button className="secondary"/);
+});
+
+test("custom phrases are added from every Practice tab into To Learn", async () => {
+  const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
+
+  assert.match(workspace, /\{surface === "practice" && <form className="add-form custom-phrase-form" onSubmit=\{addCustom\}>/);
+  assert.doesNotMatch(workspace, /\{surface === "library" && <form className="add-form custom-phrase-form"/);
+  assert.match(workspace, /const nextPhrase: Phrase = \{[\s\S]*?status: nextStatus,[\s\S]*?\};/);
+  assert.match(workspace, /setActiveTab\(nextStatus\)/);
+});
+
 test("Practice omits fabricated analysis placeholders for custom and legacy phrases", async () => {
   const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
 

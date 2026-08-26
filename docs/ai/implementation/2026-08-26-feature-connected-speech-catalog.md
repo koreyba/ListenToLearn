@@ -72,9 +72,9 @@ description: Implemented typed catalog foundation and current D1/UI work status
 ## Verification Performed During Implementation
 
 - Focused catalog/migration/API/UI tests pass, including the final surface-specific sort and migration rewrite-idempotence regressions.
-- Final full Node suite after the preview incident fix and application-theme sync: 221 passed, 0 failed.
+- Final full Node suite after the preview incident fix and application-theme sync: 222 passed, 0 failed.
 - `npx tsc --noEmit`, ESLint, production build, AI DevKit lint, and `git diff --check` pass on the final implementation.
-- The latest merge with `origin/main` preserved the landing page and dedicated Library/Practice routes; the post-theme-sync build, typecheck, lint, and 221-test suite pass.
+- The latest merge with `origin/main` preserved the landing page and dedicated Library/Practice routes; the post-theme-sync build, typecheck, lint, and 222-test suite pass.
 - Final generator verification found that repeated `--write` calls accumulated a statement boundary. A RED regression test drove `replaceGeneratedCatalogSql`; two writes now produce the same SHA-256 (`e6756a65…`).
 - Initial PR policy checks found an exponential-backtracking risk in the generated-section boundary regex. The regex was replaced with a bounded suffix loop, catalog validation was split into focused checks, and Sonar copy-paste metrics now exclude only the curated data module and its generated SQL while security analysis remains enabled.
 - Clean local D1: 140 active analyses, 230 mechanism links, 154 phrase rows; a second migration apply had no work.
@@ -98,6 +98,7 @@ description: Implemented typed catalog foundation and current D1/UI work status
 - A RED application-theme contract captured the remaining old blue mechanism styles before the Library controls and badges moved to the shared sage palette.
 - Responsive browser review at the normal desktop viewport and 390 × 844 confirmed the themed grid backdrop, readable filters/cards, 18 visible atom cards, no error notice, and no document-level horizontal overflow.
 - The mobile format selector remains horizontally swipeable but hides the browser scrollbar and uses scroll snapping, removing the white bar that visually conflicted with the new theme.
+- Format counts `18`, `22`, and `100` use an invariant 42 × 42 circle with centered text instead of stretching into vertical capsules; browser geometry confirms equal width and height on desktop and mobile.
 
 ## Remaining Work
 

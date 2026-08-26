@@ -84,18 +84,18 @@ description: Catalog integrity, optional analysis, migration compatibility, API,
 ### Current evidence
 
 - Focused migration generator suite: 4 passed, including repeated rewrite idempotence.
-- Final full `node --test tests/*.test.mjs`: 221 passed, 0 failed.
+- Final full `node --test tests/*.test.mjs`: 222 passed, 0 failed.
 - `npx tsc --noEmit`: exit 0 after making the direct `.ts` Node-test import contract explicit in `tsconfig.json`.
 - `npm run build`: exit 0; build lists `/library` and `/api/catalog`.
 - Clean local D1: 140 active analyses, 230 mechanism links, 154 total phrase rows; second migration apply reported no pending migration.
 - Legacy D1 upgrade: progress `learning_now`, one example reference, one retired-preset video reference, and reused `updated_at=2000-01-01T00:00:00Z` survived; reused analysis=1, retired analysis=0, and foreign-key violations=0.
 - Live public API before the final homepage sync: HTTP 200, public cache header, 35,041 bytes, 140 cards, 3 formats, and 6 mechanisms. After syncing `main`, rendered contracts and the production build verify `/` as the landing page and `/library` as the catalog route.
 - Live authenticated API: 154 phrases (140 analyzed, 14 legacy), text-only custom POST returned 201 with `analysis: null`, metadata injection returned 400.
-- Browser smoke at the normal desktop viewport and 390 × 844: format counts remain 18/22/100, the shared Forest & Clay surfaces/actions render consistently, 18 atom cards load without an error notice, document width does not exceed viewport content width, and mobile cards keep IPA/badges/actions readable. The swipeable format tabs hide their native scrollbar.
+- Browser smoke at the normal desktop viewport and 390 × 844: format counts remain 18/22/100 and each badge measures exactly 42 × 42 with a 50% radius, including the active three-digit `100`; the shared Forest & Clay surfaces/actions render consistently, document width does not exceed viewport content width, and mobile cards keep IPA/badges/actions readable. The swipeable format tabs hide their native scrollbar.
 - Running the migration generator twice produced the same SHA-256 (`e6756a65…`); the rewrite boundary is covered by a regression test.
 - Runtime source search for the supplied JSON path/name returned no product-code matches; no catalog JSON is part of the diff.
 - Sonar configuration coverage verifies that only `drizzle/0013_kind_trauma.sql` and `lib/catalog/connected-speech-catalog.ts` are excluded from copy-paste metrics; neither file is excluded from issue/security analysis.
-- Post-theme-sync verification: `npm run build`, `npx tsc --noEmit`, ESLint (0 errors; 2 generated-file warnings), `git diff --check`, and all 221 Node tests pass.
+- Post-theme-sync verification: `npm run build`, `npx tsc --noEmit`, ESLint (0 errors; 2 generated-file warnings), `git diff --check`, and all 222 Node tests pass.
 - Preview deployment regression suite: 9 passed. It proves migrations run before branch upload/named-preview deployment and a migration failure blocks upload.
 - Remote preview verification after the authorized apply: no pending migrations, 140 active analyses, 230 mechanism links, 154 phrase rows, and zero foreign-key violations.
 

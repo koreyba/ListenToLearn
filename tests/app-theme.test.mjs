@@ -60,6 +60,12 @@ test("Library controls and analysis badges use the shared application theme", as
   assert.match(globals, /\.tabs::-webkit-scrollbar \{ display: none; \}/);
 });
 
+test("Library format counts stay circular for two and three digit values", async () => {
+  const globals = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+
+  assert.match(globals, /\.tab strong \{[^}]*display: grid;[^}]*width: 42px;[^}]*height: 42px;[^}]*padding: 0;[^}]*border-radius: 50%;[^}]*place-items: center;[^}]*flex: 0 0 42px;/s);
+});
+
 test("interface typography stays readable while landing headings keep their display face", async () => {
   const [theme, globals, navigation] = await Promise.all([
     readFile(new URL("../public/app-theme.css", import.meta.url), "utf8"),

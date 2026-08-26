@@ -103,7 +103,7 @@ description: Ordered tasks for typed content, D1 projection, optional analysis, 
 - [x] **Task 4.4 — Reconcile Library with the shared application theme.**
   - Outcome: merge latest `origin/main`, replace remaining legacy-blue Library controls with shared Forest & Clay tokens, and keep mobile formats swipeable without a native scrollbar.
   - Dependencies: Task 4.3 and unified application theme PR #23.
-  - Validation: RED/GREEN theme contracts, 221-test full suite, build/typecheck/lint, and desktop/390px browser review without document overflow.
+  - Validation: RED/GREEN theme contracts, 222-test full suite, build/typecheck/lint, and desktop/390px browser review without document overflow.
 
 ## Dependencies
 

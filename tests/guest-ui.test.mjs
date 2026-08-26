@@ -35,17 +35,19 @@ test("trainer derives account mode from the optional session and never sends gue
 });
 
 test("React learning surfaces use optional session discovery instead of a local auth hint", async () => {
-  const [workspace, videos] = await Promise.all([
+  const [workspace, videos, account] = await Promise.all([
     readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/videos/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/signed-in-site-account.tsx", import.meta.url), "utf8"),
   ]);
 
   for (const source of [workspace, videos]) {
     assert.match(source, /accountSession/);
     assert.doesNotMatch(source, /listen-to-learn-authenticated-v1/);
     assert.doesNotMatch(source, />Log out</);
-    assert.match(source, />Sign out</);
+    assert.match(source, /SignedInSiteAccount/);
   }
+  assert.match(account, />Sign out</);
 });
 
 test("every account surface routes sign out through the branded app flow", async () => {
@@ -54,11 +56,40 @@ test("every account surface routes sign out through the branded app flow", async
     readFile(new URL("../app/videos/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/integrations/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../public/trainer.html", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/signed-in-site-account.tsx", import.meta.url), "utf8"),
   ]);
 
   for (const source of sources) assert.doesNotMatch(source, /href\s*=\s*["']\/cdn-cgi\/access\/logout/);
-  assert.match(sources[2], /SIGN_OUT_HREF/);
+  assert.match(sources[4], /SIGN_OUT_HREF/);
   assert.match(sources[3], /loginLink\.href = "\/logout"/);
+});
+
+test("every signed-in section shows the account email beside Sign out", async () => {
+  const [workspace, videos, settings, trainer, navigationStyles, account] = await Promise.all([
+    readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/videos/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/integrations/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../public/trainer.html", import.meta.url), "utf8"),
+    readFile(new URL("../public/site-navigation.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/signed-in-site-account.tsx", import.meta.url), "utf8")
+      .catch(() => ""),
+  ]);
+
+  for (const source of [workspace, videos, settings]) {
+    assert.match(source, /SignedInSiteAccount/);
+  }
+  assert.match(account, /site-account-name/);
+  assert.match(account, /user\.email/);
+  assert.match(account, /Sign out/);
+
+  assert.match(trainer, /id="accountEmail"/);
+  assert.match(trainer, /sessionUser\.email/);
+  assert.match(trainer, /Sign out/);
+  assert.doesNotMatch(
+    navigationStyles,
+    /\.site-account-name\s*\{\s*display:\s*none;/,
+    "mobile navigation must keep the signed-in email visible",
+  );
 });
 
 test("Settings stays guest after logout until the learner explicitly signs in", async () => {
@@ -71,9 +102,9 @@ test("Settings stays guest after logout until the learner explicitly signs in", 
 
   assert.match(settings, /accountSession/);
   assert.match(settings, /signInHref\("\/settings"\)/);
-  assert.match(settings, /if \(!loading && !session\)/);
+  assert.match(settings, /if \(!session\)/);
   const loadingBranch = settings.indexOf("if (loading)");
-  const guestBranch = settings.indexOf("if (!loading && !session)");
+  const guestBranch = settings.indexOf("if (!session)");
   assert.ok(
     loadingBranch >= 0 && loadingBranch < guestBranch,
     "Settings must not expose account controls before session discovery finishes",

@@ -25,6 +25,7 @@ The product needs one clear ownership model: Cloudflare Access proves Google ide
 - Store only a cryptographic hash of the opaque session token in D1.
 - Make Sign out delete the server-side session and clear the host-only cookie without navigating to a Cloudflare service page.
 - Make refresh and navigation remain signed out until the learner explicitly selects Sign in again, even while Cloudflare global SSO remains active.
+- Show the signed-in account email beside Sign out on every learning page, including mobile layouts.
 - Persist signed-in video history, resume seconds, and the last observed caption anchor in subject-owned D1 rows; keep guest history browser-local.
 - Preserve the existing safe `returnTo`, phrase, example, integration, video-progress, and provider behavior.
 
@@ -41,6 +42,7 @@ The product needs one clear ownership model: Cloudflare Access proves Google ide
 - As a guest, I can open every page and use browser-local learning history without an authentication redirect.
 - As a learner, I sign in explicitly with Google and return to the page where I started.
 - As a signed-in learner, every page reads one authoritative Unmumble session and the same account-scoped D1 data.
+- As a signed-in learner, I can verify the active account from the email shown beside Sign out on every page.
 - As a learner, Sign out immediately invalidates my server session, clears account state in the browser, and keeps me on the branded site.
 - As a signed-out learner, opening Settings or any other public page never creates a new application session.
 - As a learner with Cloudflare global SSO, only choosing Sign in again may create another Unmumble session.
@@ -67,6 +69,7 @@ The product needs one clear ownership model: Cloudflare Access proves Google ide
 - All protected APIs authorize through the Unmumble session and never require Access path protection.
 - `POST /api/logout` deletes the current D1 session before clearing its cookie and returns branded JSON with `Cache-Control: no-store`.
 - Sign out, refresh, navigation, and Settings remain guest until explicit `/login` is selected again.
+- Library, Practice, Videos, Trainer, and Settings show the session email beside Sign out on desktop and mobile.
 - All UI routes are public at Cloudflare Access; the product Access application protects only exact `/login` destinations. A separate preview-wide administrative gate may protect branch previews.
 - The redundant Settings/Integrations Access application no longer protects UI or API paths.
 - Existing signed-out marker cookies are cleared during login/logout and are no longer consulted for authorization.

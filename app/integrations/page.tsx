@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { SignedInSiteAccount } from "@/app/components/signed-in-site-account";
 import { SiteNavigation } from "@/app/components/site-navigation";
 import {
   accountSession,
   signInHref,
-  SIGN_OUT_HREF,
   type AccountSessionUser,
 } from "@/lib/client-session";
 
@@ -108,7 +108,7 @@ export default function IntegrationsPage() {
     );
   }
 
-  if (!loading && !session) {
+  if (!session) {
     return (
       <>
         <SiteNavigation
@@ -140,7 +140,7 @@ export default function IntegrationsPage() {
     <>
       <SiteNavigation
         active="settings"
-        account={<a className="site-account-link" href={SIGN_OUT_HREF}>Sign out</a>}
+        account={<SignedInSiteAccount user={session} />}
       />
       <main className="integrations-shell">
       <p className="eyebrow">Connected speech trainer</p>

@@ -1,8 +1,9 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SignedInSiteAccount } from "@/app/components/signed-in-site-account";
 import { SiteNavigation } from "@/app/components/site-navigation";
-import { accountSession, signInHref, SIGN_OUT_HREF, type AccountSessionUser } from "@/lib/client-session";
+import { accountSession, signInHref, type AccountSessionUser } from "@/lib/client-session";
 import { PRESET_PHRASES } from "@/lib/preset-phrases";
 import {
   GUEST_LIBRARY_STORAGE_KEY,
@@ -391,13 +392,10 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     <>
       <SiteNavigation
         active={surface}
-        account={mode === "guest" ? (
+        account={mode === "guest" || !viewer ? (
           <a className="site-account-link" href={signInHref(surface === "practice" ? "/practice" : "/")}>Sign in with Google</a>
         ) : (
-          <>
-            <span className="site-account-name" title={viewer?.email}>{viewer?.name || viewer?.email}</span>
-            <a className="site-account-link" href={SIGN_OUT_HREF}>Sign out</a>
-          </>
+          <SignedInSiteAccount user={viewer} />
         )}
       />
       <main className="library-shell">

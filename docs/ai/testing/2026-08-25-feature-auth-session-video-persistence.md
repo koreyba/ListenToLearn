@@ -58,6 +58,7 @@ description: Regression, ownership, persistence, and live Access verification fo
 - [x] Guest history and playback generate no call to protected video APIs.
 - [x] Migration/schema/rendered route contracts include all resume columns and existing unique/index ownership constraints.
 - [x] Sign out wording/action is consistent on Library, Practice, Videos, Trainer, and Settings.
+- [x] The session email is visible beside Sign out on Library, Practice, Videos, Trainer, and Settings, including the mobile navigation breakpoint.
 - [x] `/logout` is public, revokes only the Unmumble session, returns home without Access navigation, and keeps revocation failures inside the app.
 - [x] Settings stays public/guest after logout; legacy `/integrations` redirects to `/settings`.
 
@@ -93,6 +94,8 @@ description: Regression, ownership, persistence, and live Access verification fo
 - Red/green review regression: account history requests initially serialized `progress: null` when `localStorage` was unavailable; the focused Trainer contract failed before the fallback fix and passed after account payloads began omitting absent progress.
 - Red/green live-preview regression: the branch Access application audience was absent from preview Worker variables, reproducing the authenticated `/login` `401`; the deployment-config test fails when that audience is removed and also proves production is not widened.
 - Red for the final session redesign: seven focused failures captured the missing opaque-session module/table, Cloudflare logout removal, public Settings routing, audience narrowing, and login-only Access exchange.
+- Red for account identity consistency: the cross-surface contract failed because only Library/Practice rendered identity, Videos/Settings omitted it, Trainer had no email element, and mobile CSS hid it.
+- Green for account identity consistency: all React surfaces use the shared email/Sign out control, Trainer binds the same session email safely, and the mobile rule retains the email.
 - Green for the final session redesign: 31 focused tests pass for token generation/hash, exact cookies, rotation/expiry/revocation, D1 storage contract, client logout, public Settings, and Worker route authority.
 - Green targeted suites cover Access JWT issuer/audience/expiry, cookie/header extraction, safe redirects, all client bootstraps, progress validation/freshness, controller timing/retry, migration contract, Trainer wiring, and Videos source selection.
 - Local Wrangler applied migrations through `0012`; pragma readback proved `app_sessions` columns, foreign key, and user/expiry indexes in addition to the video resume fields.
@@ -104,6 +107,7 @@ description: Regression, ownership, persistence, and live Access verification fo
 - Authenticated live-preview smoke after migration loads Practice without the former empty-JSON alert and loads Videos account history with a valid empty state and Sign out action.
 - The fresh final build and wildcard suite pass 178/178, followed by TypeScript, lint, feature-document lint, and diff checks.
 - Regression sensitivity proof: temporarily changing the required 43-character token length to 42 made all four opaque-session tests fail; restoring 43 passed 4/4 and the full 178/178 suite.
+- Account-email sensitivity proof: temporarily rendering the display name instead of the email made the focused cross-surface test fail; restoring the email passed the focused test and the fresh full 179/179 suite.
 
 ### Named remaining gaps
 

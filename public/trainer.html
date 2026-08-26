@@ -1191,6 +1191,7 @@
         <a class="site-primary-link" href="/settings">Settings</a>
       </nav>
       <div class="site-account">
+        <span id="accountEmail" class="site-account-name" hidden></span>
         <a id="loginLink" class="site-account-link" href="/login">Sign in with Google</a>
       </div>
     </div>
@@ -1622,6 +1623,7 @@
       importBtn: document.getElementById("importBtn"),
       importFile: document.getElementById("importFile"),
       stateMessage: document.getElementById("stateMessage"),
+      accountEmail: document.getElementById("accountEmail"),
       loginLink: document.getElementById("loginLink"),
       playerTop: document.getElementById("playerTop"),
       playerControls: document.getElementById("playerControls"),
@@ -4472,13 +4474,23 @@
       persistFullVideoProgress({ flush: true, keepalive: true });
     });
 
-    function updateAuthLink() {
+    function updateAuthLink(sessionUser) {
       if (!el.loginLink) return;
       if (isAuthenticated) {
+        if (el.accountEmail) {
+          el.accountEmail.textContent = sessionUser.email;
+          el.accountEmail.title = sessionUser.email;
+          el.accountEmail.hidden = false;
+        }
         el.loginLink.textContent = "Sign out";
         el.loginLink.href = "/logout";
         el.loginLink.onclick = null;
       } else {
+        if (el.accountEmail) {
+          el.accountEmail.textContent = "";
+          el.accountEmail.title = "";
+          el.accountEmail.hidden = true;
+        }
         el.loginLink.textContent = "Sign in with Google";
         el.loginLink.href = "/login?returnTo=" + encodeURIComponent(location.pathname + location.search);
         el.loginLink.onclick = null;
@@ -4571,7 +4583,7 @@
       }
 
       trainerReady = true;
-      updateAuthLink();
+      updateAuthLink(sessionUser);
 
       if (fullVideoMode) {
         fullVideoReturnSource = state.source;

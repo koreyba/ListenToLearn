@@ -116,8 +116,9 @@ Cloudflare Access does not protect these APIs. This avoids redirect HTML/302 res
 - `worker/index.ts`: route classification, login exchange, public optional session, logout revocation, and internal identity propagation.
 - `lib/auth.ts`: ensures the Access-proven user at login and continues handler-level defense in depth.
 - `lib/client-session.ts` and `app/logout/page.tsx`: authoritative session probe and branded application logout without Cloudflare navigation.
+- `app/components/signed-in-site-account.tsx`: shared React rendering of the session email and branded Sign out action; Trainer mirrors the same contract in its static shell.
 - `db/schema.ts` and migration: `app_sessions` table and indexes.
-- Settings, Videos, Trainer, Library/Practice: unchanged client contract around `/api/session`; Settings loads account APIs only after a real app session.
+- Settings, Videos, Trainer, Library/Practice: unchanged client contract around `/api/session`; every signed-in header renders the returned email, and Settings loads account APIs only after a real app session.
 
 ## Design Decisions and Alternatives
 

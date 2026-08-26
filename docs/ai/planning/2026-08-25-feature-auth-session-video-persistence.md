@@ -43,6 +43,10 @@ description: Dependency-ordered TDD delivery plan for authoritative auth state a
   - Outcome: `/settings` remains guest after logout, `/integrations` redirects to it, and only `/api/integrations` requires the application session.
   - Dependencies: Task 1.5 session resolver.
   - Validation: guest route/UI tests and deployed logout → Settings smoke.
+- [x] **Task 1.7 — Make signed-in account identity consistent across every header.**
+  - Outcome: Library, Practice, Videos, Trainer, and Settings show the session email beside Sign out on desktop and mobile.
+  - Dependencies: Task 1.3 session bootstrap and Task 1.6 public Settings shell.
+  - Validation: red/green cross-surface UI contract, full build/test/type/lint gates.
 
 ### Phase 2: D1 and video API
 

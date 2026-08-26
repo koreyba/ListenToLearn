@@ -21,6 +21,7 @@ description: Access login exchange, revocable D1 sessions, public learning UI, a
 - `worker/index.ts`: login exchange, public session probe, logout, public-route routing, and app-session authorization for every account API.
 - `db/schema.ts`, `drizzle/0012_app_sessions.sql`: hashed application-session table plus user and expiry indexes.
 - `lib/client-session.ts`, `app/logout/page.tsx`: branded application logout without Cloudflare logout navigation.
+- `app/components/signed-in-site-account.tsx`: one React account control that always renders the session email beside Sign out.
 - `/settings`: public shell that loads `/api/integrations` only after an application session; legacy `/integrations` redirects to it.
 - Existing video resume schema/API, throttled progress controller, and Library/Practice, Videos, and Trainer integrations remain intact.
 
@@ -42,6 +43,7 @@ The old `__Host-listen_to_learn_signed_out` cookie is no longer an authority. Lo
 - A revocation failure returns a no-store `503`; the branded page stays in a retryable error state instead of claiming success.
 - `/`, `/practice`, `/videos`, `/trainer`, `/settings`, and `/logout` are public UI. `/integrations` redirects to `/settings` before session resolution.
 - Guest clients keep bounded browser-local learning state. Signed-in clients use the existing subject-scoped D1 APIs.
+- Library/Practice, Videos, and Settings reuse the same signed-in account control. Trainer renders the same session email/action contract, and responsive navigation keeps the email visible with bounded ellipsis.
 
 ## Account Video Persistence
 
@@ -72,6 +74,7 @@ The old `__Host-listen_to_learn_signed_out` cookie is no longer an authority. Lo
 - Green focused suite passes 31/31.
 - Sensitivity proof: changing the exact token length from 43 to 42 makes 4/4 session tests fail; restoring it passes 4/4.
 - Fresh full evidence: Vinext build and 178/178 tests pass, followed by `npx tsc --noEmit`, ESLint with only two generated-type warnings, AI DevKit feature lint, and `git diff --check`.
+- Account-email follow-up evidence: removing the email rendering makes the focused regression fail; restoring it passes, followed by the Vinext build and 179/179 tests, TypeScript, ESLint with the same two generated-type warnings, feature lint, and diff checks.
 - Local migration `0012` applies with no pending migrations; pragma readback proves its columns and indexes.
 - Remote preview and production migrations are complete. Preview version `33adbfc7-7fec-49a0-be45-39d19686fe24` and production version `6632b88a-f235-43eb-b6ca-a9d58a6c92ae` are deployed.
 - Live explicit login returns to the allowlisted page in both environments and creates one active D1 session per environment. Settings loads account integration status after refresh.

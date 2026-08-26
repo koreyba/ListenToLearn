@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { SignedInSiteAccount } from "@/app/components/signed-in-site-account";
 import { SiteNavigation } from "@/app/components/site-navigation";
-import { accountSession, signInHref, SIGN_OUT_HREF, youtubeProgressStorageKey, type AccountSessionUser } from "@/lib/client-session";
+import { accountSession, signInHref, youtubeProgressStorageKey, type AccountSessionUser } from "@/lib/client-session";
 import {
   GUEST_LIBRARY_STORAGE_KEY,
   normalizeGuestLibrary,
@@ -73,6 +74,7 @@ function formatProgress(secondsValue: number) {
 
 export default function VideosPage() {
   const [mode, setMode] = useState<"guest" | "account">("guest");
+  const [viewer, setViewer] = useState<AccountSessionUser | null>(null);
   const [guestLibrary, setGuestLibrary] = useState<GuestLibraryState>(() => normalizeGuestLibrary(null));
   const [videos, setVideos] = useState<SavedVideo[]>([]);
   const [progress, setProgress] = useState<Record<string, YouTubeProgressEntry>>({});
@@ -87,6 +89,7 @@ export default function VideosPage() {
     const storageKey = youtubeProgressStorageKey(null);
     const guestProgress = readProgressState(storageKey);
     setMode("guest");
+    setViewer(null);
     setProgressStorageKey(storageKey);
     setGuestLibrary(next);
     setVideos(next.savedVideos);
@@ -98,6 +101,7 @@ export default function VideosPage() {
   const loadAccount = useCallback(async (sessionUser: AccountSessionUser) => {
     const storageKey = youtubeProgressStorageKey(sessionUser.id);
     setMode("account");
+    setViewer(sessionUser);
     setProgressStorageKey(storageKey);
     try {
       const response = await fetch("/api/videos", { cache: "no-store" });
@@ -197,10 +201,10 @@ export default function VideosPage() {
     <>
       <SiteNavigation
         active="videos"
-        account={mode === "guest" ? (
+        account={mode === "guest" || !viewer ? (
           <a className="site-account-link" href={signInHref("/videos")}>Sign in with Google</a>
         ) : (
-          <a className="site-account-link" href={SIGN_OUT_HREF}>Sign out</a>
+          <SignedInSiteAccount user={viewer} />
         )}
       />
       <main className="videos-shell">

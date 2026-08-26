@@ -94,7 +94,7 @@ test("Library catalogs new phrases while Practice owns the learning queues", asy
   assert.match(workspace, /surface === "practice" \? "learning_now" : "pick"/);
   assert.match(workspace, /phrase\.status === "pick"[\s\S]*?phrase\.analysis\?\.kind === activeFormat/);
   assert.match(workspace, /surface === "practice" && \([\s\S]*?aria-label="Learning sections"/);
-  assert.match(workspace, /surface === "practice" \? \([\s\S]*?onClick=\{\(\) => openPhrase\(phrase\)\}/);
+  assert.match(workspace, /<PracticeAction onClick=\{\(\) => openPhrase\(phrase\)\} \/>/);
   assert.match(workspace, /window\.location\.assign\(`\/trainer\?\$\{query\.toString\(\)\}`\)/);
   assert.match(workspace, /Mark as Learned/);
   assert.match(styles, /\.tabs \{[^}]*grid-template-columns: repeat\(3, minmax\(0, 1fr\)\)/);

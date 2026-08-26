@@ -510,7 +510,7 @@ button { cursor: pointer; }
 .catalog-formats .tab > span { display: grid; gap: 4px; }
 .catalog-formats .tab b { color: inherit; font-size: 14px; }
 .catalog-formats .tab small { color: var(--muted); font-size: 11px; line-height: 1.25; }
-.tab:focus-visible, .phrase-open:focus-visible, .card-actions button:focus-visible, .add-form input:focus-visible, .add-form button:focus-visible, .mechanism-option:focus-visible, .search-control input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tab:focus-visible, .listen-link:focus-visible, .card-actions button:focus-visible, .add-form input:focus-visible, .add-form button:focus-visible, .mechanism-option:focus-visible, .search-control input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .tab.active:focus-visible, .mechanism-option.active:focus-visible { outline: none; }
 
 .mechanism-filter { margin-top: 18px; padding: 18px; border: 1px solid var(--line); border-radius: 18px; background: var(--app-surface-glass); }
@@ -558,8 +558,8 @@ button { cursor: pointer; }
 .phrase-ipa { margin-top: 8px; color: var(--app-phonetic); font-family: var(--app-phonetic-font); font-size: 14px; overflow-wrap: anywhere; }
 .mechanism-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 11px; }
 .mechanism-badge { padding: 5px 8px; border: 1px solid var(--color-tag-border); border-radius: 999px; background: var(--color-tag-background); color: var(--color-tag-text); font-size: 10px; font-weight: 800; line-height: 1.2; }
-.listen-link { margin-top: auto; padding-top: 13px; color: var(--color-link); font-size: 13px; font-weight: 750; }
-.phrase-open:hover .listen-link { color: var(--accent); }
+.listen-link { margin-top: auto; padding: 13px 0 0; border: 0; background: transparent; color: var(--color-link); font-size: 13px; font-weight: 750; }
+.listen-link:hover { color: var(--accent); }
 .card-actions { display: flex; flex-direction: column; align-items: stretch; gap: 7px; }
 .card-actions .secondary { border-color: var(--color-action-secondary-border); background: var(--color-action-secondary-background); color: var(--color-action-secondary-text); box-shadow: none; }
 .card-actions .secondary:hover:not(:disabled) { border-color: var(--color-danger-border); background: var(--color-danger-background); color: var(--danger); filter: none; }

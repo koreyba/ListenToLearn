@@ -73,13 +73,14 @@ test("Library format counts stay circular for two and three digit values", async
   assert.match(globals, /\.tab strong \{[^}]*display: grid;[^}]*width: 42px;[^}]*height: 42px;[^}]*padding: 0;[^}]*border-radius: 50%;[^}]*place-items: center;[^}]*flex: 0 0 42px;/s);
 });
 
-test("Library keeps direct Practice primary and Add to Learn secondary", async () => {
+test("Library keeps Practice compact and Add to Learn secondary", async () => {
   const [globals, workspace] = await Promise.all([
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(workspace, /className=\{surface === "library" \? "save-action" : undefined\}/);
+  assert.match(globals, /\.listen-link \{[^}]*padding: 13px 0 0;[^}]*border: 0;[^}]*background: transparent;[^}]*color: var\(--color-link\)/s);
   assert.match(globals, /\.card-actions \.save-action \{[^}]*background: var\(--color-action-secondary-background\);[^}]*color: var\(--color-action-secondary-text\)/s);
   assert.match(globals, /\.card-actions \.save-action:hover:not\(:disabled\) \{[^}]*background: var\(--color-interactive-soft\);[^}]*color: var\(--color-interactive\)/s);
 });

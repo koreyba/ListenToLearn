@@ -109,6 +109,14 @@ function renderPattern(pattern: string) {
   );
 }
 
+function PracticeAction({ onClick }: { onClick: () => void }) {
+  return (
+    <button className="listen-link" onClick={onClick} type="button">
+      Practice <span aria-hidden="true">↗</span>
+    </button>
+  );
+}
+
 export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }) {
   const [phrases, setPhrases] = useState<Phrase[]>([]);
   const [catalogCards, setCatalogCards] = useState<CatalogCard[]>([]);
@@ -624,14 +632,19 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
           <div className="phrase-grid">
             {visible.map((phrase) => (
               <article className="phrase-card" key={phrase.id}>
-                {surface === "practice" ? (
-                <button className="phrase-open" onClick={() => openPhrase(phrase)} type="button">
-                  <span className="phrase-type">{phrase.sourceType === "custom" ? "Your phrase" : phrase.sourceType === "legacy" ? "Saved phrase" : PRACTICE_FORMATS[phrase.analysis!.kind].title}</span>
+                <div className="phrase-open phrase-summary">
+                  <span className="phrase-type">{surface === "practice"
+                    ? phrase.sourceType === "custom"
+                      ? "Your phrase"
+                      : phrase.sourceType === "legacy"
+                      ? "Saved phrase"
+                      : PRACTICE_FORMATS[phrase.analysis!.kind].title
+                    : `${PRACTICE_FORMATS[phrase.analysis!.kind].title} · #${phrase.analysis!.rank}`}</span>
                   <span className="phrase-text">{phrase.text}</span>
-                  {phrase.status !== "pick" && phrase.translation && (
+                  {surface === "practice" && phrase.status !== "pick" && phrase.translation && (
                     <span className="phrase-translation">{phrase.translation}</span>
                   )}
-                  {phrase.context && <span className="phrase-context">Context: {phrase.context}</span>}
+                  {surface === "practice" && phrase.context && <span className="phrase-context">Context: {phrase.context}</span>}
                   {phrase.analysis && <>
                     <span className="phrase-pattern">{renderPattern(phrase.analysis.pattern)}</span>
                     <span className="phrase-ipa">{phrase.analysis.ipa}</span>
@@ -639,25 +652,11 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                       <span className="mechanism-badge" key={mechanism}>{CONNECTED_SPEECH_MECHANISMS[mechanism].title}</span>
                     ))}</span>
                   </>}
-                  <span className="listen-link">Practice <span aria-hidden="true">↗</span></span>
-                </button>
-                ) : (
-                <div className="phrase-open phrase-summary">
-                  <span className="phrase-type">{PRACTICE_FORMATS[phrase.analysis!.kind].title} · #{phrase.analysis!.rank}</span>
-                  <span className="phrase-text">{phrase.text}</span>
-                  {phrase.analysis && <>
-                    <span className="phrase-pattern">{renderPattern(phrase.analysis.pattern)}</span>
-                    <span className="phrase-ipa">{phrase.analysis.ipa}</span>
-                    <span className="mechanism-badges">{phrase.analysis.mechanisms.map((mechanism) => (
-                      <span className="mechanism-badge" key={mechanism}>{CONNECTED_SPEECH_MECHANISMS[mechanism].title}</span>
-                    ))}</span>
-                  </>}
+                  <PracticeAction onClick={() => openPhrase(phrase)} />
                 </div>
-                )}
                 <div className="card-actions">
-                  {surface === "library" && <button className="practice-action" onClick={() => openPhrase(phrase)} type="button">Practice <span aria-hidden="true">↗</span></button>}
                   {phrase.status === "pick" && <button className={surface === "library" ? "save-action" : undefined} disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "to_learn")} type="button">Add to Learn</button>}
-                  {phrase.status === "to_learn" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Start Learning</button>}
+                  {phrase.status === "to_learn" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Move to Learning Now</button>}
                   {phrase.status === "learning_now" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learnt")} type="button">Mark as Learned</button>}
                   {phrase.status === "learnt" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Learn Again</button>}
                   {phrase.status !== "pick" && <button className="secondary" disabled={busyId === phrase.id} onClick={() => removePhrase(phrase)} type="button">Remove</button>}

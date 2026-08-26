@@ -14,6 +14,8 @@ description: TDD plan for direct Trainer launch from catalog cards
 - [x] Move the form without duplicating submission or state logic.
 - [x] Add a failing visual contract for primary Practice and secondary save hierarchy.
 - [x] Implement the minimal semantic styling.
+- [x] Replace duplicate Practice affordances with one compact reusable component.
+- [x] Rename the To Learn transition to `Move to Learning Now` while preserving `Remove`.
 - [x] Run targeted and full validation.
 - [x] Prepare the dedicated PR branch and validation evidence.
 
@@ -22,3 +24,4 @@ description: TDD plan for direct Trainer launch from catalog cards
 - Accidentally coupling direct practice to `Add to Learn` would violate the core requirement.
 - Reusing the destructive secondary class would make the save action appear dangerous.
 - Rendering the form inside one tab branch would hide it from the other Practice states.
+- Keeping the Practice card as one large button would prevent true component reuse and create inconsistent mobile controls.

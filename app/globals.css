@@ -563,6 +563,8 @@ button { cursor: pointer; }
 .card-actions { display: flex; flex-direction: column; align-items: stretch; gap: 7px; }
 .card-actions .secondary { border-color: var(--color-action-secondary-border); background: var(--color-action-secondary-background); color: var(--color-action-secondary-text); box-shadow: none; }
 .card-actions .secondary:hover:not(:disabled) { border-color: var(--color-danger-border); background: var(--color-danger-background); color: var(--danger); filter: none; }
+.card-actions .save-action { border-color: var(--color-action-secondary-border); background: var(--color-action-secondary-background); color: var(--color-action-secondary-text); box-shadow: none; }
+.card-actions .save-action:hover:not(:disabled) { border-color: var(--color-interactive-border); background: var(--color-interactive-soft); color: var(--color-interactive); filter: none; }
 
 .notice, .empty-state { padding: 26px; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); color: var(--muted); }
 .notice { display: block; }

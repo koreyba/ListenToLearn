@@ -80,6 +80,24 @@ test("dedicated Library exposes formats, mechanisms, search and Add with Undo", 
   assert.match(workspace, />Undo</);
 });
 
+test("Library cards open Practice without changing phrase status", async () => {
+  const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
+
+  assert.match(
+    workspace,
+    /\{surface === "library" && <button className="practice-action" onClick=\{\(\) => openPhrase\(phrase\)\} type="button">Practice <span aria-hidden="true">↗<\/span><\/button>\}/,
+  );
+});
+
+test("custom phrases are added from every Practice tab into To Learn", async () => {
+  const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
+
+  assert.match(workspace, /\{surface === "practice" && <form className="add-form custom-phrase-form" onSubmit=\{addCustom\}>/);
+  assert.doesNotMatch(workspace, /\{surface === "library" && <form className="add-form custom-phrase-form"/);
+  assert.match(workspace, /const nextPhrase: Phrase = \{[\s\S]*?status: nextStatus,[\s\S]*?\};/);
+  assert.match(workspace, /setActiveTab\(nextStatus\)/);
+});
+
 test("Practice omits fabricated analysis placeholders for custom and legacy phrases", async () => {
   const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
 

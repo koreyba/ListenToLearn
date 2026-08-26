@@ -594,7 +594,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
           </div>
         </div>
 
-        {surface === "library" && <form className="add-form custom-phrase-form" onSubmit={addCustom}>
+        {surface === "practice" && <form className="add-form custom-phrase-form" onSubmit={addCustom}>
           <div><strong>Add your own</strong><span>Text is enough. Phonetic analysis is optional.</span></div>
           <input
             aria-label="Your word or phrase"
@@ -655,7 +655,8 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                 </div>
                 )}
                 <div className="card-actions">
-                  {phrase.status === "pick" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "to_learn")} type="button">Add to Learn</button>}
+                  {surface === "library" && <button className="practice-action" onClick={() => openPhrase(phrase)} type="button">Practice <span aria-hidden="true">↗</span></button>}
+                  {phrase.status === "pick" && <button className={surface === "library" ? "save-action" : undefined} disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "to_learn")} type="button">Add to Learn</button>}
                   {phrase.status === "to_learn" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Start Learning</button>}
                   {phrase.status === "learning_now" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learnt")} type="button">Mark as Learned</button>}
                   {phrase.status === "learnt" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Learn Again</button>}

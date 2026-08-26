@@ -84,7 +84,7 @@ description: Catalog integrity, optional analysis, migration compatibility, API,
 ### Current evidence
 
 - Focused migration generator suite: 4 passed, including repeated rewrite idempotence.
-- Final full `node --test tests/*.test.mjs`: 211 passed, 0 failed.
+- Final full `node --test tests/*.test.mjs`: 212 passed, 0 failed.
 - `npx tsc --noEmit`: exit 0 after making the direct `.ts` Node-test import contract explicit in `tsconfig.json`.
 - `npm run build`: exit 0; build lists `/library` and `/api/catalog`.
 - Clean local D1: 140 active analyses, 230 mechanism links, 154 total phrase rows; second migration apply reported no pending migration.
@@ -94,6 +94,7 @@ description: Catalog integrity, optional analysis, migration compatibility, API,
 - Browser smoke at 1200px/390px: format counts 18/22/100, each atom mechanism count 3, Add/Undo passed, document width did not exceed viewport content width, mobile cards kept IPA/badges/actions readable, and browser console warnings/errors were empty.
 - Running the migration generator twice produced the same SHA-256 (`e6756a65…`); the rewrite boundary is covered by a regression test.
 - Runtime source search for the supplied JSON path/name returned no product-code matches; no catalog JSON is part of the diff.
+- Sonar configuration coverage verifies that only `drizzle/0013_kind_trauma.sql` and `lib/catalog/connected-speech-catalog.ts` are excluded from copy-paste metrics; neither file is excluded from issue/security analysis.
 
 ## Manual Testing
 

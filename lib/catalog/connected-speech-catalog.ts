@@ -1855,36 +1855,37 @@ type CatalogValidationInput = {
   legacyPhrases: readonly unknown[];
 };
 
-export function validateConnectedSpeechCatalog(input: CatalogValidationInput) {
-  const expectedByKind: Record<PracticeFormat, number> = { atom: 18, lexicon: 22, stack: 100 };
-  const byKind = { atom: 0, lexicon: 0, stack: 0 };
-  const ids = new Set<string>();
-  const knownMechanisms = new Set(Object.keys(input.mechanisms));
-  for (const card of input.cards) {
-    if (ids.has(card.id)) throw new Error(`Duplicate catalog id: ${card.id}`);
-    if (!Object.hasOwn(input.formats, card.kind)) {
-      throw new Error(`Catalog card ${card.id} has unknown practice format: ${card.kind}`);
-    }
-    if (!card.text.trim() || !card.pattern.trim() || !card.ipa.trim()) {
-      throw new Error(`Catalog card ${card.id} requires text, pattern, and IPA`);
-    }
-    const openingBrackets = card.pattern.match(/\[/g)?.length ?? 0;
-    const closingBrackets = card.pattern.match(/\]/g)?.length ?? 0;
-    if (openingBrackets !== closingBrackets || /\[\s*\]/.test(card.pattern)) {
-      throw new Error(`Catalog card ${card.id} has malformed sound-block brackets`);
-    }
-    if (!card.mechanisms.length || card.mechanisms.some((mechanism) => !knownMechanisms.has(mechanism))) {
-      throw new Error(`Catalog card ${card.id} needs at least one known mechanism`);
-    }
-    if (card.kind === "atom" && card.mechanisms.length !== 1) {
-      throw new Error(`Atom card ${card.id} must have exactly one mechanism`);
-    }
-    ids.add(card.id);
-    byKind[card.kind] += 1;
-  }
+const EXPECTED_CATALOG_COUNTS: Record<PracticeFormat, number> = { atom: 18, lexicon: 22, stack: 100 };
 
-  for (const kind of Object.keys(input.formats) as PracticeFormat[]) {
-    const ranks = input.cards
+function validateCatalogCard(
+  card: ConnectedSpeechCard,
+  formats: CatalogValidationInput["formats"],
+  knownMechanisms: ReadonlySet<string>,
+  ids: ReadonlySet<string>,
+) {
+  if (ids.has(card.id)) throw new Error(`Duplicate catalog id: ${card.id}`);
+  if (!Object.hasOwn(formats, card.kind)) {
+    throw new Error(`Catalog card ${card.id} has unknown practice format: ${card.kind}`);
+  }
+  if (!card.text.trim() || !card.pattern.trim() || !card.ipa.trim()) {
+    throw new Error(`Catalog card ${card.id} requires text, pattern, and IPA`);
+  }
+  const openingBrackets = card.pattern.match(/\[/g)?.length ?? 0;
+  const closingBrackets = card.pattern.match(/\]/g)?.length ?? 0;
+  if (openingBrackets !== closingBrackets || /\[\s*\]/.test(card.pattern)) {
+    throw new Error(`Catalog card ${card.id} has malformed sound-block brackets`);
+  }
+  if (!card.mechanisms.length || card.mechanisms.some((mechanism) => !knownMechanisms.has(mechanism))) {
+    throw new Error(`Catalog card ${card.id} needs at least one known mechanism`);
+  }
+  if (card.kind === "atom" && card.mechanisms.length !== 1) {
+    throw new Error(`Atom card ${card.id} must have exactly one mechanism`);
+  }
+}
+
+function validateRankSequences(cards: readonly ConnectedSpeechCard[], formats: CatalogValidationInput["formats"]) {
+  for (const kind of Object.keys(formats) as PracticeFormat[]) {
+    const ranks = cards
       .filter((card) => card.kind === kind)
       .map((card) => card.rank)
       .sort((a, b) => a - b);
@@ -1892,24 +1893,43 @@ export function validateConnectedSpeechCatalog(input: CatalogValidationInput) {
       throw new Error(`Invalid ${kind} ranks: expected 1 through ${ranks.length}`);
     }
   }
+}
 
-  if (input.cards.length !== 140) {
-    throw new Error(`Connected-speech catalog must contain 140 cards; received ${input.cards.length}`);
+function validateCatalogCounts(cards: readonly ConnectedSpeechCard[], byKind: Record<PracticeFormat, number>) {
+  if (cards.length !== 140) {
+    throw new Error(`Connected-speech catalog must contain 140 cards; received ${cards.length}`);
   }
-  for (const kind of Object.keys(expectedByKind) as PracticeFormat[]) {
-    if (byKind[kind] !== expectedByKind[kind]) {
-      throw new Error(`Connected-speech catalog must contain ${expectedByKind[kind]} ${kind} cards; received ${byKind[kind]}`);
+  for (const kind of Object.keys(EXPECTED_CATALOG_COUNTS) as PracticeFormat[]) {
+    if (byKind[kind] !== EXPECTED_CATALOG_COUNTS[kind]) {
+      throw new Error(`Connected-speech catalog must contain ${EXPECTED_CATALOG_COUNTS[kind]} ${kind} cards; received ${byKind[kind]}`);
     }
   }
+}
 
+function validateAtomMechanismCounts(cards: readonly ConnectedSpeechCard[], knownMechanisms: ReadonlySet<string>) {
   for (const mechanism of knownMechanisms) {
-    const atomCount = input.cards.filter((card) => (
+    const atomCount = cards.filter((card) => (
       card.kind === "atom" && card.mechanisms.includes(mechanism as ConnectedSpeechMechanism)
     )).length;
     if (atomCount !== 3) {
       throw new Error(`Atom mechanism ${mechanism} must have exactly 3 examples`);
     }
   }
+}
+
+export function validateConnectedSpeechCatalog(input: CatalogValidationInput) {
+  const byKind: Record<PracticeFormat, number> = { atom: 0, lexicon: 0, stack: 0 };
+  const ids = new Set<string>();
+  const knownMechanisms = new Set(Object.keys(input.mechanisms));
+  for (const card of input.cards) {
+    validateCatalogCard(card, input.formats, knownMechanisms, ids);
+    ids.add(card.id);
+    byKind[card.kind] += 1;
+  }
+
+  validateRankSequences(input.cards, input.formats);
+  validateCatalogCounts(input.cards, byKind);
+  validateAtomMechanismCounts(input.cards, knownMechanisms);
 
   return {
     cards: input.cards.length,

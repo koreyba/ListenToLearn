@@ -72,9 +72,10 @@ description: Implemented typed catalog foundation and current D1/UI work status
 ## Verification Performed During Implementation
 
 - Focused catalog/migration/API/UI tests pass, including the final surface-specific sort and migration rewrite-idempotence regressions.
-- Final full Node suite: 211 passed, 0 failed.
+- Final full Node suite: 212 passed, 0 failed.
 - `npx tsc --noEmit`, ESLint, production build, AI DevKit lint, and `git diff --check` pass on the final implementation.
 - Final generator verification found that repeated `--write` calls accumulated a statement boundary. A RED regression test drove `replaceGeneratedCatalogSql`; two writes now produce the same SHA-256 (`e6756a65…`).
+- Initial PR policy checks found an exponential-backtracking risk in the generated-section boundary regex. The regex was replaced with a bounded suffix loop, catalog validation was split into focused checks, and Sonar copy-paste metrics now exclude only the curated data module and its generated SQL while security analysis remains enabled.
 - Clean local D1: 140 active analyses, 230 mechanism links, 154 phrase rows; a second migration apply had no work.
 - Legacy-upgrade fixture preserved `learning_now`, a phrase example FK, a retired-preset video FK, and the reused preset's original `updated_at`; the reused preset gained analysis, the retired preset did not, and `PRAGMA foreign_key_check` returned no rows.
 - Live APIs returned a 35,041-byte bounded catalog response with 140 cards. Authenticated local API smoke returned 140 analyzed + 14 legacy phrases, accepted a text-only custom phrase with `analysis: null`, and rejected catalog metadata injection with HTTP 400.

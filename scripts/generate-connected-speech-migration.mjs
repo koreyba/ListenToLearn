@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { CONNECTED_SPEECH_CARDS } from "../lib/catalog/connected-speech-catalog.ts";
 
 const GENERATED_MARKER = "-- generated connected-speech catalog; edit the TypeScript catalog, not this SQL";
+const STATEMENT_BREAK_TOKEN = "--> statement-breakpoint";
 const STATEMENT_BREAK = "\n--> statement-breakpoint\n";
 
 export function sqlLiteral(value) {
@@ -17,16 +18,16 @@ export function generateConnectedSpeechCatalogSql(cards) {
 
   cards.forEach((card, catalogIndex) => {
     const searchQuery = card.searchQuery || card.text;
-    statements.push(`INSERT INTO phrases (id, text, pattern, ipa, translation, context, source_type, catalog_order, owner_id, status, created_at, updated_at)
+    const phraseStatement = `INSERT INTO phrases (id, text, pattern, ipa, translation, context, source_type, catalog_order, owner_id, status, created_at, updated_at)
 VALUES (${sqlLiteral(card.id)}, ${sqlLiteral(card.text)}, ${sqlLiteral(card.pattern)}, ${sqlLiteral(card.ipa)}, '', '', 'preset', ${catalogIndex + 1}, NULL, 'pick', datetime('now'), datetime('now'))
 ON CONFLICT(id) DO UPDATE SET
   text = excluded.text,
   pattern = excluded.pattern,
   ipa = excluded.ipa,
   source_type = excluded.source_type,
-  catalog_order = excluded.catalog_order;`);
+  catalog_order = excluded.catalog_order;`;
 
-    statements.push(`INSERT INTO catalog_phrase_analysis (phrase_id, kind, rank, pattern, ipa, search_query, alternate_query, active)
+    const analysisStatement = `INSERT INTO catalog_phrase_analysis (phrase_id, kind, rank, pattern, ipa, search_query, alternate_query, active)
 VALUES (${sqlLiteral(card.id)}, ${sqlLiteral(card.kind)}, ${card.rank}, ${sqlLiteral(card.pattern)}, ${sqlLiteral(card.ipa)}, ${sqlLiteral(searchQuery)}, ${sqlLiteral(card.alternateQuery)}, 1)
 ON CONFLICT(phrase_id) DO UPDATE SET
   kind = excluded.kind,
@@ -35,13 +36,14 @@ ON CONFLICT(phrase_id) DO UPDATE SET
   ipa = excluded.ipa,
   search_query = excluded.search_query,
   alternate_query = excluded.alternate_query,
-  active = 1;`);
+  active = 1;`;
 
-    card.mechanisms.forEach((mechanism, displayOrder) => {
-      statements.push(`INSERT INTO phrase_mechanisms (phrase_id, mechanism, display_order)
+    const mechanismStatements = card.mechanisms.map((mechanism, displayOrder) => (
+      `INSERT INTO phrase_mechanisms (phrase_id, mechanism, display_order)
 VALUES (${sqlLiteral(card.id)}, ${sqlLiteral(mechanism)}, ${displayOrder})
-ON CONFLICT(phrase_id, mechanism) DO UPDATE SET display_order = excluded.display_order;`);
-    });
+ON CONFLICT(phrase_id, mechanism) DO UPDATE SET display_order = excluded.display_order;`
+    ));
+    statements.push(phraseStatement, analysisStatement, ...mechanismStatements);
   });
 
   return `${GENERATED_MARKER}\n${statements.join(STATEMENT_BREAK)}\n`;
@@ -52,9 +54,10 @@ export function replaceGeneratedCatalogSql(current, cards) {
   const schemaSection = generatedMarkerIndex === -1
     ? current
     : current.slice(0, generatedMarkerIndex);
-  const schemaSql = schemaSection
-    .replace(/(?:\s*-->\s*statement-breakpoint\s*)+$/u, "")
-    .trimEnd();
+  let schemaSql = schemaSection.trimEnd();
+  while (schemaSql.endsWith(STATEMENT_BREAK_TOKEN)) {
+    schemaSql = schemaSql.slice(0, -STATEMENT_BREAK_TOKEN.length).trimEnd();
+  }
 
   return `${schemaSql}${STATEMENT_BREAK}${generateConnectedSpeechCatalogSql(cards)}`;
 }

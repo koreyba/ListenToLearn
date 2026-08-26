@@ -503,7 +503,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
         </div>
       </header>
 
-      {mode === "guest" && <div className="notice" role="status">Guest mode: progress is stored only in this browser. Sign in with Google to save it to your account.</div>}
+      {mode === "guest" && <output className="notice">Guest mode: progress is stored only in this browser. Sign in with Google to save it to your account.</output>}
 
       {surface === "practice" && (
       <nav className="tabs" aria-label="Learning sections" role="tablist">
@@ -607,10 +607,10 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
         </form>}
 
         {error && <div className="notice error" role="alert">{error}</div>}
-        {notice && <div className="notice success notice-action" role="status">
+        {notice && <output className="notice success notice-action">
           <span>{notice}</span>
           {recentlyAdded && <button disabled={busyId === recentlyAdded} onClick={() => void undoAdded()} type="button">Undo</button>}
-        </div>}
+        </output>}
         {loading ? <div className="notice">Loading library…</div> : visible.length === 0 ? (
           <div className="empty-state">
             <strong>Nothing here yet</strong>

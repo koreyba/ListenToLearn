@@ -54,6 +54,7 @@ function analysisFromRow(row: CatalogProjectionRow, mechanisms: MechanismEntry[]
     || !row.analysis_search_query
   ) return null;
 
+  const orderedMechanisms = mechanisms.sort((left, right) => left.order - right.order);
   return {
     kind: row.analysis_kind,
     rank: row.analysis_rank,
@@ -61,9 +62,7 @@ function analysisFromRow(row: CatalogProjectionRow, mechanisms: MechanismEntry[]
     ipa: row.analysis_ipa,
     searchQuery: row.analysis_search_query,
     alternateQuery: row.analysis_alternate_query,
-    mechanisms: mechanisms
-      .sort((left, right) => left.order - right.order)
-      .map((entry) => entry.mechanism),
+    mechanisms: orderedMechanisms.map((entry) => entry.mechanism),
   };
 }
 

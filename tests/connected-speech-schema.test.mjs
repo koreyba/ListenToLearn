@@ -33,3 +33,10 @@ test("append-only migrations create optional catalog analysis tables", async () 
   assert.match(migrations, /CREATE TABLE `phrase_mechanisms`/);
   assert.match(migrations, /FOREIGN KEY \(`phrase_id`\) REFERENCES `phrases`\(`id`\) ON UPDATE no action ON DELETE cascade/);
 });
+
+test("Sonar duplication scope excludes only catalog data artifacts", async () => {
+  const config = await readFile(new URL("../.sonarcloud.properties", import.meta.url), "utf8");
+
+  assert.match(config, /^sonar\.cpd\.exclusions=drizzle\/0013_kind_trauma\.sql,lib\/catalog\/connected-speech-catalog\.ts$/m);
+  assert.doesNotMatch(config, /^sonar\.exclusions=/m);
+});

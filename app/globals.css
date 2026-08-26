@@ -101,6 +101,7 @@ button { cursor: pointer; }
 .card-actions .secondary:hover { color: var(--danger); border-color: #68434a; }
 
 .notice, .empty-state { padding: 26px; border: 1px solid var(--line); border-radius: 18px; background: var(--panel); color: var(--muted); }
+.notice { display: block; }
 .notice.error { border-color: #633a43; background: #26171b; color: var(--danger); }
 .notice.success { margin-bottom: 12px; border-color: #315f51; background: #13251f; color: #a8e6ce; }
 .notice-action { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; }

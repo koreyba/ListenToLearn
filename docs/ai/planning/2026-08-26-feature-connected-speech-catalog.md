@@ -64,7 +64,7 @@ description: Ordered tasks for typed content, D1 projection, optional analysis, 
 ### Phase 3: Library and Practice UX
 
 - [x] **Task 3.1 — Add RED route and catalog interaction tests.**
-  - Outcome: rendered/browser contracts require `/library`, home redirect, visible mechanism selection, format tabs, search/order, unique result rendering, and catalog add behavior.
+  - Outcome: rendered/browser contracts require `/library`, visible mechanism selection, format tabs, search/order, unique result rendering, and catalog add behavior.
   - Dependencies: Milestone 2.
   - Validation: focused UI tests fail against the current `/` flat Library.
   - Testing links: all Library end-to-end scenarios.
@@ -79,9 +79,9 @@ description: Ordered tasks for typed content, D1 projection, optional analysis, 
   - Validation: guest/account custom E2E, no-placeholder assertions, and lifecycle regression tests.
   - Testing links: custom phrase and Practice scenarios.
 - [x] **Task 3.4 — Update navigation and public routing.**
-  - Outcome: global/static navigation points Library to `/library`, `/` temporarily redirects, and Worker guest/cache routing exposes `/library` plus read-only catalog without widening mutation access.
+  - Outcome: global/static navigation points Library to `/library`, the independently delivered homepage remains at `/`, and Worker guest/cache routing exposes `/library` plus read-only catalog without widening mutation access.
   - Dependencies: Task 3.2.
-  - Validation: guest-access, rendered navigation, redirect, and API-method boundary tests.
+  - Validation: guest-access, rendered navigation, homepage/Library separation, and API-method boundary tests.
   - Testing links: route and security integration/E2E scenarios.
 
 ### Phase 4: Verification and handoff
@@ -124,11 +124,11 @@ description: Ordered tasks for typed content, D1 projection, optional analysis, 
 
 - Implementation proceeds in the task order above. Each completed production task triggers planning reconciliation.
 - Push and PR publication are authorized for this lifecycle run. Merge, deployment, and production data mutation remain out of scope.
-- The future home-page design remains a separate feature; this feature provides only a temporary redirect.
+- The home-page design remains owned by its separate feature; the final `main` sync preserved that landing page and its links to `/library` and `/practice`.
 
 ## Progress Summary
 
-All four milestones are complete. The typed 140-card catalog generates migration `0013_kind_trauma.sql`, projects through public/account APIs with optional analysis, and powers the dedicated responsive `/library` experience. Guest status migration, custom text-only phrases, retained legacy references, Add/Undo, routing, and account API behavior have fresh automated and local D1/browser evidence. Final review found and fixed migration-section rewrite accumulation, missing generator-time runtime validation, and unnecessary timestamp churn on reused presets; each is covered by a regression test or upgrade fixture. Next: final review, commit, push, and PR checks.
+All four milestones are complete. The typed 140-card catalog generates migration `0013_kind_trauma.sql`, projects through public/account APIs with optional analysis, and powers the dedicated responsive `/library` experience. Guest status migration, custom text-only phrases, retained legacy references, Add/Undo, routing, and account API behavior have fresh automated and local D1/browser evidence. Final review fixed migration-section rewrite accumulation, missing generator-time runtime validation, unnecessary timestamp churn on reused presets, and CI security/duplication findings. The final `main` sync preserved the independently delivered homepage and passed the full 212-test suite, typecheck, lint, and build. Next: publish the merge resolution and verify PR checks.
 
 ## Resources Needed
 

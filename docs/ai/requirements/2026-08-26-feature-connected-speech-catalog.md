@@ -18,7 +18,7 @@ The target user is an English learner who wants to choose a connected-speech pro
 
 ### Goals
 
-- Create a dedicated `/library` catalog route; make the global Library destination point there. Until a separate home-page feature lands, `/` may redirect to `/library`.
+- Create a dedicated `/library` catalog route and make the global Library destination point there. The independently delivered marketing homepage remains at `/`.
 - Define the accepted 140-card catalog in one typed TypeScript module. The supplied `phrases.json` is an input example only and must not become a runtime, build-time, or committed product dependency.
 - Present three practice formats:
   - `atom`: **One change at a time** — 18 cards.
@@ -41,7 +41,7 @@ The target user is an English learner who wants to choose a connected-speech pro
 
 - Automatically classify, transcribe, or assign mechanisms to custom phrases.
 - Add AI analysis, an admin editor, CMS, spreadsheet, or JSON-based authoring pipeline.
-- Redesign the future marketing/home page beyond the temporary Library redirect.
+- Redesign or otherwise change the independently delivered marketing/home page.
 - Change trainer playback, saved-example semantics, caption navigation, translation providers, or the four learning statuses.
 - Introduce a separate Words product area; a custom word and a custom phrase use the same base phrase model.
 - Claim that the three practice formats are certified difficulty levels. They are learning formats ordered from isolated to combined listening.

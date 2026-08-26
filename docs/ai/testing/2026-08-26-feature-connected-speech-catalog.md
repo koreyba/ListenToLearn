@@ -63,7 +63,7 @@ description: Catalog integrity, optional analysis, migration compatibility, API,
 - [x] Add a custom phrase with text only and confirm the API/UI boundary treats it as `Your phrase` with no analysis UI.
 - [x] Exercise catalog/custom behavior through guest state and authenticated API paths.
 - [x] Load guest storage containing reused and unmatched legacy preset statuses and confirm Practice preserves them.
-- [x] Verify `/` redirects to `/library` while navigation Library links directly to `/library`.
+- [x] Verify the independent landing page remains at `/`, links to `/library`, and navigation Library links directly to `/library`.
 - [x] Regress Practice tabs, Learn/Remove transitions, trainer phrase parameters, saved examples, and videos.
 
 ## Test Data
@@ -89,12 +89,13 @@ description: Catalog integrity, optional analysis, migration compatibility, API,
 - `npm run build`: exit 0; build lists `/library` and `/api/catalog`.
 - Clean local D1: 140 active analyses, 230 mechanism links, 154 total phrase rows; second migration apply reported no pending migration.
 - Legacy D1 upgrade: progress `learning_now`, one example reference, one retired-preset video reference, and reused `updated_at=2000-01-01T00:00:00Z` survived; reused analysis=1, retired analysis=0, and foreign-key violations=0.
-- Live public API: HTTP 200, public cache header, 35,041 bytes, 140 cards, 3 formats, 6 mechanisms. `/` returned 307 to `/library`.
+- Live public API before the final homepage sync: HTTP 200, public cache header, 35,041 bytes, 140 cards, 3 formats, and 6 mechanisms. After syncing `main`, rendered contracts and the production build verify `/` as the landing page and `/library` as the catalog route.
 - Live authenticated API: 154 phrases (140 analyzed, 14 legacy), text-only custom POST returned 201 with `analysis: null`, metadata injection returned 400.
 - Browser smoke at 1200px/390px: format counts 18/22/100, each atom mechanism count 3, Add/Undo passed, document width did not exceed viewport content width, mobile cards kept IPA/badges/actions readable, and browser console warnings/errors were empty.
 - Running the migration generator twice produced the same SHA-256 (`e6756a65…`); the rewrite boundary is covered by a regression test.
 - Runtime source search for the supplied JSON path/name returned no product-code matches; no catalog JSON is part of the diff.
 - Sonar configuration coverage verifies that only `drizzle/0013_kind_trauma.sql` and `lib/catalog/connected-speech-catalog.ts` are excluded from copy-paste metrics; neither file is excluded from issue/security analysis.
+- Post-merge verification against `origin/main`: `npm run build`, `npx tsc --noEmit`, ESLint (0 errors; 2 generated-file warnings), `git diff --check`, and all 212 Node tests pass.
 
 ## Manual Testing
 

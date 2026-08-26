@@ -62,7 +62,7 @@ description: Implemented typed catalog foundation and current D1/UI work status
 
 ## Implemented: Library, Practice, and Compatibility
 
-- `/library` owns catalog discovery; `/` redirects temporarily to it. React and static trainer navigation now link Library directly to `/library`.
+- `/library` owns catalog discovery. The independently delivered landing page remains at `/`, and React/static trainer navigation links Library directly to `/library`.
 - Library exposes the three practice formats, all six named mechanisms with plain-language hints, one-mechanism filtering, search, recommended/alphabetical ordering, analyzed cards, and Add/Undo feedback.
 - `lib/catalog/guest-catalog.ts` merges the public catalog with stable-ID guest statuses, retains unmatched legacy presets only when already non-`pick`, and maps guest custom phrases to `analysis: null`.
 - Practice still owns To Learn, Learning Now, Learned, explicit trainer entry, and removal. Analysis UI is rendered only for an analyzed card; custom/legacy cards show no fake IPA, grouping, or mechanism metadata.
@@ -74,6 +74,7 @@ description: Implemented typed catalog foundation and current D1/UI work status
 - Focused catalog/migration/API/UI tests pass, including the final surface-specific sort and migration rewrite-idempotence regressions.
 - Final full Node suite: 212 passed, 0 failed.
 - `npx tsc --noEmit`, ESLint, production build, AI DevKit lint, and `git diff --check` pass on the final implementation.
+- The final merge with `origin/main` preserved the new landing page and dedicated Library/Practice routes; the post-merge build, typecheck, lint, and 212-test suite pass.
 - Final generator verification found that repeated `--write` calls accumulated a statement boundary. A RED regression test drove `replaceGeneratedCatalogSql`; two writes now produce the same SHA-256 (`e6756a65…`).
 - Initial PR policy checks found an exponential-backtracking risk in the generated-section boundary regex. The regex was replaced with a bounded suffix loop, catalog validation was split into focused checks, and Sonar copy-paste metrics now exclude only the curated data module and its generated SQL while security analysis remains enabled.
 - Clean local D1: 140 active analyses, 230 mechanism links, 154 phrase rows; a second migration apply had no work.

@@ -68,7 +68,9 @@ test("dedicated Library exposes formats, mechanisms, search and Add with Undo", 
     readFile(new URL("../app/components/site-navigation.tsx", import.meta.url), "utf8"),
   ]);
 
-  assert.match(home, /redirect\("\/library"\)/);
+  assert.match(home, /<SiteNavigation active="home"/);
+  assert.match(home, /href="\/library"/);
+  assert.doesNotMatch(home, /<PhraseWorkspace/);
   assert.match(library, /<PhraseWorkspace surface="library"/);
   assert.match(navigation, /href: "\/library", label: "Library"/);
   assert.match(workspace, /CONNECTED_SPEECH_MECHANISMS/);

@@ -17,6 +17,7 @@ test("unified site navigation exposes every primary section", async () => {
     new URL("../app/components/site-navigation.tsx", import.meta.url),
     "utf8",
   );
+  const home = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const library = await readFile(new URL("../app/library/page.tsx", import.meta.url), "utf8");
   const practice = await readFile(new URL("../app/practice/page.tsx", import.meta.url), "utf8");
   const workspace = await readFile(
@@ -39,6 +40,11 @@ test("unified site navigation exposes every primary section", async () => {
   }
 
   assert.match(library, /<PhraseWorkspace surface="library"/);
+  assert.match(home, /<SiteNavigation active="home"/);
+  assert.match(home, /You know the words\./);
+  assert.match(home, /Learn to hear them\./);
+  assert.match(home, /Progress begins when you connect the sounds with the actual words—and repeat until the phrase becomes recognizable without captions\./);
+  assert.doesNotMatch(home, /<PhraseWorkspace/);
   assert.match(practice, /<PhraseWorkspace surface="practice"/);
   assert.match(workspace, /<SiteNavigation\s+active=\{surface\}/);
   assert.match(videos, /<SiteNavigation\s+active="videos"/);
@@ -71,7 +77,6 @@ test("Library catalogs new phrases while Practice owns the learning queues", asy
   const appEntries = await readdir(new URL("../app/", import.meta.url));
   assert.ok(appEntries.includes("practice"), "Practice needs its own route instead of opening the trainer");
 
-  const home = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const library = await readFile(new URL("../app/library/page.tsx", import.meta.url), "utf8");
   const practice = await readFile(new URL("../app/practice/page.tsx", import.meta.url), "utf8");
   const workspace = await readFile(
@@ -83,7 +88,6 @@ test("Library catalogs new phrases while Practice owns the learning queues", asy
   const trainer = await readFile(new URL("../public/trainer.html", import.meta.url), "utf8");
 
   assert.match(library, /<PhraseWorkspace surface="library"\s*\/>/);
-  assert.match(home, /redirect\("\/library"\)/);
   assert.match(practice, /<PhraseWorkspace surface="practice"\s*\/>/);
   assert.match(workspace, /const practiceTabs[^=]*=\s*\[[\s\S]*?To Learn[\s\S]*?Learning Now[\s\S]*?Learned[\s\S]*?\];/);
   assert.doesNotMatch(workspace.match(/const practiceTabs[^=]*=\s*\[([\s\S]*?)\];/)?.[1] || "", /Pick/);

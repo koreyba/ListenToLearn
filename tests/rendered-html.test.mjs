@@ -17,7 +17,8 @@ test("unified site navigation exposes every primary section", async () => {
     new URL("../app/components/site-navigation.tsx", import.meta.url),
     "utf8",
   );
-  const library = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const home = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const library = await readFile(new URL("../app/library/page.tsx", import.meta.url), "utf8");
   const practice = await readFile(new URL("../app/practice/page.tsx", import.meta.url), "utf8");
   const workspace = await readFile(
     new URL("../app/components/phrase-workspace.tsx", import.meta.url),
@@ -28,7 +29,7 @@ test("unified site navigation exposes every primary section", async () => {
   const trainer = await readFile(new URL("../public/trainer.html", import.meta.url), "utf8");
 
   for (const [href, label] of [
-    ["/", "Library"],
+    ["/library", "Library"],
     ["/practice", "Practice"],
     ["/videos", "Videos"],
     ["/settings", "Settings"],
@@ -39,6 +40,11 @@ test("unified site navigation exposes every primary section", async () => {
   }
 
   assert.match(library, /<PhraseWorkspace surface="library"/);
+  assert.match(home, /<SiteNavigation active="home"/);
+  assert.match(home, /You know the words\./);
+  assert.match(home, /Learn to hear them\./);
+  assert.match(home, /Progress begins when you connect the sounds with the actual words—and repeat until the phrase becomes recognizable without captions\./);
+  assert.doesNotMatch(home, /<PhraseWorkspace/);
   assert.match(practice, /<PhraseWorkspace surface="practice"/);
   assert.match(workspace, /<SiteNavigation\s+active=\{surface\}/);
   assert.match(videos, /<SiteNavigation\s+active="videos"/);
@@ -71,7 +77,7 @@ test("Library catalogs new phrases while Practice owns the learning queues", asy
   const appEntries = await readdir(new URL("../app/", import.meta.url));
   assert.ok(appEntries.includes("practice"), "Practice needs its own route instead of opening the trainer");
 
-  const library = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const library = await readFile(new URL("../app/library/page.tsx", import.meta.url), "utf8");
   const practice = await readFile(new URL("../app/practice/page.tsx", import.meta.url), "utf8");
   const workspace = await readFile(
     new URL("../app/components/phrase-workspace.tsx", import.meta.url),

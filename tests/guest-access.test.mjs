@@ -12,6 +12,8 @@ function request(path, method = "GET") {
 test("guest allowlist exposes only UI, static assets and read-only Tatoeba", () => {
   for (const path of [
     "/",
+    "/library",
+    "/library/",
     "/trainer",
     "/trainer/",
     "/trainer.html",

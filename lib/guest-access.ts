@@ -10,6 +10,8 @@ const publicAssetPaths = new Set([
 
 const publicLoginReturnPaths = new Set([
   "/",
+  "/library",
+  "/library/",
   "/practice",
   "/practice/",
   "/trainer",
@@ -28,6 +30,8 @@ export function isPublicGuestRequest(request: Request) {
   const pathname = new URL(request.url).pathname;
   if (
     pathname === "/"
+    || pathname === "/library"
+    || pathname === "/library/"
     || pathname === "/trainer"
     || pathname === "/trainer/"
     || pathname === "/trainer.html"

@@ -428,7 +428,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
       <SiteNavigation
         active={surface}
         account={mode === "guest" || !viewer ? (
-          <a className="site-account-link" href={signInHref(surface === "practice" ? "/practice" : "/")}>Sign in with Google</a>
+          <a className="site-account-link" href={signInHref(surface === "practice" ? "/practice" : "/library")}>Sign in with Google</a>
         ) : (
           <SignedInSiteAccount user={viewer} />
         )}

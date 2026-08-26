@@ -36,6 +36,8 @@
   letter-spacing: -.025em;
 }
 
+.site-brand[aria-current="page"] { color: #afc1a3; }
+
 .site-primary-links {
   display: flex;
   align-items: center;

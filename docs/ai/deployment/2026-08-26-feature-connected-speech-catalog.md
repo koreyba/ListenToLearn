@@ -8,7 +8,7 @@ description: Migration-first preview and production release contract for the typ
 
 ## Scope and Authorization
 
-This feature adds Worker application code plus append-only D1 migration `0013_kind_trauma.sql`. The current lifecycle run may commit, push, and create a PR. It does not authorize merge, preview/production deployment, or remote D1 mutation.
+This feature adds Worker application code plus append-only D1 migration `0013_kind_trauma.sql`. The initial lifecycle run authorized commit, push, and PR creation only. After the preview exposed a missing-table error, the user explicitly authorized applying `0013` to preview D1 and automating preview migrations. Merge, production deployment, and production D1 mutation remain unauthorized.
 
 ## Infrastructure
 
@@ -32,10 +32,10 @@ The database migration must precede application traffic because the new APIs que
 
 ### Preview
 
-1. Confirm the target is the preview Worker and preview D1 database.
-2. Apply pending migrations to preview D1.
+1. Confirm the target is the preview Worker and `unmumble-preview-db`.
+2. Run the repository preview deployment wrapper. It applies pending preview D1 migrations before either branch-version upload or named-preview deployment and stops if migration application fails.
 3. Verify the migration counts and `PRAGMA foreign_key_check`.
-4. Deploy the reviewed application commit to preview.
+4. Upload/deploy the reviewed application commit only after the migration step succeeds.
 5. Smoke `/library`, `/practice`, `/api/catalog`, account phrases, text-only custom creation, Add/Undo, and 390px/1200px layouts.
 6. Observe the preview signals in the monitoring document before requesting production authorization.
 
@@ -63,3 +63,10 @@ The database migration must precede application traffic because the new APIs que
 ## Secrets and Configuration
 
 No new secrets or environment variables are required. Existing Access, D1, and translation-provider configuration remains unchanged.
+
+## Preview Incident Evidence
+
+- The failing preview had `0012_app_sessions.sql` as its latest applied migration; `0013_kind_trauma.sql` was pending and both catalog tables were absent.
+- The authorized remote preview application completed all 515 statements successfully.
+- The post-application preview database has no pending migrations, 140 active analyses, 230 mechanism links, 154 phrase rows, and no foreign-key violations.
+- Production D1 was not queried or mutated during the incident fix.

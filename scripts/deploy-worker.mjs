@@ -10,11 +10,13 @@ const repositoryRoot = path.resolve(
 
 const deployments = {
   "branch-preview": {
+    applyMigrations: true,
     configFile: "wrangler.preview.jsonc",
     workerName: "unmumble-preview",
     wranglerCommand: ["versions", "upload"],
   },
   preview: {
+    applyMigrations: true,
     configFile: "wrangler.preview.jsonc",
     workerName: "unmumble-preview",
     wranglerCommand: ["deploy"],
@@ -72,6 +74,30 @@ for (const artifact of ["dist/server/index.js", "dist/client/trainer.html"]) {
 
 const wranglerBinary =
   process.env.WRANGLER_BIN ?? path.join(repositoryRoot, "node_modules/.bin/wrangler");
+
+if (deployment.applyMigrations) {
+  const databaseName = config.d1_databases?.find(({ binding }) => binding === "DB")?.database_name;
+  if (!databaseName) {
+    fail(`${deployment.configFile} must define the DB migration target`);
+  }
+
+  const migrationResult = spawnSync(
+    wranglerBinary,
+    ["d1", "migrations", "apply", databaseName, "--remote", "--config", configPath],
+    {
+      cwd: repositoryRoot,
+      env: process.env,
+      stdio: "inherit",
+    },
+  );
+  if (migrationResult.error) {
+    fail(`migration failed to start: ${migrationResult.error.message}`);
+  }
+  if (migrationResult.status !== 0) {
+    process.exit(migrationResult.status ?? 1);
+  }
+}
+
 const result = spawnSync(
   wranglerBinary,
   [...deployment.wranglerCommand, "--config", configPath, ...extraArgs],

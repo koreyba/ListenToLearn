@@ -72,9 +72,9 @@ description: Implemented typed catalog foundation and current D1/UI work status
 ## Verification Performed During Implementation
 
 - Focused catalog/migration/API/UI tests pass, including the final surface-specific sort and migration rewrite-idempotence regressions.
-- Final full Node suite: 212 passed, 0 failed.
+- Final full Node suite after the preview incident fix: 214 passed, 0 failed.
 - `npx tsc --noEmit`, ESLint, production build, AI DevKit lint, and `git diff --check` pass on the final implementation.
-- The final merge with `origin/main` preserved the new landing page and dedicated Library/Practice routes; the post-merge build, typecheck, lint, and 212-test suite pass.
+- The final merge with `origin/main` preserved the new landing page and dedicated Library/Practice routes; the post-incident build, typecheck, lint, and 214-test suite pass.
 - Final generator verification found that repeated `--write` calls accumulated a statement boundary. A RED regression test drove `replaceGeneratedCatalogSql`; two writes now produce the same SHA-256 (`e6756a65…`).
 - Initial PR policy checks found an exponential-backtracking risk in the generated-section boundary regex. The regex was replaced with a bounded suffix loop, catalog validation was split into focused checks, and Sonar copy-paste metrics now exclude only the curated data module and its generated SQL while security analysis remains enabled.
 - Clean local D1: 140 active analyses, 230 mechanism links, 154 phrase rows; a second migration apply had no work.
@@ -82,6 +82,15 @@ description: Implemented typed catalog foundation and current D1/UI work status
 - Live APIs returned a 35,041-byte bounded catalog response with 140 cards. Authenticated local API smoke returned 140 analyzed + 14 legacy phrases, accepted a text-only custom phrase with `analysis: null`, and rejected catalog metadata injection with HTTP 400.
 - Browser-control verification at 1200px and 390px covered all 3 formats (18/22/100), all 6 atom mechanisms (3 each), search, Add/Undo, mobile card badges/navigation, no horizontal document overflow, and zero browser console warnings/errors. This visual pass led to compact selectors, responsive one-column mechanisms, and analysis-only rendering guards.
 
+## Preview Migration Incident and Fix
+
+- Preview reproduced `D1_ERROR: no such table: catalog_phrase_analysis` while the application version already queried the new catalog schema.
+- Read-only Wrangler evidence showed `0013_kind_trauma.sql` pending on `unmumble-preview-db`; `d1_migrations` ended at `0012_app_sessions.sql`, and neither catalog table existed.
+- Root cause: `deploy:branch-preview` uploaded a Worker version without applying preview D1 migrations.
+- TDD added deployment contracts requiring preview migrations before branch upload and named-preview deployment. A separate RED test proved a failed migration previously allowed upload to continue; the wrapper now exits before upload/deploy on migration failure.
+- The explicitly authorized preview migration applied successfully. Follow-up queries show no pending migration, 140 active analyses, 230 mechanism links, 154 phrase rows, and zero foreign-key violations.
+- Production deployment and production D1 were not touched.
+
 ## Remaining Work
 
-Implementation and testing are complete. Final lifecycle review, commit, push, and PR checks remain. Merge, deployment, and production D1 migration are deliberately not performed.
+The preview incident is fixed, its automation is implemented, and full local verification passes. Commit, push, and renewed PR checks remain. Merge, production deployment, and production D1 migration are deliberately not performed.

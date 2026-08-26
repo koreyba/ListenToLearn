@@ -46,7 +46,7 @@ test("Unmumble environments have explicit Worker and D1 names", () => {
   );
 });
 
-test("branch previews upload a version without promoting the preview Worker", () => {
+test("branch previews apply preview D1 migrations before uploading a version", () => {
   const result = spawnSync(
     process.execPath,
     ["scripts/deploy-worker.mjs", "branch-preview"],
@@ -64,10 +64,69 @@ test("branch previews upload a version without promoting the preview Worker", ()
   );
 
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  const args = JSON.parse(result.stdout.trim());
-  assert.deepEqual(args.slice(0, 2), ["versions", "upload"]);
-  assert.equal(args[2], "--config");
-  assert.match(args[3], /wrangler\.preview\.jsonc$/);
+  const invocations = result.stdout.trim().split("\n").map((line) => JSON.parse(line));
+  assert.deepEqual(invocations[0].slice(0, 4), [
+    "d1",
+    "migrations",
+    "apply",
+    "unmumble-preview-db",
+  ]);
+  assert.deepEqual(invocations[0].slice(4, 6), ["--remote", "--config"]);
+  assert.match(invocations[0][6], /wrangler\.preview\.jsonc$/);
+  assert.deepEqual(invocations[1].slice(0, 2), ["versions", "upload"]);
+  assert.equal(invocations[1][2], "--config");
+  assert.match(invocations[1][3], /wrangler\.preview\.jsonc$/);
+});
+
+test("named preview deploys apply preview D1 migrations before promotion", () => {
+  const result = spawnSync(
+    process.execPath,
+    ["scripts/deploy-worker.mjs", "preview"],
+    {
+      cwd: new URL("..", import.meta.url),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        WRANGLER_BIN: new URL(
+          "fixtures/capture-args.mjs",
+          import.meta.url,
+        ).pathname,
+      },
+    },
+  );
+
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  const invocations = result.stdout.trim().split("\n").map((line) => JSON.parse(line));
+  assert.deepEqual(invocations[0].slice(0, 4), [
+    "d1",
+    "migrations",
+    "apply",
+    "unmumble-preview-db",
+  ]);
+  assert.deepEqual(invocations[1].slice(0, 1), ["deploy"]);
+});
+
+test("a failed preview migration blocks the version upload", () => {
+  const result = spawnSync(
+    process.execPath,
+    ["scripts/deploy-worker.mjs", "branch-preview"],
+    {
+      cwd: new URL("..", import.meta.url),
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        WRANGLER_BIN: new URL(
+          "fixtures/fail-preview-migration.mjs",
+          import.meta.url,
+        ).pathname,
+      },
+    },
+  );
+
+  assert.equal(result.status, 23, `${result.stdout}\n${result.stderr}`);
+  const invocations = result.stdout.trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(invocations.length, 1, "version upload must not run after a failed migration");
+  assert.deepEqual(invocations[0].slice(0, 3), ["d1", "migrations", "apply"]);
 });
 
 test("Workers Builds has an explicit branch-preview command", () => {

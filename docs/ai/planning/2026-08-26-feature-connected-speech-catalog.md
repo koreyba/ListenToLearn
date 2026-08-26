@@ -128,7 +128,7 @@ description: Ordered tasks for typed content, D1 projection, optional analysis, 
 
 ## Progress Summary
 
-All four milestones are complete. The typed 140-card catalog generates migration `0013_kind_trauma.sql`, projects through public/account APIs with optional analysis, and powers the dedicated responsive `/library` experience. Guest status migration, custom text-only phrases, retained legacy references, Add/Undo, routing, and account API behavior have fresh automated and local D1/browser evidence. Final review fixed migration-section rewrite accumulation, missing generator-time runtime validation, unnecessary timestamp churn on reused presets, and CI security/duplication findings. The final `main` sync preserved the independently delivered homepage and passed the full 212-test suite, typecheck, lint, and build. Next: publish the merge resolution and verify PR checks.
+All four milestones are complete. The typed 140-card catalog generates migration `0013_kind_trauma.sql`, projects through public/account APIs with optional analysis, and powers the dedicated responsive `/library` experience. A preview missing-table incident proved the Worker version could be uploaded before its D1 migration. The authorized preview migration is now applied and verified; branch-preview and named-preview deployment wrappers apply pending preview migrations first and fail closed. Full verification passes; next is to publish the incident fix and verify renewed PR checks.
 
 ## Resources Needed
 

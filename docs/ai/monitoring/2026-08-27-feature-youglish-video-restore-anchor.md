@@ -13,7 +13,7 @@ description: Privacy-safe signals and smoke checks for new-format YouGlish video
 - User-visible “YouGlish could not restore the saved video” errors.
 - Fresh Videos cards that produce “No examples found” on cold open.
 - Continue remaining unavailable after a marked YouGlish result loads.
-- Repeated or very large relative resume movements for one cold open.
+- More than three or very large relative resume movements for one cold open.
 
 ## Tools and Logging
 
@@ -29,9 +29,11 @@ The deterministic tests use synthetic text and the existing trace stays sanitize
 - Guest and account: add a fresh result, advance to an unmarked caption, and
   confirm Continue still records one card.
 - Cold-open with US, UK and All; verify the first fetch uses the saved choice.
-- Reopen with progress: no movement before `onPlayerReady`/`PLAYING`, one
-  relative movement at most, no anchor-progress write while buffering, then
-  normal playback.
+- Reopen with progress: no movement before `onPlayerReady`/`PLAYING`; movement
+  remains pending until a timed caption confirms it, retries occur only after a
+  still-distant timestamp and stop after three; no anchor-progress write occurs
+  while buffering or after exhausted retries, and normal progress persistence
+  resumes only after a confirmed target.
 - Simulate missing timing: correct video opens at the stable match with no move.
 - Simulate a different video ID: the trainer rejects it.
 - Confirm old empty-locator account/guest records remain absent.

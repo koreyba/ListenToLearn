@@ -202,7 +202,7 @@ test("Continue in video retains the first marked locator after playback advances
   assert.equal(trainer.widgetCalls.fetch.length, fetchCount);
 });
 
-test("cold Full Video waits for provider readiness and active playback before one resume move", async t => {
+test("cold Full Video retries a resume move until a caption confirms the saved position", async t => {
   const trainer = await createTrainer({
     autoPlayerReady: false,
     requireReadyAndPlayingForMove: true,
@@ -242,6 +242,21 @@ test("cold Full Video waits for provider readiness and active playback before on
   assertDeltas(trainer.widgetCalls.move, [300]);
   assert.equal(trainer.widgetCalls.pause, 0);
 
+  trainer.events.onPlayerStateChange({ state: 3 });
+  trainer.events.onPlayerStateChange({ state: 1 });
+
+  assertDeltas(trainer.widgetCalls.move, [300]);
+
+  trainer.events.onCaptionChange(caption(
+    "anchor-after-ignored-move",
+    100,
+    "The provider ignored the first movement.",
+    "w66ecIT-Xkk",
+  ));
+
+  assertDeltas(trainer.widgetCalls.move, [300, 300]);
+  assert.equal(trainer.widgetCalls.pause, 0);
+
   trainer.events.onCaptionChange(caption(
     "resumed",
     400,
@@ -249,8 +264,28 @@ test("cold Full Video waits for provider readiness and active playback before on
     "w66ecIT-Xkk",
   ));
 
-  assertDeltas(trainer.widgetCalls.move, [300]);
+  assertDeltas(trainer.widgetCalls.move, [300, 300]);
   assert.equal(trainer.widgetCalls.pause, 1);
+});
+
+test("cold Full Video stops retrying after three unconfirmed resume moves", async t => {
+  const trainer = await createTrainer({
+    url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&resumeTime=400&language=english&accent=uk",
+  });
+  t.after(trainer.close);
+
+  trainer.events.onVideoChange({ trackNumber: 0, video: "w66ecIT-Xkk" });
+  trainer.events.onCaptionChange(caption("anchor", 100, "Anchor", "w66ecIT-Xkk"));
+  trainer.events.onPlayerStateChange({ state: 1 });
+
+  trainer.events.onCaptionChange(caption("ignored-1", 100, "Ignored 1", "w66ecIT-Xkk"));
+  trainer.events.onCaptionChange(caption("ignored-2", 100, "Ignored 2", "w66ecIT-Xkk"));
+  trainer.events.onCaptionChange(caption("ignored-3", 100, "Ignored 3", "w66ecIT-Xkk"));
+  trainer.events.onCaptionChange(caption("ignored-4", 100, "Ignored 4", "w66ecIT-Xkk"));
+
+  assertDeltas(trainer.widgetCalls.move, [300, 300, 300]);
+  assert.match(trainer.providerStatus.textContent, /could not resume/i);
+  assert.equal(trainer.storedProgress("w66ecIT-Xkk"), null);
 });
 
 test("cold Full Video restore falls back to the stable anchor when timing is absent", async t => {
@@ -337,6 +372,32 @@ test("local caption traces capture commands and state without retaining provider
   assert.doesNotMatch(serialized, /sensitive-video-id/);
   assert.doesNotMatch(serialized, /sensitive-caption/);
   assert.doesNotMatch(serialized, /private .* caption words/);
+});
+
+test("sanitized caption traces can be enabled on the branch preview", async t => {
+  const trainer = await createTrainer({
+    url: "https://feature-youglish-video-restore-anchor-unmumble-preview.koreybadenis.workers.dev/trainer?phrase=test&phraseId=phrase-1&captionTrace=1",
+  });
+  t.after(trainer.close);
+
+  observeVideo(trainer, "sensitive-video-id", [
+    caption("sensitive-caption", 603, "private caption words"),
+  ]);
+
+  const trace = trainer.trace();
+  assert.equal(trace.version, "listen-to-learn.youglish-caption-trace/v1");
+  assert.doesNotMatch(JSON.stringify(trace), /sensitive|private caption words/);
+});
+
+test("caption traces remain disabled on production even with the opt-in parameter", async t => {
+  const trainer = await createTrainer({
+    url: "https://unmumble.online/trainer?phrase=test&phraseId=phrase-1&captionTrace=1",
+  });
+  t.after(trainer.close);
+
+  observeVideo(trainer, "video-id", [caption("caption-id", 603, "caption words")]);
+
+  assert.deepEqual(trainer.trace(), {});
 });
 
 test("local caption traces record CaptionConsumed even when Repeat is off", async t => {

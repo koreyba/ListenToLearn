@@ -19,7 +19,7 @@ flowchart LR
   Videos --> URL[Trainer URL with restoreQuery and progress]
   URL --> Fetch[fetch restoreQuery plus videoId with saved accent]
   Fetch --> Verify[Verify onVideoChange videoId]
-  Verify --> Resume[One relative move to resumeTime]
+  Verify --> Resume[Confirmed bounded moves to resumeTime]
   Resume --> Player[Full Video Mode]
 ```
 
@@ -69,14 +69,18 @@ locator from the current verified YouGlish result.
 - The first anchor caption stores its provider timestamp without consuming the
   resume request. Resume waits for `onPlayerReady`; because cold Full Video uses
   `autoStart: 0`, it then requests playback and waits for `PLAYING` before sending
-  exactly one relative move. The pending flag is cleared before that move to
-  prevent callback loops. If timing is absent or the delta is negligible, no
-  move is made and normal pause/restore behavior continues at the anchor. Resume
-  values retain the existing seven-day upper bound before they can become a
-  provider movement.
+  a relative move. The command remains pending until a later
+  `onCaptionChange.current_time` confirms the target within one second. A callback
+  still far from the target recalculates the relative delta and permits another
+  move, capped at three attempts; player-state noise alone cannot resend it. If
+  timing is absent or the delta is negligible, no move is made and normal
+  pause/restore behavior continues at the anchor. Resume values retain the
+  existing seven-day upper bound before they can become a provider movement.
 - Buffering/pause callbacks produced by this controlled startup cannot persist
   anchor progress over the saved target; progress writes resume only after the
-  restore has settled.
+  restore has settled. Exhausted retries keep automatic progress blocked for
+  that failed session so the known-good saved target is not replaced by the
+  phrase anchor.
 - `onVideoChange` keeps the existing expected-video guard.
 
 ## Resume State Machine
@@ -90,6 +94,8 @@ stateDiagram-v2
   ReadyWait --> PlayWait: onPlayerReady
   Anchor --> PlayWait: player ready but paused
   PlayWait --> Seeking: PLAYING and finite resume delta
+  Seeking --> Seeking: timed caption still far and attempts remain
+  Seeking --> Failed: three moves remain unconfirmed
   Anchor --> Ready: timing absent or already near target
   Seeking --> Ready: resumed caption callback
   Ready --> [*]: pause restored and progress continues
@@ -105,7 +111,9 @@ stateDiagram-v2
   is not introduced.
 - A provider command being callable is not treated as proof that the embedded
   player is ready. Resume movement is gated by `onPlayerReady` and `PLAYING` so a
-  paused or still-loading widget cannot silently discard the one-shot command.
+  paused or still-loading widget cannot silently discard the initial command.
+- A returned `widget.move` call is not treated as acknowledgement. Only a later
+  provider timestamp confirms movement; retries are callback-gated and bounded.
 - Missing timing falls back to the stable anchor, not to a text-search retry.
 - Legacy rows are filtered/dropped rather than migrated because the missing
   provider marker cannot be reconstructed reliably and the user accepted loss.
@@ -115,7 +123,7 @@ stateDiagram-v2
 - Locator/query inputs use existing bounded plain-text normalization; no HTML is
   rendered from them.
 - Account reads/writes remain session subject-scoped and guest data remains local.
-- The cold path performs one provider fetch and at most one relative move; no
+- The cold path performs one provider fetch and at most three relative moves; no
   extra search retries or transcript requests are added.
 
 ## Rollout

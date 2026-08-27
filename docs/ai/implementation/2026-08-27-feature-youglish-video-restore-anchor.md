@@ -21,7 +21,7 @@ description: Implemented provider locator persistence, cold restore and independ
 - `public/youglish-video-restore.js`: pure marker extraction and bounded relative
   resume delta.
 - `public/trainer.html`: immutable per-video locator capture, guest persistence,
-  Full Video URL/state, saved-accent fetch and one-shot resume movement.
+  Full Video URL/state, saved-accent fetch and confirmed bounded resume movement.
 - `lib/youglish-full-video.ts`: typed new-format origin and URL contract.
 - `lib/guest-library.ts`: guest normalization/upsert requiring `restoreQuery`.
 - `app/api/videos/route.ts`, `db/schema.ts`, `drizzle/0014_square_spectrum.sql`:
@@ -68,13 +68,16 @@ US/UK accent (or omits accent for All). `resumeCaption` remains progress metadat
 and is never a search key. The existing `onVideoChange` expected-ID guard remains.
 
 After the anchor caption arrives, the trainer retains its timestamp and the
-one-shot pending request until the embedded player reports `onPlayerReady` and
-`PLAYING`. A paused cold player is started only for this controlled resume; the
-trainer then clears the pending flag and calls
-`widget.move(resumeTime - current_time)` exactly once. It waits for the resumed
-caption before restoring pause and persisting progress. Missing timing, a
-negligible delta or a movement error falls back to the stable anchor without
-another search.
+pending request until the embedded player reports `onPlayerReady` and `PLAYING`.
+A paused cold player is started only for this controlled resume. The trainer
+calls `widget.move(resumeTime - current_time)` but does not treat the returned
+fire-and-forget call as success. It waits for a later timed caption: reaching the
+target within one second restores pause and progress, while a timestamp still
+far away recalculates the delta and permits another movement. Only a new timed
+caption can unlock a retry, and one cold restore is capped at three moves.
+Missing timing or a negligible delta falls back to the stable anchor without
+another search; exhausted retries keep playback usable and display a resume
+error without overwriting the known-good saved target.
 
 The original PR implementation called `move` directly from the first caption
 callback while cold Full Video used `autoStart: 0`. Its fake widget always fired
@@ -83,10 +86,18 @@ would not accept them, so the test proved an attempted call rather than an
 effective resume. The callback-safe state machine and provider-readiness fake
 close that preview-reported gap.
 
+The second preview retest showed that readiness was still insufficient: the
+documented widget method only posts a movement command and provides no completion
+acknowledgement. The new feedback loop keeps the intent pending until
+`onCaptionChange.current_time` confirms the result. Synthetic provider-state
+noise cannot duplicate a move, and repeated unconfirmed callbacks stop after
+three attempts.
+
 Transient `BUFFERING`/pause callbacks during controlled startup do not persist
 the anchor timestamp. Progress writes remain suspended until the target caption
 settles the restore, preventing a failed or interrupted attempt from replacing
-the previously correct saved position.
+the previously correct saved position. If all three moves remain unconfirmed,
+automatic progress stays blocked for that failed Full Video session.
 
 ### Warm transition
 
@@ -100,10 +111,13 @@ cached locator.
 - Marker absence keeps Continue unavailable rather than inventing a query.
 - Provider timing is optional and never fabricated.
 - Relative movement is bounded to the existing seven-day progress limit.
+- Resume attempts are callback-gated and capped at three per cold open.
 - Wrong-video callbacks still show the restore error and are not activated.
 - Account access remains subject-scoped; guest state remains local and bounded.
 - No YouTube integration, transcript request, provider scraping, deployment or
   production data operation was added.
+- Sanitized caption tracing is opt-in on localhost and the branch-preview host;
+  it remains disabled on `unmumble.online` even when the query flag is present.
 
 ## TDD and Verification Evidence
 
@@ -125,6 +139,12 @@ cached locator.
 - Preview-follow-up mutation proofs fail when readiness/playing gates are removed
   and when buffering is allowed to overwrite progress; both return to GREEN with
   the callback-safe state machine and progress-write guard restored.
+- Callback-confirmation mutation proof fails with one movement instead of the
+  required retry when pending state is cleared before `widget.move`, then returns
+  to GREEN when provider confirmation owns completion again.
+- Final follow-up verification: fresh Vinext build and 244/244 repository tests
+  pass; TypeScript, lifecycle lint and diff checks pass; ESLint remains at zero
+  errors with the same two generated-file warnings.
 - The post-push Sonar findings were resolved by decomposing the resume coordinator
   and replacing the marker regex with a bounded forward `indexOf` scan.
 

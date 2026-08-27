@@ -13,6 +13,8 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
 - [x] Milestone 3: Complete full verification, review, documentation and PR.
 - [x] Milestone 4: Correct the preview-reported resume command race and update
   the existing PR.
+- [x] Milestone 5: Replace fire-and-forget resume completion with provider-
+  confirmed bounded retries and add preview-only diagnostics.
 
 ## Task Breakdown
 
@@ -32,7 +34,7 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
   - Scenarios: URL independence from resume caption, guest round-trip/upsert/drop,
     account round-trip/filter/migration.
 - [x] T3: Add JSDOM fake-widget tests for cold fetch, saved accent, expected
-  video, one-time resume movement and no-timing fallback.
+  video, confirmed bounded resume movement and no-timing fallback.
   - Outcome: the reported browser failure is reproduced at the provider boundary.
   - Depends on: current trainer harness.
   - Validation: test observes the current resume-caption fetch and wrong accent.
@@ -68,7 +70,7 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
   - Depends on: T5-T7.
   - Validation: rendered HTML and persistence contracts pass.
 - [x] T9: Change cold fetch to `restoreQuery #videoId` with the saved accent,
-  retain expected-video verification, and perform at most one relative resume.
+  retain expected-video verification, and perform a relative resume.
   - Outcome: cold reopen selects the correct video independently from progress.
   - Depends on: T4, T7 and T8.
   - Validation: T3 turns green, including missing-timestamp fallback.
@@ -84,6 +86,9 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
 - [x] T13: Reproduce the dropped resume command with a provider-readiness fake,
   implement the callback-safe resume state machine, run mutation/full
   verification, and update PR #26.
+- [x] T14: Reproduce an accepted-but-ignored movement, keep the restore pending
+  until a timed caption confirms it, retry at most three times, and expose the
+  sanitized trace only on localhost or the branch-preview hostname.
 
 ## Dependencies and Sequencing
 
@@ -101,8 +106,8 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
   arrives; never persist an invented locator.
 - **Undocumented timestamp missing:** skip resume movement and open at the stable
   anchor.
-- **Callback loop after move:** clear the one-shot pending flag before invoking
-  `widget.move`.
+- **Callback loop after move:** wait for a new timed caption before permitting
+  another move, and cap one cold restore at three attempts.
 - **Wrong provider result:** preserve the expected-video check and error state.
 - **Legacy rows resurfacing:** require the field on writes and filter/drop empty
   values on both account and guest reads.
@@ -119,8 +124,10 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
 
 ## Progress Summary
 
-T1-T13 are complete. Preview feedback reproduced a test blind spot: the fake
+T1-T14 are complete. Preview feedback reproduced two test blind spots: the fake
 accepted `move` before the real player was ready or playing. The corrected
 contract waits for `onPlayerReady` and `PLAYING`, prevents buffering from
-overwriting saved progress, and has RED/GREEN plus mutation and full-suite proof
-on PR #26.
+overwriting saved progress, and no longer equates a returned fire-and-forget
+`move` call with success. A later provider timestamp confirms the target or
+unlocks one of three bounded retries. RED/GREEN and full-suite evidence are on
+PR #26.

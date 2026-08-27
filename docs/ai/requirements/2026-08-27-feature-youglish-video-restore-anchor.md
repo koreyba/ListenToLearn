@@ -65,12 +65,14 @@ Videos section.
 - The first fetch uses the stored accent, including an empty accent for `All`.
 - `onVideoChange` still verifies the expected video ID.
 - With provider `current_time`, the trainer calls documented relative
-  `widget.move(resumeTime - current_time)` once and pauses after the resumed
-  caption arrives.
+  `widget.move(resumeTime - current_time)`, waits for a later caption timestamp
+  to confirm the result, and retries at most three times when the provider
+  remains far from the saved target.
 - Without provider timing, the correct video remains usable at the stable anchor
   and no speculative seek is attempted.
 - Automated contracts cover extraction, guest/API/schema persistence, URL
-  construction, cold widget fetch, accent, one-time resume and timing fallback.
+  construction, cold widget fetch, accent, confirmed bounded resume and timing
+  fallback.
 - Full tests, build, TypeScript, lint, lifecycle lint and diff checks pass.
 
 ## Constraints & Assumptions

@@ -31,9 +31,12 @@ description: TDD contracts for provider locator persistence, cold restore and in
 - [x] A cold Full Video URL fetches `restoreQuery #videoId`, not
   `resumeCaption #videoId`, and uses the saved accent on the first call.
 - [x] A timed anchor arriving before `onPlayerReady` issues no movement; after
-  readiness, the paused player is started and exactly one relative
-  `move(resumeTime - current_time)` is accepted only after `PLAYING`.
-- [x] The resumed caption pauses playback once and does not issue another move.
+  readiness, the paused player is started and a relative
+  `move(resumeTime - current_time)` is sent only after `PLAYING`.
+- [x] An accepted-but-ignored movement is retried only after a new timed caption;
+  player-state noise cannot duplicate it, and retries stop after three moves.
+- [x] A caption confirming the saved target pauses playback once and does not
+  issue another move.
 - [x] A transient `BUFFERING` callback before the move cannot persist anchor time
   over the saved resume target.
 - [x] Missing `current_time` issues no speculative move and leaves the correct
@@ -60,6 +63,8 @@ description: TDD contracts for provider locator persistence, cold restore and in
 - Fake YouGlish widget records `fetch`, `move`, `pause`, `play` and callbacks;
   the cold-resume contract can reject moves before provider readiness or active
   playback instead of treating every attempted call as successful.
+- The feedback test models a provider that accepts the JavaScript call but then
+  reports the unchanged anchor time before succeeding on the second attempt.
 
 ## Verification Commands
 
@@ -90,8 +95,8 @@ new record without `restoreQuery` blocks the PR.
   `restoreQuery` returned the same test to GREEN.
 - Preview follow-up RED: the provider-realistic fake discarded the pre-ready
   movement and the old implementation never retried it. GREEN waits for
-  `onPlayerReady`, requests playback, waits for `PLAYING`, moves once, then
-  restores pause on the resumed caption.
+  `onPlayerReady`, requests playback, waits for `PLAYING`, then sends the initial
+  movement and restores pause on the resumed caption.
 - A second RED exposed anchor-progress overwrite during the controlled
   `BUFFERING` transition. GREEN suppresses progress writes until restore settles.
 - Follow-up mutation proofs fail when either readiness/playing gating or the
@@ -104,3 +109,19 @@ new record without `restoreQuery` blocks the PR.
   and possible super-linear backtracking in marker parsing. The coordinator was
   split into single-purpose helpers, the regex was replaced by an `indexOf`
   scanner, and multiline plus large unterminated-marker coverage was added.
+- Second preview-follow-up RED: a returned first `move(300)` was treated as
+  complete, so a subsequent unchanged `100s` callback paused at the phrase
+  anchor instead of retrying. GREEN keeps the request pending, ignores
+  player-state noise, retries after the unchanged timestamp, and pauses only
+  when `400s` confirms the target.
+- Retry-cap RED emitted five movements for five unchanged callbacks. GREEN caps
+  the cold restore at three and displays a resume error after exhaustion. Review
+  then exposed a later callback overwriting the saved target with the anchor;
+  the final contract keeps automatic progress blocked for the failed session.
+- Preview-trace RED proved diagnostics were localhost-only. GREEN allows the
+  existing sanitized opt-in trace on the branch-preview suffix while a separate
+  contract keeps it disabled on production.
+- Final follow-up verification: fresh Vinext build and 244/244 repository tests
+  pass; the changed-path suite passes 133/133; TypeScript, lifecycle lint and
+  `git diff --check` pass; ESLint reports zero errors and the same two generated
+  warnings.

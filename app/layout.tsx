@@ -20,13 +20,13 @@ export const metadata: Metadata = {
     description: "Listen. Check. Repeat. Hear.",
     images: ["/og.png"],
   },
-  icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <link rel="icon" href="/favicon.svg?v=8" type="image/svg+xml" />
         <meta name="color-scheme" content="light dark" />
         <meta name="theme-color" content="#0d1116" />
         <Script src="/theme-controller.js" strategy="beforeInteractive" />

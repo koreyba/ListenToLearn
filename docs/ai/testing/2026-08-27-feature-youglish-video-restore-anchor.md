@@ -77,8 +77,8 @@ description: TDD contracts for provider locator persistence, cold restore and in
   next provider timestamp `469.022370...`; before the fix it fails because no
   playback is requested and the restore is cleared.
 - The restoring-status test uses a `400s` target and verifies the public DOM
-  state (`role=status`, polite live region, visible restoring class and `6:40`
-  copy) rather than internal resume flags.
+  state (semantic `<output>`, polite live region, visible restoring class and
+  `6:40` copy) rather than internal resume flags.
 
 ## Verification Commands
 

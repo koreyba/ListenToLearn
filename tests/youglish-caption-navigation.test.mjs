@@ -209,7 +209,8 @@ test("cold Full Video keeps a visible restoring status until the saved position 
   });
   t.after(trainer.close);
 
-  assert.equal(trainer.providerStatus.getAttribute("role"), "status");
+  assert.equal(trainer.providerStatus.tagName, "OUTPUT");
+  assert.equal(trainer.providerStatus.getAttribute("role"), null);
   assert.equal(trainer.providerStatus.getAttribute("aria-live"), "polite");
   assert.equal(trainer.providerStatus.classList.contains("restoring"), true);
   assert.equal(trainer.providerStatus.textContent, "Restoring to 6:40…");

@@ -622,7 +622,7 @@ test("trainer hides idle player notices but exposes the restoring status", async
     /\.status:not\(\.error\):not\(\.restoring\),\s*\.caption-navigation-status \{ display: none; \}/,
   );
   assert.match(trainer, /\.status\.restoring \{[\s\S]*?display: flex;/);
-  assert.match(trainer, /id="status" class="status" role="status" aria-live="polite"/);
+  assert.match(trainer, /<output id="status" class="status" aria-live="polite">/);
   assert.doesNotMatch(trainer, /class="media-label">Media<\/div>/);
 });
 

@@ -28,8 +28,9 @@ Videos section.
   from resume progress (seconds, caption ID/text).
 - Measure and persist the original phrase playback time (`restoreAnchorTime`)
   once, while the video is discovered.
-- After the stable fetch restores the expected video, seek from the persisted
-  anchor on the first `PLAYING` event without waiting for a caption timestamp.
+- After the stable fetch restores the expected video, start playback as needed,
+  wait for the first finite cold `current_time`, and seek once from that factual
+  position instead of assuming the persisted discovery anchor is still current.
 - Keep playback running when an actively playing result enters Full Video and
   after a cold restore reaches the saved position; only the learner pauses it.
 - Keep the warm `Continue in video` transition and account/guest ownership
@@ -76,15 +77,17 @@ Videos section.
   the locator.
 - The first fetch uses the stored accent, including an empty accent for `All`.
 - `onVideoChange` still verifies the expected video ID.
+- `onPlayerReady` arriving first cannot request playback or movement until that
+  expected-video verification has succeeded.
 - Discovery measures `restoreAnchorTime` from the first later finite
   `current_time` minus only the media time actually played since the matched
   callback; pause/buffering intervals are excluded.
-- Once cold restore verifies the saved `videoId`, the trainer calls documented
-  relative `widget.move(resumeTime - restoreAnchorTime)` on the first
-  `PLAYING`, before any cold-load caption callback is required.
-- Later provider timestamps confirm the result and permit at most two bounded
-  corrections after the initial move when the provider remains far from the
-  saved target.
+- Once cold restore verifies the saved `videoId`, the trainer requests playback
+  when needed but issues no `widget.move` before the first finite cold
+  `current_time` identifies the provider's factual starting position.
+- The first finite cold timestamp drives
+  `widget.move(resumeTime - currentTime)`. Later timestamps confirm the result
+  and permit bounded retries only when the provider remains far from the target.
 - Warm Full Video entry and successful cold restore never issue an automatic
   `widget.pause()` command.
 - Cold restore exposes a visible, politely announced `Restoring to mm:ss…`
@@ -94,7 +97,7 @@ Videos section.
   that does not receive pointer events or block the embedded player.
 - Automated contracts cover extraction, guest/API/schema persistence, URL
   construction, discovery-time anchor measurement, cold widget fetch, accent,
-  caption-independent initial movement and confirmed bounded correction.
+  factual-position initial movement and confirmed bounded correction.
 - Full tests, build, TypeScript, lint, lifecycle lint and diff checks pass.
 
 ## Constraints & Assumptions
@@ -105,8 +108,8 @@ Videos section.
   text, and `widget.move(seconds)` is relative.
 - `event.current_time` is an optional observed provider field already consumed
   by the trainer, not a guaranteed public contract. It is used during discovery
-  to measure the immutable anchor and after movement to confirm the result; it
-  is no longer a gate before the first cold-resume move.
+  to measure the immutable anchor, as the factual base for the first cold-resume
+  move, and after movement to confirm the result.
 - Saved videos remain bounded and deduplicated by `videoId` for both account and
   guest storage.
 - The YouGlish widget remains mounted and interactive during restore; the app
@@ -122,12 +125,13 @@ Videos section.
   exact provider match and already failed for some stored examples.
 - **Provider-marked match plus video ID (chosen):** captures the phrase YouGlish
   demonstrably used to locate that exact result, while keeping progress separate.
-- **Wait for a cold caption timestamp:** rejected for new records because it
-  recreates the visible multi-second delay even though discovery already had
-  enough information to measure and persist the phrase position.
+- **Treat the persisted discovery anchor as the current cold position:**
+  rejected after preview testing showed that YouGlish can reopen the same video
+  at another occurrence. A relative move from the stale assumption creates an
+  intermediate jump before the corrective move.
 
 ## Questions & Open Items
 
-No material open question remains. Legacy loss was explicitly accepted; both
-discovery measurement and caption-independent first movement are backed by RED
-contracts and a local real-widget trace.
+No material open question remains. Legacy loss was explicitly accepted. Cold
+resume now prefers one accurate movement after factual provider timing over an
+earlier speculative movement followed by visible correction.

@@ -21,10 +21,13 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
   status tied to confirmed resume state.
 - [x] Milestone 8: Move restoring feedback onto the video without blocking the
   learner's access to native player controls.
-- [x] Milestone 9: Remove the cold caption wait by measuring and persisting the
-  phrase playback anchor when a new video is discovered.
+- [x] Milestone 9: Attempt to remove the cold caption wait with a persisted
+  discovery anchor; superseded by Milestone 11 after the preview exposed a
+  different factual cold starting position.
 - [x] Milestone 10: Remove automatic pause commands from warm Full Video entry
   and successful cold restore.
+- [x] Milestone 11: Remove the speculative saved-anchor movement that caused a
+  visible intermediate jump before the factual-position correction.
 
 ## Task Breakdown
 
@@ -112,13 +115,19 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
   `restoreAnchorTime`, then add the append-only D1 field and guest/account
   propagation.
 - [x] T19: Add a RED browser contract requiring `move` on first `PLAYING`
-  before any cold caption callback, then use the saved anchor for that move.
+  before any cold caption callback, then use the saved anchor for that move;
+  superseded by T23 after the intermediate-jump report.
 - [x] T20: Reproduce the ended-video-to-new-result measurement race, fix the
   clock transition order, and verify the measured anchor in the real widget.
 - [x] T21: Run a real cold restore 300 seconds from the discovered anchor and
   confirm YouTube reaches the target while YouGlish captions follow it.
 - [x] T22: Add RED contracts for warm entry, confirmed cold restore and a cold
   open without saved progress, then remove the obsolete restore-pause state.
+- [x] T23: Reproduce `17:00 -> 20:00 -> 43:00`, require no move before the first
+  finite cold timestamp, and calculate the only initial move from that factual
+  position.
+- [x] T24: Add a RED event-order contract for `onPlayerReady` preceding
+  `onVideoChange`, then gate playback on expected-video verification.
 
 ## Dependencies and Sequencing
 
@@ -136,8 +145,9 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
   arrives; never persist an invented locator.
 - **Discovery timestamp missing:** do not expose Continue until a later timed
   callback permits a real anchor measurement; never persist a guessed value.
-- **Cold first timestamp missing:** use the persisted discovery anchor and move
-  on first `PLAYING`; a cold caption is not required for initial movement.
+- **Cold first timestamp missing:** request playback and retain the restoring
+  state until a finite timestamp arrives; never guess the current position from
+  the persisted discovery anchor.
 - **Callback loop after move:** wait for a new timed caption before permitting
   another move, and cap one cold restore at three attempts.
 - **Wrong provider result:** preserve the expected-video check and error state.
@@ -156,13 +166,13 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
 
 ## Progress Summary
 
-T1-T22 are complete. The final contract waits for `onPlayerReady` and `PLAYING`,
+T1-T24 are complete. The final contract waits for expected-video verification,
+`onPlayerReady` and `PLAYING`,
 prevents buffering from overwriting saved progress, and does not equate a
-returned fire-and-forget `move` call with success. Discovery persists
-`restoreAnchorTime`, so cold restore sends its initial movement on first
-`PLAYING`; later provider timestamps only confirm or unlock one of three bounded
-total attempts. Full Video entry and restore completion no longer issue an
-automatic pause. The visible in-player banner remains coupled to pending state
-without blocking native controls. Real-widget proof moved from `343.986` to a
-saved `643.986` target before any timed cold caption, then confirmed at
-`644.184`. RED/GREEN and full-suite evidence are maintained on PR #26.
+returned fire-and-forget `move` call with success. Discovery still persists
+`restoreAnchorTime`, but cold restore no longer assumes the player reopened at
+that occurrence. The first finite cold timestamp drives one accurate initial
+movement; later timestamps only confirm or unlock a bounded retry. Full Video
+entry and restore completion do not issue an automatic pause. The visible
+in-player banner remains coupled to pending state without blocking native
+controls. RED/GREEN and full-suite evidence are maintained on PR #26.

@@ -20,7 +20,8 @@ flowchart LR
   Videos --> URL[Trainer URL with restoreQuery and progress]
   URL --> Fetch[fetch restoreQuery plus videoId with saved accent]
   Fetch --> Verify[Verify onVideoChange videoId]
-  Verify --> Resume[Move from saved anchor on first PLAYING]
+  Verify --> Observe[Observe factual cold timestamp]
+  Observe --> Resume[Move once from actual position]
   Resume --> Player[Full Video Mode]
 ```
 
@@ -74,15 +75,16 @@ locator from the current verified YouGlish result.
   first later finite caption timestamp minus accumulated `PLAYING` time becomes
   `restoreAnchorTime`; buffering and pause stop the clock. Continue becomes
   available only after this value is measured and all persistence paths carry it.
-- Cold resume verifies the expected video, waits for `onPlayerReady`, requests
-  playback when needed, and sends
-  `move(resumeTime - restoreAnchorTime)` in the first `PLAYING` callback without
-  waiting for any cold-load caption. The command remains pending until a later
-  `onCaptionChange.current_time` confirms the target within one second. A
-  callback still far from the target recalculates the relative delta and permits
-  another move, capped at three attempts; player-state noise alone cannot resend
-  it. A negligible delta completes restore without a move. Resume values retain
-  the existing seven-day upper bound before they can become a provider movement.
+- Cold resume verifies the expected video, waits for `onPlayerReady`, and
+  requests playback when needed. It sends no movement until the first finite
+  cold `onCaptionChange.current_time` reveals the provider's factual position,
+  then calls `move(resumeTime - currentTime)`. The persisted discovery anchor is
+  retained in the saved-record contract but is not treated as the current cold
+  player position. The command remains pending until a later timestamp confirms
+  the target within one second. A callback still far from the target permits a
+  bounded retry; player-state noise alone cannot resend it. A negligible delta
+  completes restore without a move. Resume values retain the existing seven-day
+  upper bound before they can become a provider movement.
 - Buffering/pause callbacks produced by this controlled startup cannot persist
   anchor progress over the saved target; progress writes resume only after the
   restore has settled. Exhausted retries keep automatic progress blocked for
@@ -108,10 +110,11 @@ stateDiagram-v2
   Verified --> ReadyWait: player is not ready
   ReadyWait --> PlayWait: onPlayerReady
   Verified --> PlayWait: player ready but paused
-  PlayWait --> Seeking: first PLAYING uses saved anchor
+  PlayWait --> TimeWait: PLAYING but factual time unknown
+  TimeWait --> Seeking: first finite current_time
   Seeking --> Seeking: timed caption still far and attempts remain
   Seeking --> Failed: three moves remain unconfirmed
-  Anchor --> Ready: already near target
+  TimeWait --> Ready: already near target
   Seeking --> Ready: resumed caption callback
   Ready --> [*]: playback and progress continue
 ```
@@ -129,8 +132,10 @@ stateDiagram-v2
   paused or still-loading widget cannot silently discard the initial command.
 - A returned `widget.move` call is not treated as acknowledgement. Only a later
   provider timestamp confirms movement; retries are callback-gated and bounded.
-- An untimed cold first caption is irrelevant to initial movement because the
-  phrase anchor was already measured and persisted during discovery.
+- An untimed cold first caption keeps playback and restoring feedback active
+  until a later finite timestamp can drive one accurate relative movement.
+- The persisted phrase anchor is discovery evidence, not proof of the player's
+  cold starting position; the same video can reopen at another phrase occurrence.
 - Full Video entry does not synthesize a pause. Warm entry preserves the current
   widget state, and cold restore keeps playing after provider confirmation.
 - Legacy rows are filtered/dropped rather than migrated because the missing

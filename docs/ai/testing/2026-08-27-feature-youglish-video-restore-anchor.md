@@ -30,15 +30,18 @@ description: TDD contracts for provider locator persistence, cold restore and in
 
 - [x] A cold Full Video URL fetches `restoreQuery #videoId`, not
   `resumeCaption #videoId`, and uses the saved accent on the first call.
-- [x] A saved anchor arriving before `onPlayerReady` issues no movement; after
-  readiness, the paused player is started and
-  `move(resumeTime - restoreAnchorTime)` is sent on first `PLAYING`.
+- [x] A saved anchor arriving before `onPlayerReady` is not treated as the cold
+  current position; after readiness, playback starts but no movement is sent
+  until a finite provider timestamp arrives.
+- [x] `onPlayerReady` arriving before `onVideoChange` does not start playback;
+  the expected-video callback unlocks exactly one `play` request.
 - [x] An accepted-but-ignored movement is retried only after a new timed caption;
   player-state noise cannot duplicate it, and retries stop after three moves.
 - [x] A caption confirming the saved target keeps playback running and does not
   issue another move.
-- [x] A cold sequence moves from the persisted anchor before any caption
-  callback; an untimed matched caption is not an initial-movement gate.
+- [x] A cold sequence with saved anchor `40:00`, factual provider start `17:00`
+  and target `43:00` avoids the speculative `+3:00` intermediate jump and sends
+  one `+26:00` move after the factual timestamp.
 - [x] A transient `BUFFERING` callback before the move cannot persist anchor time
   over the saved resume target.
 - [x] Discovery with an untimed match measures the anchor from the first later
@@ -81,8 +84,9 @@ description: TDD contracts for provider locator persistence, cold restore and in
 - The untimed-anchor test uses the observed saved target `470.574278...` and the
   next provider timestamp `469.022370...`; before the fix it fails because no
   playback is requested and the restore is cleared.
-- The new immediate-move contract supplies `restoreAnchorTime=100`, emits no
-  caption callback, then expects `move(300)` on first `PLAYING`.
+- The factual-position contract supplies `restoreAnchorTime=2400`, emits
+  `PLAYING` at an unknown position and expects no move, then reports `1020` and
+  expects exactly one `move(1560)` toward the `2580` target.
 - The restoring-status test uses a `400s` target and verifies the public DOM
   state (dedicated semantic `<output>` inside the video frame, polite live
   region, visible state and `6:40` copy) rather than internal resume flags.
@@ -101,8 +105,9 @@ description: TDD contracts for provider locator persistence, cold restore and in
 ## Bug Tracking
 
 Any use of `resumeCaption` or `originQuery` as the cold restore locator, ignored
-saved accent, repeated resume move, cross-video acceptance, or persistence of a
-new record without `restoreQuery` blocks the PR.
+saved accent, movement before a factual cold timestamp, repeated resume move,
+cross-video acceptance, or persistence of a new record without `restoreQuery`
+blocks the PR.
 
 ## Verification Record — 2026-08-27
 
@@ -182,7 +187,9 @@ new record without `restoreQuery` blocks the PR.
 - A real local YouGlish run measured the discovery anchor at `343.986s`. A cold
   open targeting `643.986s` sent `move(300)` on the first `PLAYING` callback,
   before any timed cold caption; the next callbacks corrected by `-1.547s` and
-  confirmed `644.184s`.
+  confirmed `644.184s`. This earlier optimization is superseded by the
+  factual-position contract below because it could create a visible intermediate
+  jump when the cold start differed from the discovery occurrence.
 - Autopause follow-up RED: warm entry and both cold completion variants each
   observed one unwanted `pause`; GREEN removes the obsolete restore-pause state
   and all three focused contracts pass without changing explicit user pause or
@@ -191,3 +198,14 @@ new record without `restoreQuery` blocks the PR.
   pass; the focused caption/rendered suite passes 116/116. ESLint has zero
   errors and the same two generated-file warnings; TypeScript, lifecycle lint,
   dependency validation and `git diff --check` pass.
+- Intermediate-jump RED: the `40:00` saved anchor caused one movement on
+  `PLAYING` before the provider reported its factual `17:00` start. GREEN emits
+  no early movement, then one `+26:00` move to `43:00`; reverting the production
+  change makes the same focused contract fail again with `1 !== 0`.
+- Event-order RED: `onPlayerReady` requested playback before the expected video
+  callback (`1 !== 0`). GREEN gates playback on verified `onVideoChange` and the
+  focused expected-video, factual-position and wrong-video contracts pass 3/3.
+- Final factual-position verification: fresh Vinext build and 254/254 repository
+  tests pass; the focused caption/rendered/persistence suite passes 120/120.
+  TypeScript, lifecycle lint, dependency validation and `git diff --check` pass;
+  ESLint reports zero errors and the same two generated-file warnings.

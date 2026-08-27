@@ -1638,8 +1638,9 @@
     let accountVideoProgressSync = null;
     let fullVideoMode = initialViewerParams.get("fullVideo") === "1";
     let fullVideoReturnSource = "youglish";
-    let fullVideoResumeAnchorObserved = false;
-    let fullVideoResumeAnchorTime = null;
+    let fullVideoResumeVideoVerified = false;
+    let fullVideoResumePositionObserved = false;
+    let fullVideoResumeObservedTime = null;
     let fullVideoResumePlayRequested = false;
     let fullVideoResumeMoveAwaitingConfirmation = false;
     let fullVideoResumeMoveAttempts = 0;
@@ -1670,7 +1671,6 @@
         || !fullVideoOrigin.restoreQuery) {
       fullVideoMode = false;
     }
-    fullVideoResumeAnchorTime = fullVideoMode ? fullVideoOrigin.restoreAnchorTime : null;
     let fullVideoResumePending = fullVideoMode
       && Number.isFinite(fullVideoOrigin.resumeTime)
       && fullVideoOrigin.resumeTime > 0;
@@ -3963,8 +3963,9 @@
       };
       fullVideoMode = true;
       fullVideoResumePending = false;
-      fullVideoResumeAnchorObserved = false;
-      fullVideoResumeAnchorTime = null;
+      fullVideoResumeVideoVerified = false;
+      fullVideoResumePositionObserved = false;
+      fullVideoResumeObservedTime = null;
       fullVideoResumePlayRequested = false;
       fullVideoResumeMoveAwaitingConfirmation = false;
       fullVideoResumeMoveAttempts = 0;
@@ -4043,17 +4044,18 @@
 
     function clearFullVideoResume() {
       fullVideoResumePending = false;
+      fullVideoResumeVideoVerified = false;
       fullVideoResumePlayRequested = false;
       fullVideoResumeMoveAwaitingConfirmation = false;
       fullVideoResumeMoveAttempts = 0;
       el.fullVideoRestoreStatus.hidden = true;
     }
 
-    function observeFullVideoResumeAnchor(currentTime) {
-      fullVideoResumeAnchorObserved = true;
+    function observeFullVideoResumePosition(currentTime) {
+      fullVideoResumePositionObserved = true;
       const observedTime = finiteCaptionTime(currentTime);
       if (observedTime !== null) {
-        fullVideoResumeAnchorTime = observedTime;
+        fullVideoResumeObservedTime = observedTime;
         fullVideoResumeMoveAwaitingConfirmation = false;
       }
     }
@@ -4105,14 +4107,18 @@
 
     function advanceFullVideoResume(currentTime, captionObserved = false) {
       if (!fullVideoMode || !fullVideoResumePending) return false;
-      if (captionObserved) observeFullVideoResumeAnchor(currentTime);
-      if (!fullVideoResumeAnchorObserved) return true;
-      if (fullVideoResumeAnchorTime === null) {
+      if (!fullVideoResumeVideoVerified) return true;
+      if (captionObserved) observeFullVideoResumePosition(currentTime);
+      if (!fullVideoResumePositionObserved) {
+        if (!youglishPlayerReady || !widget || playerState === 1) return true;
+        return requestFullVideoResumePlayback();
+      }
+      if (fullVideoResumeObservedTime === null) {
         if (!youglishPlayerReady || !widget || playerState === 1) return true;
         return requestFullVideoResumePlayback();
       }
       const delta = youglishVideoRestore
-        ? youglishVideoRestore.resumeDelta(fullVideoOrigin.resumeTime, fullVideoResumeAnchorTime)
+        ? youglishVideoRestore.resumeDelta(fullVideoOrigin.resumeTime, fullVideoResumeObservedTime)
         : null;
       if (delta === null) {
         completeFullVideoRestore();
@@ -4331,6 +4337,7 @@
         showWidgetError("YouGlish could not restore the saved video.");
         return;
       }
+      if (fullVideoMode) fullVideoResumeVideoVerified = true;
       recordCaptionTrace("widget.video", {
         from: captionTraceToken(captionTraceVideoTokens, previousVideoId, "video"),
         to: captionTraceToken(captionTraceVideoTokens, nextVideoId, "video"),
@@ -4353,10 +4360,7 @@
       hideTranslation();
       const n = Number(event.trackNumber);
       if (fullVideoResumePending) {
-        if (fullVideoResumeAnchorTime !== null) {
-          fullVideoResumeAnchorObserved = true;
-          advanceFullVideoResume();
-        }
+        advanceFullVideoResume();
         showFullVideoRestoreStatus();
       } else if (Number.isFinite(n)) {
         const existing = el.status.textContent;
@@ -4794,8 +4798,9 @@
         fullVideoMode = true;
         fullVideoResumePending = Number.isFinite(fullVideoOrigin.resumeTime)
           && fullVideoOrigin.resumeTime > 0;
-        fullVideoResumeAnchorObserved = false;
-        fullVideoResumeAnchorTime = fullVideoOrigin.restoreAnchorTime;
+        fullVideoResumeVideoVerified = false;
+        fullVideoResumePositionObserved = false;
+        fullVideoResumeObservedTime = null;
         fullVideoResumePlayRequested = false;
         fullVideoResumeMoveAwaitingConfirmation = false;
         fullVideoResumeMoveAttempts = 0;

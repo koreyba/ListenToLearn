@@ -454,11 +454,11 @@ test("cold Full Video plays past an untimed anchor and resumes from the next tim
   assertDeltas(trainer.widgetCalls.move, [1.5519080800729]);
 });
 
-test("cold Full Video moves from a saved restore anchor before any caption callback", async t => {
+test("cold Full Video waits for actual provider time instead of making an intermediate jump", async t => {
   const trainer = await createTrainer({
     autoPlayerReady: false,
     requireReadyAndPlayingForMove: true,
-    url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&restoreAnchorTime=100&resumeTime=400&language=english&accent=uk",
+    url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&restoreAnchorTime=2400&resumeTime=2580&language=english&accent=uk",
   });
   t.after(trainer.close);
 
@@ -470,7 +470,39 @@ test("cold Full Video moves from a saved restore anchor before any caption callb
 
   trainer.events.onPlayerStateChange({ state: 1 });
 
-  assertDeltas(trainer.widgetCalls.move, [300]);
+  assertDeltas(trainer.widgetCalls.move, []);
+
+  trainer.events.onCaptionChange(caption(
+    "actual-provider-position",
+    1020,
+    "YouGlish opened another occurrence at 17:00.",
+    "w66ecIT-Xkk",
+  ));
+
+  assertDeltas(trainer.widgetCalls.move, [1560]);
+
+  trainer.events.onCaptionChange(caption(
+    "saved-position",
+    2580,
+    "The saved position is confirmed at 43:00.",
+    "w66ecIT-Xkk",
+  ));
+
+  assertDeltas(trainer.widgetCalls.move, [1560]);
+});
+
+test("cold Full Video waits for the expected video before requesting playback", async t => {
+  const trainer = await createTrainer({
+    url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&restoreAnchorTime=2400&resumeTime=2580&language=english&accent=uk",
+  });
+  t.after(trainer.close);
+
+  assert.equal(trainer.widgetCalls.play, 0);
+
+  trainer.events.onVideoChange({ trackNumber: 0, video: "w66ecIT-Xkk" });
+
+  assert.equal(trainer.widgetCalls.play, 1);
+  assertDeltas(trainer.widgetCalls.move, []);
 });
 
 test("cold Full Video restore rejects a provider result for another video", async t => {

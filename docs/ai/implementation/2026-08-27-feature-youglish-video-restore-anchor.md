@@ -75,17 +75,18 @@ US/UK accent (or omits accent for All). `resumeCaption` remains progress metadat
 and is never a search key. The existing `onVideoChange` expected-ID guard remains.
 
 Once `onVideoChange` verifies the saved video, the trainer retains the pending
-request until the embedded player reports `onPlayerReady` and `PLAYING`. On the
-first `PLAYING`, it immediately calls
-`widget.move(resumeTime - restoreAnchorTime)`; it does not wait for the cold
-matched caption's missing `current_time`. It still does not treat the returned
-fire-and-forget call as success. A later timed caption reaching the target within
-one second completes restore and keeps playback running; a still-distant
-timestamp recalculates the delta and permits another movement. Only a new timed
-caption can unlock a correction, and one cold restore is capped at three moves.
-A negligible delta completes at the observed caption without another search;
-exhausted retries keep playback usable and display a resume error without
-overwriting the known-good saved target.
+request until the embedded player reports `onPlayerReady` and `PLAYING`, then
+requests playback without moving from an assumed position. An earlier
+`onPlayerReady` cannot start an unverified provider result. The first finite cold
+`onCaptionChange.current_time` supplies the factual base for
+`widget.move(resumeTime - currentTime)`. This prevents the persisted discovery
+anchor from producing an intermediate jump when YouGlish reopens the same video
+at another occurrence. The returned fire-and-forget call is still not treated as
+success. A later timed caption reaching the target within one second completes
+restore and keeps playback running; a still-distant timestamp permits another
+bounded movement. A negligible delta completes at the observed caption without
+another search; exhausted retries keep playback usable and display a resume
+error without overwriting the known-good saved target.
 
 Earlier preview revisions, now superseded by the persisted discovery anchor,
 called `move` directly from the first caption
@@ -108,6 +109,12 @@ resume request before any move path could run. A local provider run reproduced
 `null`, then `468.924`, issued bounded deltas toward saved `470.574`, confirmed
 `470.810`, and paused. That evidence motivated measuring the same phrase anchor
 during discovery instead of waiting to rediscover it on every cold open.
+
+The later `17:00 -> 20:00 -> 43:00` retest invalidated that optimization: a
+persisted phrase anchor identifies the discovery occurrence, not the widget's
+current cold position. The speculative first move is now removed. Playback
+continues until a finite cold timestamp arrives, then one movement is calculated
+from the provider's factual position.
 
 Transient `BUFFERING`/pause callbacks during controlled startup do not persist
 the anchor timestamp. Progress writes remain suspended until the target caption
@@ -140,7 +147,7 @@ cached locator.
 - Invalid/missing locator or anchor records are rejected on write and absent on read.
 - Marker absence keeps Continue unavailable rather than inventing a query.
 - Provider timing is never fabricated: discovery waits to measure an anchor,
-  while cold restore consumes the persisted value without another timing wait.
+  while cold restore waits for a factual timestamp before relative movement.
 - Pending resume is visible and accessible without making an unconfirmed
   provider movement look complete.
 - Restoring feedback does not capture pointer input or remove access to the
@@ -167,8 +174,11 @@ cached locator.
   caption; GREEN retains the original locator and warm transition.
 - Anchor persistence RED failed URL, guest, API and schema contracts; GREEN
   requires the measured value through every new-record boundary.
-- Caption-independent restore RED emitted `play = 0` without a cold caption;
-  GREEN verifies the expected video and issues `move(300)` on first `PLAYING`.
+- Factual-position restore RED observed one speculative movement before any cold
+  timestamp; GREEN emits no move on first `PLAYING` and one movement after the
+  first finite `current_time`.
+- Event-order RED observed `play = 1` when `onPlayerReady` preceded
+  `onVideoChange`; GREEN keeps `play = 0` until the expected video is verified.
 - Real-state measurement RED stored `105` instead of `100` after an ended prior
   video; GREEN starts the clock after the `PLAYING` state is applied.
 - Latest focused integration run: 143/143 passed.
@@ -212,14 +222,15 @@ cached locator.
   allowlist; `npm ls --depth=0` reports a valid dependency tree.
 - The migration is additive and reproducible: a second `npm run db:generate`
   reports no schema changes.
-- The real widget sent the initial `move(300)` on first `PLAYING`, before its
-  first timed cold caption, then used caption feedback only to correct and
-  confirm the target.
+- The intermediate-jump contract models a saved `40:00` discovery anchor, a
+  factual `17:00` cold start and a `43:00` target. It proves zero movement before
+  factual timing and exactly one `+26:00` movement afterward.
 - Warm entry, confirmed cold restore and a cold open without saved progress have
   RED/GREEN contracts proving that Full Video emits no automatic pause.
-- Final verification passes 253/253 repository tests and 116/116 focused
-  caption/rendered tests; TypeScript, lifecycle lint, dependency validation and
-  diff checks pass, with zero ESLint errors and two existing generated warnings.
+- Latest final verification passes 254/254 repository tests and 120/120 focused
+  caption/rendered/persistence tests; TypeScript, lifecycle lint, dependency
+  validation and diff checks pass, with zero ESLint errors and two existing
+  generated warnings.
 - Rollback cannot recover old data and does not attempt to; this matches the
   accepted scope and is documented explicitly.
 

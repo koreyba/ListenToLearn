@@ -1,0 +1,1 @@
+ALTER TABLE `saved_videos` ADD `restore_query` text DEFAULT '' NOT NULL;

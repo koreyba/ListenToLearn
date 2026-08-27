@@ -210,6 +210,7 @@ test("video history stores account videos independently from phrase examples", a
 
   assert.match(schema, /export const savedVideos/);
   assert.match(schema, /youtubeVideoId: text\("youtube_video_id"\)/);
+  assert.match(schema, /restoreQuery: text\("restore_query"\)/);
   assert.match(schema, /language: text\("language"\)/);
   assert.match(schema, /accent: text\("accent"\)/);
   assert.match(schema, /uniqueIndex\("idx_saved_videos_user_youtube"\)/);
@@ -229,7 +230,7 @@ test("video history API validates ids and scopes every mutation to the current u
 
   assert.match(route, /getCurrentUser\(request\)/);
   assert.match(route, /isYouTubeVideoId\(videoId\)/);
-  assert.match(route, /!originQuery/);
+  assert.match(route, /!originQuery \|\| !restoreQuery/);
   assert.match(route, /language === "english"/);
   assert.match(route, /accent === "us" \|\| accent === "uk"/);
   assert.match(route, /ON CONFLICT\(user_id, youtube_video_id\) DO UPDATE/);
@@ -252,6 +253,7 @@ test("legacy owner migration carries saved videos into the authenticated account
   );
 
   assert.match(auth, /INSERT OR IGNORE INTO saved_videos/);
+  assert.match(auth, /origin_query, restore_query, origin_caption/);
   assert.match(auth, /current\.youtube_video_id = legacy\.youtube_video_id/);
   assert.match(auth, /DELETE FROM saved_videos WHERE user_id = \?/);
 });
@@ -285,6 +287,8 @@ test("Full Video Mode keeps learning controls and removes result-only controls",
 
   assert.match(trainer, /full-video-mode/);
   assert.match(trainer, /fullVideoMode/);
+  assert.match(trainer, /<script src="\/youglish-video-restore\.js"><\/script>/);
+  assert.match(trainer, /fullVideoOrigin\.restoreQuery/);
   assert.match(trainer, /resumeCaption/);
   assert.match(trainer, /MAX_OBSERVED_CAPTIONS = 200/);
   assert.match(trainer, /result\.history\.slice\(-MAX_OBSERVED_CAPTIONS\)/);
@@ -307,7 +311,8 @@ test("Full Video Mode keeps learning controls and removes result-only controls",
   const listenTransition = trainer.match(/function listenToText\(text\) \{([\s\S]*?)\n    \}\n\n    async function addTextToLearn/)?.[1] || "";
   assert.match(listenTransition, /persistFullVideoProgress\(\{ flush: true \}\)/);
   assert.match(listenTransition, /history\.pushState\(\{ listenFromFullVideo: true \}/);
-  assert.match(trainer, /window\.addEventListener\("popstate"[\s\S]*?fetchPhrase\(fullVideoOrigin\.resumeCaption/);
+  assert.match(trainer, /window\.addEventListener\("popstate"[\s\S]*?fetchPhrase\(fullVideoOrigin\.originalQuery/);
+  assert.doesNotMatch(trainer, /const restoreQuery = fullVideoOrigin\.resumeCaption/);
   assert.match(trainer, /event\.state && event\.state\.listenFromFullVideo[\s\S]*?fetchPhrase\(VIEWER_PHRASE, true\)/);
 });
 
@@ -676,7 +681,8 @@ test("mobile example controls align to two columns and collapse Tatoeba actions"
   );
   assert.match(trainer, /\.example-actions:has\(\.media-full-video-btn\[hidden\]\) \{ grid-template-columns: minmax\(0, 1fr\); \}/);
   assert.match(trainer, /const validYouTubeVideo = isYouGlish && \/\^\[A-Za-z0-9_-\]\{11\}\$\//);
-  assert.match(trainer, /el\.watchFullVideoBtn\.hidden = fullVideoMode \|\| !validYouTubeVideo;/);
+  assert.match(trainer, /const canRestoreFullVideo = validYouTubeVideo && Boolean\(currentYouglishRestoreQuery\);/);
+  assert.match(trainer, /el\.watchFullVideoBtn\.hidden = fullVideoMode \|\| !canRestoreFullVideo;/);
 });
 
 test("saved example button names the remove action", async () => {

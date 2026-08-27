@@ -1423,6 +1423,7 @@
   </main>
 
   <script src="/caption-navigation.js"></script>
+  <script src="/youglish-video-restore.js"></script>
   <script src="/video-progress-sync.js"></script>
   <script>
     "use strict";
@@ -1540,6 +1541,7 @@
     let tatoebaRequest = 0;
     let tatoebaAbortController = null;
     let currentYouglishVideoId = "";
+    let currentYouglishRestoreQuery = "";
     let savedExamples = [];
     let savedExampleIndex = 0;
     let isAuthenticated = false;
@@ -1549,6 +1551,7 @@
     let savedExampleSequenceKey = "";
     let savedExampleSequence = [];
     const captionNavigation = window.UnmumbleCaptionNavigation || null;
+    const youglishVideoRestore = window.UnmumbleYouglishVideoRestore || null;
     let captionHistory = [];
     let captionHistoryIndex = -1;
     const captionVideoStates = new Map();
@@ -1589,6 +1592,7 @@
       videoId: (initialViewerParams.get("video") || "").trim(),
       originPhraseId: (initialViewerParams.get("phraseId") || "").trim().slice(0, 120),
       originalQuery: (initialViewerParams.get("query") || "").trim().replace(/\s+/g, " ").slice(0, 240),
+      restoreQuery: (initialViewerParams.get("restoreQuery") || "").trim().replace(/\s+/g, " ").slice(0, 240),
       originCaption: (initialViewerParams.get("caption") || "").trim().replace(/\s+/g, " ").slice(0, 1000),
       resumeCaptionId: (initialViewerParams.get("resumeCaptionId") || "").trim().slice(0, 160),
       resumeCaption: (initialViewerParams.get("resumeCaption") || "").trim().replace(/\s+/g, " ").slice(0, 1000),
@@ -1596,9 +1600,14 @@
       language: (initialViewerParams.get("language") || "english").trim().toLowerCase().slice(0, 20),
       accent: (initialViewerParams.get("accent") || "").trim().toLowerCase().slice(0, 20)
     };
-    if (!/^[A-Za-z0-9_-]{11}$/.test(fullVideoOrigin.videoId) || !fullVideoOrigin.originalQuery) {
+    if (!/^[A-Za-z0-9_-]{11}$/.test(fullVideoOrigin.videoId)
+        || !fullVideoOrigin.originalQuery
+        || !fullVideoOrigin.restoreQuery) {
       fullVideoMode = false;
     }
+    let fullVideoResumePending = fullVideoMode
+      && Number.isFinite(fullVideoOrigin.resumeTime)
+      && fullVideoOrigin.resumeTime > 0;
     if (!fullVideoMode && !initialViewerParams.get("phrase")?.trim()) {
       window.location.replace("/practice");
     }
@@ -1906,13 +1915,20 @@
               if (!item || typeof item !== "object") return [];
               const id = guestText(item.id, 160);
               const videoId = guestText(item.videoId, 20);
-              if (!id || !/^[A-Za-z0-9_-]{11}$/.test(videoId)) return [];
+              const originQuery = guestText(item.originQuery, 240);
+              const restoreQuery = guestText(item.restoreQuery, 240);
+              if (!id || !/^[A-Za-z0-9_-]{11}$/.test(videoId) || !originQuery || !restoreQuery) return [];
               return [{
                 id,
                 videoId,
                 originPhraseId: guestText(item.originPhraseId, 120),
-                originQuery: guestText(item.originQuery, 240),
+                originQuery,
+                restoreQuery,
                 originCaption: guestText(item.originCaption, 1_000),
+                language: "english",
+                accent: ["us", "uk"].includes(guestText(item.accent, 20).toLowerCase())
+                  ? guestText(item.accent, 20).toLowerCase()
+                  : "",
                 createdAt: guestTimestamp(item.createdAt),
                 updatedAt: guestTimestamp(item.updatedAt)
               }];
@@ -2068,15 +2084,22 @@
 
     function saveGuestVideo(input) {
       const videoId = guestText(input.videoId, 20);
-      if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return null;
+      const originQuery = guestText(input.originQuery, 240);
+      const restoreQuery = guestText(input.restoreQuery, 240);
+      if (!/^[A-Za-z0-9_-]{11}$/.test(videoId) || !originQuery || !restoreQuery) return null;
       const timestamp = new Date().toISOString();
       const existing = guestLibrary.savedVideos.find((video) => video.videoId === videoId);
       const video = {
         id: existing ? existing.id : guestId("guest-video"),
         videoId,
         originPhraseId: guestText(input.originPhraseId, 120) || (existing ? existing.originPhraseId : ""),
-        originQuery: guestText(input.originQuery, 240) || (existing ? existing.originQuery : ""),
+        originQuery,
+        restoreQuery,
         originCaption: guestText(input.originCaption, 1_000) || (existing ? existing.originCaption : ""),
+        language: "english",
+        accent: ["us", "uk"].includes(guestText(input.accent, 20).toLowerCase())
+          ? guestText(input.accent, 20).toLowerCase()
+          : "",
         createdAt: existing ? existing.createdAt : timestamp,
         updatedAt: timestamp
       };
@@ -2363,8 +2386,9 @@
 
       const isYouGlish = state.source === "youglish";
       const validYouTubeVideo = isYouGlish && /^[A-Za-z0-9_-]{11}$/.test(currentYouglishVideoId);
-      el.watchFullVideoBtn.hidden = fullVideoMode || !validYouTubeVideo;
-      el.watchFullVideoBtn.disabled = !validYouTubeVideo;
+      const canRestoreFullVideo = validYouTubeVideo && Boolean(currentYouglishRestoreQuery);
+      el.watchFullVideoBtn.hidden = fullVideoMode || !canRestoreFullVideo;
+      el.watchFullVideoBtn.disabled = !canRestoreFullVideo;
 
       if (!learningPhrase && !el.exampleMessage.textContent) {
         showExampleMessage("To save examples, first add the phrase to To Learn.");
@@ -3121,7 +3145,11 @@
         : `Finding random examples: “${displayQuery}” · accent: ${accentLabel()}…`;
 
       try {
-        if (state.accent) widget.fetch(query, "english", state.accent);
+        const requestedAccent = fullVideoMode ? fullVideoOrigin.accent : state.accent;
+        const fetchAccent = requestedAccent === "us" || requestedAccent === "uk"
+          ? requestedAccent
+          : "";
+        if (fetchAccent) widget.fetch(query, "english", fetchAccent);
         else widget.fetch(query, "english");
         youglishHasFetched = true;
       } catch (err) {
@@ -3168,6 +3196,7 @@
       currentQueryOverride = fullVideoMode ? fullVideoOrigin.originalQuery : (isOverride ? query : null);
       currentCaptionRaw = "";
       currentCaptionText = "";
+      currentYouglishRestoreQuery = "";
       currentYouglishVideoId = fullVideoMode ? fullVideoOrigin.videoId : "";
       resetCaptionHistory();
       renderCaption("");
@@ -3176,10 +3205,9 @@
       renderExampleTools();
 
       if (fullVideoMode) {
-        const restoreQuery = fullVideoOrigin.resumeCaption || fullVideoOrigin.originalQuery;
         fetchYouglish(
-          `${restoreQuery} #${fullVideoOrigin.videoId}`,
-          restoreQuery,
+          `${fullVideoOrigin.restoreQuery} #${fullVideoOrigin.videoId}`,
+          fullVideoOrigin.restoreQuery,
           "saved full video"
         );
         return;
@@ -3695,6 +3723,7 @@
             videoId: fullVideoOrigin.videoId,
             originPhraseId: fullVideoOrigin.originPhraseId,
             originQuery: fullVideoOrigin.originalQuery,
+            restoreQuery: fullVideoOrigin.restoreQuery,
             originCaption: fullVideoOrigin.originCaption,
             language: fullVideoOrigin.language || "english",
             accent: fullVideoOrigin.accent || ""
@@ -3713,6 +3742,7 @@
         fullVideo: "1",
         video: origin.videoId,
         query: origin.originalQuery,
+        restoreQuery: origin.restoreQuery,
         language: origin.language || "english"
       });
       if (origin.originPhraseId) query.set("phraseId", origin.originPhraseId);
@@ -3743,6 +3773,7 @@
         videoId: currentYouglishVideoId,
         originPhraseId: VIEWER_PHRASE_ID || "",
         originQuery: currentQueryOverride || VIEWER_PHRASE,
+        restoreQuery: currentYouglishRestoreQuery,
         originCaption: currentCaptionText,
         language: "english",
         accent: state.accent
@@ -3775,7 +3806,10 @@
 
     function watchCurrentFullVideo() {
       const origin = currentVideoOrigin();
-      if (state.source !== "youglish" || !/^[A-Za-z0-9_-]{11}$/.test(origin.videoId) || !origin.originQuery) return;
+      if (state.source !== "youglish"
+          || !/^[A-Za-z0-9_-]{11}$/.test(origin.videoId)
+          || !origin.originQuery
+          || !origin.restoreQuery) return;
       const current = currentCaptionEntry();
       const progress = writeFullVideoProgress(
         origin.videoId,
@@ -3792,6 +3826,7 @@
         videoId: origin.videoId,
         originPhraseId: origin.originPhraseId,
         originalQuery: origin.originQuery,
+        restoreQuery: origin.restoreQuery,
         originCaption: origin.originCaption,
         resumeCaptionId: currentCaptionEntry() ? currentCaptionEntry().id : "",
         resumeCaption: currentCaptionText,
@@ -3800,6 +3835,7 @@
         accent: origin.accent
       };
       fullVideoMode = true;
+      fullVideoResumePending = false;
       fullVideoRestoreShouldPause = false;
       history.pushState({ fullVideo: true }, "", fullVideoUrl(fullVideoOrigin, readFullVideoProgress(origin.videoId)));
       applyFullVideoMode();
@@ -3858,6 +3894,22 @@
       return `auto-caption-${captionEntrySequence}`;
     }
 
+    function moveToFullVideoResume(currentTime) {
+      if (!fullVideoMode || !fullVideoResumePending) return false;
+      fullVideoResumePending = false;
+      const delta = youglishVideoRestore
+        ? youglishVideoRestore.resumeDelta(fullVideoOrigin.resumeTime, currentTime)
+        : null;
+      if (delta === null || !widget || typeof widget.move !== "function") return false;
+      try {
+        widget.move(delta);
+        return true;
+      } catch (error) {
+        console.error(error);
+        return false;
+      }
+    }
+
     function onCaptionChange(event) {
       if (state.source !== "youglish") return;
       const eventVideoId = String(event && event.video || "").trim();
@@ -3865,6 +3917,12 @@
       if (eventVideoId && !currentYouglishVideoId) activateCaptionVideo(eventVideoId);
       const nextCaptionRaw = decodeCaption(event && event.caption);
       const nextCaptionText = cleanCaptionText(nextCaptionRaw);
+      const matchedRestoreQuery = youglishVideoRestore
+        ? youglishVideoRestore.extractRestoreQuery(nextCaptionRaw)
+        : "";
+      if (matchedRestoreQuery && !currentYouglishRestoreQuery) {
+        currentYouglishRestoreQuery = matchedRestoreQuery;
+      }
       const currentTime = finiteCaptionTime(event && event.current_time);
       const captionId = resolveCaptionId(event, nextCaptionText, currentTime);
       const tracedCaption = captionTraceToken(captionTraceCaptionTokens, captionId, "caption");
@@ -3962,7 +4020,9 @@
       renderCaption(currentCaptionRaw);
       hideTranslation();
       renderCaptionNavigation();
-      if (fullVideoMode) {
+      if (!fullVideoMode) renderExampleTools();
+      const resumeMoveRequested = moveToFullVideoResume(currentTime);
+      if (fullVideoMode && !resumeMoveRequested) {
         persistFullVideoProgress();
         if (fullVideoRestoreShouldPause && widgetReady && widget && typeof widget.pause === "function") {
           try { widget.pause(); } catch (_) {}
@@ -4055,6 +4115,7 @@
       });
       activateCaptionVideo(nextVideoId);
       if (previousVideoId && previousVideoId !== nextVideoId) {
+        currentYouglishRestoreQuery = "";
         controlledCaptionTargetId = "";
         controlledCaptionRestorePaused = false;
         clearReplayPending();
@@ -4486,6 +4547,7 @@
           videoId: cleanFullVideoText(params.get("video"), 20),
           originPhraseId: cleanFullVideoText(params.get("phraseId"), 120),
           originalQuery: cleanFullVideoText(params.get("query"), 240),
+          restoreQuery: cleanFullVideoText(params.get("restoreQuery"), 240),
           originCaption: cleanFullVideoText(params.get("caption"), 1000),
           resumeCaptionId: cleanFullVideoText(params.get("resumeCaptionId"), 160),
           resumeCaption: cleanFullVideoText(params.get("resumeCaption"), 1000),
@@ -4493,12 +4555,16 @@
           language: cleanFullVideoText(params.get("language"), 20) || "english",
           accent: cleanFullVideoText(params.get("accent"), 20)
         };
-        if (!/^[A-Za-z0-9_-]{11}$/.test(fullVideoOrigin.videoId) || !fullVideoOrigin.originalQuery) return;
+        if (!/^[A-Za-z0-9_-]{11}$/.test(fullVideoOrigin.videoId)
+            || !fullVideoOrigin.originalQuery
+            || !fullVideoOrigin.restoreQuery) return;
         fullVideoMode = true;
+        fullVideoResumePending = Number.isFinite(fullVideoOrigin.resumeTime)
+          && fullVideoOrigin.resumeTime > 0;
         fullVideoRestoreShouldPause = true;
         state.source = "youglish";
         applyFullVideoMode();
-        fetchPhrase(fullVideoOrigin.resumeCaption || fullVideoOrigin.originalQuery, true);
+        fetchPhrase(fullVideoOrigin.originalQuery, true);
         return;
       }
 

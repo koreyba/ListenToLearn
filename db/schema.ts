@@ -95,6 +95,7 @@ export const savedVideos = sqliteTable("saved_videos", {
   youtubeVideoId: text("youtube_video_id").notNull(),
   originPhraseId: text("origin_phrase_id").references(() => phrases.id, { onDelete: "set null" }),
   originQuery: text("origin_query").notNull().default(""),
+  restoreQuery: text("restore_query").notNull().default(""),
   originCaption: text("origin_caption").notNull().default(""),
   language: text("language").notNull().default("english"),
   accent: text("accent").notNull().default(""),

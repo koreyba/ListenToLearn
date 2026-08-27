@@ -71,11 +71,12 @@ function openLegacyDirectLink(progress: Record<string, YouTubeProgressEntry>) {
     videoId: requestedVideo,
     originPhraseId: (searchParams.get("phraseId") || "").slice(0, 120),
     originQuery: (searchParams.get("query") || "").slice(0, 240),
+    restoreQuery: (searchParams.get("restoreQuery") || "").slice(0, 240),
     originCaption: (searchParams.get("caption") || "").slice(0, 1_000),
     language: "english",
     accent: (searchParams.get("accent") || "").slice(0, 20),
   };
-  if (!isYouTubeVideoId(requestedVideo) || !directOrigin.originQuery) return;
+  if (!isYouTubeVideoId(requestedVideo) || !directOrigin.originQuery || !directOrigin.restoreQuery) return;
   const resume = readYouTubeResume({ version: 1, videos: progress }, requestedVideo);
   const fullVideoUrl = buildFullVideoTrainerUrl(directOrigin, resume);
   if (fullVideoUrl) window.location.replace(fullVideoUrl);

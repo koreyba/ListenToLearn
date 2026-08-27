@@ -2,6 +2,7 @@ export type FullVideoOrigin = {
   videoId: string;
   originPhraseId?: string;
   originQuery: string;
+  restoreQuery: string;
   originCaption?: string;
   language?: string;
   accent?: string;
@@ -43,12 +44,14 @@ export function buildFullVideoTrainerUrl(
 ) {
   const videoId = cleanText(origin.videoId, 20);
   const originalQuery = cleanText(origin.originQuery, 240);
-  if (!isYouTubeVideoId(videoId) || !originalQuery) return "";
+  const restoreQuery = cleanText(origin.restoreQuery, 240);
+  if (!isYouTubeVideoId(videoId) || !originalQuery || !restoreQuery) return "";
 
   const url = new URL("/trainer", baseUrl);
   url.searchParams.set("fullVideo", "1");
   url.searchParams.set("video", videoId);
   url.searchParams.set("query", originalQuery);
+  url.searchParams.set("restoreQuery", restoreQuery);
   const phraseId = cleanText(origin.originPhraseId, 120);
   const originCaption = cleanText(origin.originCaption, 1_000);
   const language = cleanText(origin.language, 20).toLocaleLowerCase("en") || "english";

@@ -25,6 +25,7 @@ test("trainer derives account mode from the optional session and never sends gue
   assert.match(trainer, /Sign in with Google/);
   assert.match(trainer, /localStorage/);
   assert.match(trainer, /video-progress-sync\.js/);
+  assert.match(trainer, /youglish-video-restore\.js/);
   assert.match(trainer, /accountVideoProgressSync/);
 
   assert.doesNotMatch(trainer, /listen-to-learn-authenticated-v1/);

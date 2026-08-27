@@ -1,0 +1,120 @@
+---
+phase: planning
+title: Stable YouGlish Saved-Video Restore Plan
+description: Ordered TDD, persistence, trainer integration, verification and PR delivery tasks
+---
+
+# Stable YouGlish Saved-Video Restore Plan
+
+## Milestones
+
+- [x] Milestone 1: Capture RED contracts for the stable locator and cold restore.
+- [x] Milestone 2: Implement and integrate the new-format saved-video contract.
+- [ ] Milestone 3: Complete full verification, review, documentation and PR.
+
+## Task Breakdown
+
+### Phase 1: RED contracts
+
+- [x] T1: Add pure helper tests for extracting marked YouGlish match text and
+  calculating a bounded relative resume delta.
+  - Outcome: provider marker and timing assumptions are executable.
+  - Depends on: approved requirements/design.
+  - Validation: focused test fails because the helper does not exist.
+  - Scenarios: extraction, multiple markers, missing markers, missing/invalid time.
+- [x] T2: Update URL, guest, schema/migration and API contract tests for required
+  `restoreQuery`.
+  - Outcome: every persistence boundary rejects or drops old-format records.
+  - Depends on: T1 only for shared naming.
+  - Validation: focused tests fail on missing types, fields, validation and SQL.
+  - Scenarios: URL independence from resume caption, guest round-trip/upsert/drop,
+    account round-trip/filter/migration.
+- [x] T3: Add JSDOM fake-widget tests for cold fetch, saved accent, expected
+  video, one-time resume movement and no-timing fallback.
+  - Outcome: the reported browser failure is reproduced at the provider boundary.
+  - Depends on: current trainer harness.
+  - Validation: test observes the current resume-caption fetch and wrong accent.
+
+### Phase 2: Persistence and pure helpers
+
+- [x] T4: Implement `public/youglish-video-restore.js` and load it before the
+  trainer controller.
+  - Outcome: marker extraction and resume math are pure, bounded and reusable.
+  - Depends on: T1.
+  - Validation: T1 turns green.
+- [x] T5: Add `restoreQuery` to shared TypeScript URL/guest types, normalization,
+  save/upsert, Videos direct-link parsing and URL construction.
+  - Outcome: browser-local new records and navigation require the stable locator.
+  - Depends on: T2.
+  - Validation: URL and guest contracts turn green; old guest fixture is dropped.
+- [x] T6: Add `restore_query` to the schema, generated append-only migration,
+  API select/write/upsert/filter, and legacy-owner row copy.
+  - Outcome: account records round-trip the new locator without backfill.
+  - Depends on: T2.
+  - Validation: schema/migration/API contracts turn green.
+
+### Phase 3: Trainer integration
+
+- [x] T7: Capture marker-derived `restoreQuery` in the active video origin and
+  require it before showing/handling `Continue in video`.
+  - Outcome: only restorable new video records are created.
+  - Depends on: T4 and T5.
+  - Validation: warm-transition/rendered persistence contracts pass.
+- [x] T8: Thread `restoreQuery` through warm Full Video state, URLs, account
+  progress sync, guest storage normalization and `popstate`.
+  - Outcome: all entry and resume paths share one new-format contract.
+  - Depends on: T5-T7.
+  - Validation: rendered HTML and persistence contracts pass.
+- [x] T9: Change cold fetch to `restoreQuery #videoId` with the saved accent,
+  retain expected-video verification, and perform at most one relative resume.
+  - Outcome: cold reopen selects the correct video independently from progress.
+  - Depends on: T4, T7 and T8.
+  - Validation: T3 turns green, including missing-timestamp fallback.
+
+### Phase 4: Verification and delivery
+
+- [x] T10: Run focused tests, full build/test suites, TypeScript, ESLint,
+  migration/lifecycle lint and diff checks; update testing evidence.
+- [x] T11: Reconcile planning and implementation docs, perform lifecycle review,
+  and fix any blocking design, behavior, security or integration finding.
+- [ ] T12: Prepare a scoped conventional commit, push the feature branch and open
+  a pull request. Do not merge or deploy.
+
+## Dependencies and Sequencing
+
+- RED tests must be captured before production changes.
+- The helper and persistence contracts can be implemented independently, but the
+  trainer integration requires both.
+- Schema generation follows the schema edit and must remain append-only.
+- Full review starts only after all tests are green and docs reflect actual code.
+- Live YouGlish availability is not required for deterministic automated proof;
+  the implementation relies on the already researched official widget contract.
+
+## Risks & Mitigation
+
+- **Provider markers absent:** keep Continue hidden until a non-empty marked match
+  arrives; never persist an invented locator.
+- **Undocumented timestamp missing:** skip resume movement and open at the stable
+  anchor.
+- **Callback loop after move:** clear the one-shot pending flag before invoking
+  `widget.move`.
+- **Wrong provider result:** preserve the expected-video check and error state.
+- **Legacy rows resurfacing:** require the field on writes and filter/drop empty
+  values on both account and guest reads.
+- **Schema rollout ordering:** use a non-null empty default and no data backfill.
+
+## Scope and Resources
+
+- Existing Node test runner, JSDOM fake widget, TypeScript, Drizzle and AI DevKit
+  checks are sufficient.
+- No new package, provider, Worker binding, secret, deployment or production data
+  operation is needed.
+- The authorized deliverable is a pull request; merge and deployment remain out
+  of scope.
+
+## Progress Summary
+
+T1-T11 are complete. A design-alignment pass added one required edge case: the
+first provider-marked locator is cached for the active video so later unmarked
+captions cannot hide Continue or change the saved identity. T12 PR delivery is
+next; no blocker or unresolved scope item remains.

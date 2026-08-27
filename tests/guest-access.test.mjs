@@ -29,6 +29,7 @@ test("guest allowlist exposes only UI, static assets and read-only Tatoeba", () 
     "/api/session",
     "/api/catalog",
     "/caption-navigation.js",
+    "/youglish-video-restore.js",
     "/video-progress-sync.js",
     "/favicon.svg",
     "/_next/static/chunk.js",

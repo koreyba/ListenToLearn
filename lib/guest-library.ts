@@ -40,6 +40,7 @@ export type GuestSavedVideo = {
   videoId: string;
   originPhraseId: string;
   originQuery: string;
+  restoreQuery: string;
   originCaption: string;
   language: string;
   accent: string;
@@ -75,6 +76,7 @@ export type GuestVideoInput = {
   videoId?: unknown;
   originPhraseId?: unknown;
   originQuery?: unknown;
+  restoreQuery?: unknown;
   originCaption?: unknown;
   language?: unknown;
   accent?: unknown;
@@ -201,12 +203,15 @@ export function normalizeGuestLibrary(value: unknown): GuestLibraryState {
     const item = object(candidate);
     const videoId = text(item.videoId, 20);
     const savedVideoId = text(item.id, 160);
-    if (!savedVideoId || !isYouTubeVideoId(videoId)) continue;
+    const originQuery = text(item.originQuery, 240);
+    const restoreQuery = text(item.restoreQuery, 240);
+    if (!savedVideoId || !isYouTubeVideoId(videoId) || !originQuery || !restoreQuery) continue;
     savedVideos.push({
       id: savedVideoId,
       videoId,
       originPhraseId: text(item.originPhraseId, 120),
-      originQuery: text(item.originQuery, 240),
+      originQuery,
+      restoreQuery,
       originCaption: text(item.originCaption, 1_000),
       language: videoLanguage(),
       accent: videoAccent(item.accent),
@@ -334,8 +339,9 @@ export function saveGuestVideo(
   const next = normalizeGuestLibrary(state);
   const videoId = text(input.videoId, 20);
   const originQuery = text(input.originQuery, 240);
+  const restoreQuery = text(input.restoreQuery, 240);
   const existing = next.savedVideos.find((video) => video.videoId === videoId);
-  if (!isYouTubeVideoId(videoId) || (!existing && !originQuery)) {
+  if (!isYouTubeVideoId(videoId) || !originQuery || !restoreQuery) {
     return { state: next, video: null, created: false };
   }
 
@@ -344,7 +350,8 @@ export function saveGuestVideo(
     ? {
         ...existing,
         originPhraseId: text(input.originPhraseId, 120) || existing.originPhraseId,
-        originQuery: originQuery || existing.originQuery,
+        originQuery,
+        restoreQuery,
         originCaption: text(input.originCaption, 1_000) || existing.originCaption,
         language: videoLanguage(),
         accent: input.accent === undefined ? existing.accent : videoAccent(input.accent),
@@ -355,6 +362,7 @@ export function saveGuestVideo(
         videoId,
         originPhraseId: text(input.originPhraseId, 120),
         originQuery,
+        restoreQuery,
         originCaption: text(input.originCaption, 1_000),
         language: videoLanguage(),
         accent: videoAccent(input.accent),

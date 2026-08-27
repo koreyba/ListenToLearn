@@ -23,7 +23,9 @@ test("provider-marked caption text becomes the immutable restore query", async t
     loaded.helper.extractRestoreQuery("That [[[ actual   match ]]] is [[[here]]]."),
     "actual match here",
   );
+  assert.equal(loaded.helper.extractRestoreQuery("Before [[[multi\nline]]] after"), "multi line");
   assert.equal(loaded.helper.extractRestoreQuery("No marked match"), "");
+  assert.equal(loaded.helper.extractRestoreQuery("[[[".repeat(20_000)), "");
 });
 
 test("resume movement is bounded and requires both provider timestamps", async t => {

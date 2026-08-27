@@ -100,3 +100,7 @@ new record without `restoreQuery` blocks the PR.
   caption and rendered contracts pass 64/64 and 42/42; TypeScript, lifecycle
   lint and `git diff --check` pass; ESLint remains at 0 errors with the same two
   generated-file warnings.
+- Post-push Sonar review reported cognitive complexity in the resume coordinator
+  and possible super-linear backtracking in marker parsing. The coordinator was
+  split into single-purpose helpers, the regex was replaced by an `indexOf`
+  scanner, and multiline plus large unterminated-marker coverage was added.

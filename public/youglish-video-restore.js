@@ -19,9 +19,19 @@
   }
 
   function extractRestoreQuery(caption) {
-    const matches = [...String(caption || "").matchAll(/\[\[\[([\s\S]*?)\]\]\]/g)]
-      .map(match => cleanText(match[1], 240))
-      .filter(Boolean);
+    const source = String(caption || "");
+    const matches = [];
+    let searchFrom = 0;
+    while (searchFrom < source.length) {
+      const start = source.indexOf("[[[", searchFrom);
+      if (start === -1) break;
+      const contentStart = start + 3;
+      const end = source.indexOf("]]]", contentStart);
+      if (end === -1) break;
+      const match = cleanText(source.slice(contentStart, end), 240);
+      if (match) matches.push(match);
+      searchFrom = end + 3;
+    }
     return cleanText(matches.join(" "), 240);
   }
 

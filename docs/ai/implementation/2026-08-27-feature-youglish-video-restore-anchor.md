@@ -125,6 +125,8 @@ cached locator.
 - Preview-follow-up mutation proofs fail when readiness/playing gates are removed
   and when buffering is allowed to overwrite progress; both return to GREEN with
   the callback-safe state machine and progress-write guard restored.
+- The post-push Sonar findings were resolved by decomposing the resume coordinator
+  and replacing the marker regex with a bounded forward `indexOf` scan.
 
 ## Final Review
 
@@ -140,5 +142,5 @@ cached locator.
 - Rollback cannot recover old data and does not attempt to; this matches the
   accepted scope and is documented explicitly.
 
-The feature is ready to commit, push and open as a pull request. Merge and
+The feature and preview follow-up are published on PR #26. Merge and production
 deployment remain outside this lifecycle.

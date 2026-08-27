@@ -3901,44 +3901,33 @@
       return `auto-caption-${captionEntrySequence}`;
     }
 
-    function advanceFullVideoResume(currentTime, captionObserved = false) {
-      if (!fullVideoMode || !fullVideoResumePending) return false;
-      if (captionObserved) {
-        fullVideoResumeAnchorObserved = true;
-        const observedTime = finiteCaptionTime(currentTime);
-        if (observedTime !== null) fullVideoResumeAnchorTime = observedTime;
-      }
-      if (!fullVideoResumeAnchorObserved) return true;
-      if (fullVideoResumeAnchorTime === null) {
-        fullVideoResumePending = false;
-        fullVideoResumePlayRequested = false;
-        return false;
-      }
-      const delta = youglishVideoRestore
-        ? youglishVideoRestore.resumeDelta(fullVideoOrigin.resumeTime, fullVideoResumeAnchorTime)
-        : null;
-      if (delta === null) {
-        fullVideoResumePending = false;
-        fullVideoResumePlayRequested = false;
-        return false;
-      }
-      if (!youglishPlayerReady || !widget) return true;
-      if (playerState !== 1) {
-        if (!fullVideoResumePlayRequested && typeof widget.play === "function") {
-          try {
-            recordCaptionTrace("widget.command", { command: "play", reason: "full-video-resume" });
-            widget.play();
-            fullVideoResumePlayRequested = true;
-          } catch (error) {
-            fullVideoResumePending = false;
-            console.error(error);
-            return false;
-          }
-        }
-        return true;
-      }
+    function clearFullVideoResume() {
       fullVideoResumePending = false;
       fullVideoResumePlayRequested = false;
+    }
+
+    function observeFullVideoResumeAnchor(currentTime) {
+      fullVideoResumeAnchorObserved = true;
+      const observedTime = finiteCaptionTime(currentTime);
+      if (observedTime !== null) fullVideoResumeAnchorTime = observedTime;
+    }
+
+    function requestFullVideoResumePlayback() {
+      if (fullVideoResumePlayRequested || typeof widget.play !== "function") return true;
+      try {
+        recordCaptionTrace("widget.command", { command: "play", reason: "full-video-resume" });
+        widget.play();
+        fullVideoResumePlayRequested = true;
+        return true;
+      } catch (error) {
+        clearFullVideoResume();
+        console.error(error);
+        return false;
+      }
+    }
+
+    function applyFullVideoResumeMove(delta) {
+      clearFullVideoResume();
       if (typeof widget.move !== "function") return false;
       try {
         recordCaptionTrace("widget.command", {
@@ -3952,6 +3941,27 @@
         console.error(error);
         return false;
       }
+    }
+
+    function advanceFullVideoResume(currentTime, captionObserved = false) {
+      if (!fullVideoMode || !fullVideoResumePending) return false;
+      if (captionObserved) observeFullVideoResumeAnchor(currentTime);
+      if (!fullVideoResumeAnchorObserved) return true;
+      if (fullVideoResumeAnchorTime === null) {
+        clearFullVideoResume();
+        return false;
+      }
+      const delta = youglishVideoRestore
+        ? youglishVideoRestore.resumeDelta(fullVideoOrigin.resumeTime, fullVideoResumeAnchorTime)
+        : null;
+      if (delta === null) {
+        clearFullVideoResume();
+        return false;
+      }
+      if (!youglishPlayerReady || !widget) return true;
+      return playerState === 1
+        ? applyFullVideoResumeMove(delta)
+        : requestFullVideoResumePlayback();
     }
 
     function onCaptionChange(event) {

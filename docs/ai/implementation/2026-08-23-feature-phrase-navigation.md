@@ -74,8 +74,8 @@ description: Technical implementation notes, patterns, and code guidelines
   state, then a minimum bounded fallback.
 - Explicit previous/next navigation updates the repeat target without switching
   the toggle off. If a provider callback crosses into another caption while a
-  repeat seek is pending, repeat disables with a visible status instead of
-  silently following the escaped caption. Missing timing, failed movement,
+  repeat seek is pending, the callback is ignored and Repeat stays pinned until
+  the selected caption confirms the seek. Missing timing, failed movement,
   context reset, or overlapping navigation still disables repeat.
 - Repeat never schedules an unbounded timer and never changes the YouGlish video
   track.

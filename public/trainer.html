@@ -4165,6 +4165,14 @@
         renderCaptionNavigation();
         return;
       }
+      if (repeatCaptionEnabled && repeatPending && captionId !== repeatTargetId) {
+        recordCaptionTrace("widget.caption-ignored", {
+          caption: tracedCaption,
+          reason: "repeat-target-mismatch"
+        });
+        renderCaptionNavigation();
+        return;
+      }
       const previousCaption = currentCaptionEntry();
       const previousCaptionSnapshot = previousCaption ? {
         id: previousCaption.id,
@@ -4235,11 +4243,7 @@
         }
         if (repeatCaptionEnabled && entry.id !== repeatTargetId
             && !captionNavigationBusy && !captionNavigationPendingTargetId) {
-          if (repeatPending) {
-            disableRepeatCaption("Phrase repeat disabled: playback moved past the selected caption.");
-          } else {
-            repeatTargetId = entry.id;
-          }
+          repeatTargetId = entry.id;
         }
       } else {
         invalidateCaptionTiming("Phrase repeat disabled: YouGlish did not provide a timestamp.");

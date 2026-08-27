@@ -1760,7 +1760,7 @@ test("Repeat keeps the same caption boundary across delayed playback cycles", as
   );
 });
 
-test("Repeat stops instead of following another caption after a missed seek", async t => {
+test("Repeat stays pinned when another caption callback races with its pending seek", async t => {
   const trainer = await createTrainer();
   t.after(trainer.close);
 
@@ -1775,10 +1775,14 @@ test("Repeat stops instead of following another caption after a missed seek", as
 
   trainer.events.onCaptionChange(caption("a2", 603, "second"));
 
-  assert.equal(trainer.controls.repeat.getAttribute("aria-pressed"), "false");
-  const movementAfterMiss = trainer.widgetCalls.move.length;
+  assert.equal(trainer.controls.repeat.getAttribute("aria-pressed"), "true");
+  const movementAfterMismatch = trainer.widgetCalls.move.length;
   trainer.events.onCaptionConsumed({ id: "a2" });
-  assert.equal(trainer.widgetCalls.move.length, movementAfterMiss);
+  assert.equal(trainer.widgetCalls.move.length, movementAfterMismatch);
+
+  trainer.events.onCaptionChange(caption("a1", 600, "first"));
+  trainer.events.onCaptionConsumed({ id: "a1" });
+  assert.equal(trainer.widgetCalls.move.length, movementAfterMismatch + 1);
 });
 
 test("a caption inside an inactive segment range reactivates that cached segment", async t => {

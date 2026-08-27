@@ -109,10 +109,10 @@ current target. It seeks back to the current caption's observed start using the
 known next-caption interval when available, then the elapsed playback estimate,
 then a minimum bounded fallback. Explicit previous/next navigation retargets the
 loop to the selected caption. If a different caption arrives while a repeat seek
-is still awaiting confirmation, repeat fails closed instead of following the
-escaped caption. Missing timing, a failed movement, or a query/source/video reset
-still disables repeat. Turning repeat off clears the target before any future
-consumed event is handled.
+is still awaiting confirmation, the controller ignores that provider race and
+keeps Repeat pinned until the selected caption confirms the seek. Missing timing,
+a failed movement, or a query/source/video reset still disables repeat. Turning
+repeat off clears the target before any future consumed event is handled.
 
 ### UI state
 

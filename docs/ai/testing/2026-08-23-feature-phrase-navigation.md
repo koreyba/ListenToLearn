@@ -49,7 +49,8 @@ Controller scenarios to cover with a fake widget/event harness:
 - [x] Ten repeat cycles with varying consumed-callback delays retain the same
   cached caption boundary instead of accumulating seek drift.
 - [x] A provider callback for the next caption during a pending repeat seek
-  disables repeat instead of retargeting the loop.
+  leaves Repeat pressed and pinned; the selected caption can confirm the seek
+  and continue the loop.
 - [x] Missing timing or movement failure disables repeat rather than continuing
   an unsafe loop.
 
@@ -157,11 +158,12 @@ Fresh Repeat stabilization evidence on 2026-08-27:
 - A ten-cycle delayed-callback test failed before the fix with a first seek of
   `-3.10` instead of the cached `-3.00` caption boundary; after preferring the
   known boundary, all ten seeks stayed at `-3.00`.
-- A missed-seek callback for the next caption kept Repeat pressed before the
-  fix; after the fail-closed guard, Repeat turns off and the next caption's
-  consumed event performs no seek.
-- Temporarily reverting both production changes made both regression tests fail;
-  restoring them made the focused Repeat scenarios pass again.
+- A provider-race callback for the next caption initially caused the first fix
+  to turn Repeat off. The corrected guard ignores that mismatch, keeps Repeat
+  pressed, and resumes the loop when the selected caption confirms the seek.
+- Temporarily reverting the boundary preference reproduced drift; restoring the
+  self-disabling callback path reproduced the pressed-state failure. Restoring
+  both corrected behaviors made the focused Repeat scenarios pass again.
 - After synchronizing PR #27, `npm test`: build passed; 257 tests passed,
   0 failed.
 - `npx tsc --noEmit`, `git diff --check`, and feature lint passed. ESLint passed

@@ -106,10 +106,11 @@ exception blocks that direction and reports the failure.
 
 When repeat is enabled, `onCaptionConsumed` checks the consumed ID against the
 current target. It seeks back to the current caption's observed start using the
-elapsed playback estimate when available, then the known next-caption interval,
-then a minimum bounded fallback. An accepted caption change within the current
-video retargets the loop to that caption, including after previous/next
-navigation. Missing timing, a failed movement, or a query/source/video reset
+known next-caption interval when available, then the elapsed playback estimate,
+then a minimum bounded fallback. Explicit previous/next navigation retargets the
+loop to the selected caption. If a different caption arrives while a repeat seek
+is still awaiting confirmation, repeat fails closed instead of following the
+escaped caption. Missing timing, a failed movement, or a query/source/video reset
 still disables repeat. Turning repeat off clears the target before any future
 consumed event is handled.
 

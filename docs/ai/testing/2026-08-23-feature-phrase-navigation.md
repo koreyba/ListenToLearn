@@ -46,6 +46,10 @@ Controller scenarios to cover with a fake widget/event harness:
 - [ ] A source/video reset or newer command leaves controls consistent.
 - [x] Repeat follows a newly selected adjacent caption, handles its consumed
   event, and repeat-off prevents the next consumed event from seeking.
+- [x] Ten repeat cycles with varying consumed-callback delays retain the same
+  cached caption boundary instead of accumulating seek drift.
+- [x] A provider callback for the next caption during a pending repeat seek
+  disables repeat instead of retargeting the loop.
 - [x] Missing timing or movement failure disables repeat rather than continuing
   an unsafe loop.
 
@@ -147,6 +151,22 @@ Fresh Repeat follow-up evidence on 2026-08-25:
 - `npx tsc --noEmit`, scoped ESLint for all changed source/test files,
   `git diff --check`, and `npx ai-devkit@latest lint --feature
   phrase-navigation`: passed.
+
+Fresh Repeat stabilization evidence on 2026-08-27:
+
+- A ten-cycle delayed-callback test failed before the fix with a first seek of
+  `-3.10` instead of the cached `-3.00` caption boundary; after preferring the
+  known boundary, all ten seeks stayed at `-3.00`.
+- A missed-seek callback for the next caption kept Repeat pressed before the
+  fix; after the fail-closed guard, Repeat turns off and the next caption's
+  consumed event performs no seek.
+- Temporarily reverting both production changes made both regression tests fail;
+  restoring them made the focused Repeat scenarios pass again.
+- After synchronizing PR #27, `npm test`: build passed; 257 tests passed,
+  0 failed.
+- `npx tsc --noEmit`, `git diff --check`, and feature lint passed. ESLint passed
+  with 0 errors and 2 existing generated-file warnings in
+  `worker-configuration.d.ts`.
 
 ## Manual Testing
 

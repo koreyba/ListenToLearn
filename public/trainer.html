@@ -4235,8 +4235,11 @@
         }
         if (repeatCaptionEnabled && entry.id !== repeatTargetId
             && !captionNavigationBusy && !captionNavigationPendingTargetId) {
-          repeatTargetId = entry.id;
-          repeatPending = false;
+          if (repeatPending) {
+            disableRepeatCaption("Phrase repeat disabled: playback moved past the selected caption.");
+          } else {
+            repeatTargetId = entry.id;
+          }
         }
       } else {
         invalidateCaptionTiming("Phrase repeat disabled: YouGlish did not provide a timestamp.");

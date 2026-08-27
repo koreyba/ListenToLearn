@@ -69,13 +69,14 @@ description: Technical implementation notes, patterns, and code guidelines
 - `Повтор фразы` is a native toggle with `aria-pressed` and a visibly accented
   pressed state.
 - `onCaptionConsumed` is accepted only for the active opaque caption ID. The
-  seek-back delta prefers the elapsed time estimate from `observedAt` and
-  playback state, then a known next-caption interval, then a minimum bounded
-  fallback.
-- A new accepted caption ID in the same video becomes the repeat target, so
-  previous/next navigation does not switch the toggle off. Missing timing,
-  failed movement, context reset, or overlapping navigation still disables
-  repeat and leaves a visible status message.
+  seek-back delta prefers a known next-caption interval, which is stable across
+  callback latency, then the elapsed estimate from `observedAt` and playback
+  state, then a minimum bounded fallback.
+- Explicit previous/next navigation updates the repeat target without switching
+  the toggle off. If a provider callback crosses into another caption while a
+  repeat seek is pending, repeat disables with a visible status instead of
+  silently following the escaped caption. Missing timing, failed movement,
+  context reset, or overlapping navigation still disables repeat.
 - Repeat never schedules an unbounded timer and never changes the YouGlish video
   track.
 

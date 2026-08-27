@@ -1733,6 +1733,54 @@ test("Repeat can seek again after the repeated caption is observed", async t => 
   assert.equal(trainer.widgetCalls.move.length, movementBeforeRepeat + 2);
 });
 
+test("Repeat keeps the same caption boundary across delayed playback cycles", async t => {
+  const trainer = await createTrainer();
+  t.after(trainer.close);
+
+  observeVideo(trainer, "video-a", [
+    caption("a1", 600, "first"),
+    caption("a2", 603, "second"),
+  ]);
+  trainer.controls.previous.click();
+  trainer.events.onCaptionChange(caption("a1", 600, "first"));
+  trainer.events.onPlayerStateChange({ state: 1 });
+  trainer.controls.repeat.click();
+  const movementBeforeRepeat = trainer.widgetCalls.move.length;
+  const callbackDelays = [3_100, 2_850, 3_250, 2_900, 3_050, 3_300, 2_800, 3_150, 2_950, 3_200];
+
+  for (const delay of callbackDelays) {
+    trainer.advanceTime(delay);
+    trainer.events.onCaptionConsumed({ id: "a1" });
+    trainer.events.onCaptionChange(caption("a1", 600, "first"));
+  }
+
+  assertDeltas(
+    trainer.widgetCalls.move.slice(movementBeforeRepeat),
+    callbackDelays.map(() => -3),
+  );
+});
+
+test("Repeat stops instead of following another caption after a missed seek", async t => {
+  const trainer = await createTrainer();
+  t.after(trainer.close);
+
+  observeVideo(trainer, "video-a", [
+    caption("a1", 600, "first"),
+    caption("a2", 603, "second"),
+  ]);
+  trainer.controls.previous.click();
+  trainer.events.onCaptionChange(caption("a1", 600, "first"));
+  trainer.controls.repeat.click();
+  trainer.events.onCaptionConsumed({ id: "a1" });
+
+  trainer.events.onCaptionChange(caption("a2", 603, "second"));
+
+  assert.equal(trainer.controls.repeat.getAttribute("aria-pressed"), "false");
+  const movementAfterMiss = trainer.widgetCalls.move.length;
+  trainer.events.onCaptionConsumed({ id: "a2" });
+  assert.equal(trainer.widgetCalls.move.length, movementAfterMiss);
+});
+
 test("a caption inside an inactive segment range reactivates that cached segment", async t => {
   const trainer = await createTrainer();
   t.after(trainer.close);

@@ -44,6 +44,10 @@ description: Break down work into actionable tasks and estimate timeline
   selects another caption in the same video. Outcome: repeat persists until the
   learner turns it off or playback context resets. Validate repeat-on,
   next-caption, repeat-off, reset, and failure fixtures.
+- [x] T2.4 Stabilize long-running repeat by preferring the cached caption
+  boundary over callback timing and failing closed when a repeat seek escapes
+  into another caption. Validate ten delayed playback cycles and a missed-seek
+  provider callback.
 
 ### Phase 3: Integration & Polish
 

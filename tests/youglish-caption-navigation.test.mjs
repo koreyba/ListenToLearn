@@ -163,6 +163,7 @@ async function createTrainer({
       onPlayerStateChange: emitPlayerStateChange,
     },
     providerStatus: document.getElementById("status"),
+    restoreBanner: document.getElementById("fullVideoRestoreStatus"),
     location: () => dom.window.location.href,
     storedProgress: videoId => {
       const raw = dom.window.localStorage.getItem("unmumble-youtube-progress-v1:anonymous");
@@ -202,18 +203,20 @@ test("Continue in video retains the first marked locator after playback advances
   assert.equal(trainer.widgetCalls.fetch.length, fetchCount);
 });
 
-test("cold Full Video keeps a visible restoring status until the saved position is confirmed", async t => {
+test("cold Full Video keeps a non-blocking in-player banner until the saved position is confirmed", async t => {
   const trainer = await createTrainer({
     autoPlayerReady: false,
     url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&resumeTime=400&language=english&accent=uk",
   });
   t.after(trainer.close);
 
-  assert.equal(trainer.providerStatus.tagName, "OUTPUT");
-  assert.equal(trainer.providerStatus.getAttribute("role"), null);
-  assert.equal(trainer.providerStatus.getAttribute("aria-live"), "polite");
-  assert.equal(trainer.providerStatus.classList.contains("restoring"), true);
-  assert.equal(trainer.providerStatus.textContent, "Restoring to 6:40…");
+  assert.ok(trainer.restoreBanner, "the video frame must expose a dedicated restore banner");
+  assert.equal(trainer.restoreBanner.tagName, "OUTPUT");
+  assert.equal(trainer.restoreBanner.getAttribute("role"), null);
+  assert.equal(trainer.restoreBanner.getAttribute("aria-live"), "polite");
+  assert.equal(trainer.restoreBanner.closest("#widgetFrame")?.id, "widgetFrame");
+  assert.equal(trainer.restoreBanner.hidden, false);
+  assert.equal(trainer.restoreBanner.textContent, "Restoring to 6:40…");
 
   trainer.events.onFetchDone({ totalResult: 1 });
   trainer.events.onVideoChange({ trackNumber: 0, video: "w66ecIT-Xkk" });
@@ -226,8 +229,8 @@ test("cold Full Video keeps a visible restoring status until the saved position 
   trainer.events.onPlayerReady();
   trainer.events.onPlayerStateChange({ state: 1 });
 
-  assert.equal(trainer.providerStatus.classList.contains("restoring"), true);
-  assert.equal(trainer.providerStatus.textContent, "Restoring to 6:40…");
+  assert.equal(trainer.restoreBanner.hidden, false);
+  assert.equal(trainer.restoreBanner.textContent, "Restoring to 6:40…");
 
   trainer.events.onCaptionChange(caption(
     "resumed",
@@ -236,7 +239,7 @@ test("cold Full Video keeps a visible restoring status until the saved position 
     "w66ecIT-Xkk",
   ));
 
-  assert.equal(trainer.providerStatus.classList.contains("restoring"), false);
+  assert.equal(trainer.restoreBanner.hidden, true);
   assert.equal(trainer.providerStatus.textContent, "Full video ready at 6:40.");
 });
 
@@ -322,6 +325,7 @@ test("cold Full Video stops retrying after three unconfirmed resume moves", asyn
   trainer.events.onCaptionChange(caption("ignored-4", 100, "Ignored 4", "w66ecIT-Xkk"));
 
   assertDeltas(trainer.widgetCalls.move, [300, 300, 300]);
+  assert.equal(trainer.restoreBanner.hidden, true);
   assert.match(trainer.providerStatus.textContent, /could not resume/i);
   assert.equal(trainer.storedProgress("w66ecIT-Xkk"), null);
 });
@@ -367,17 +371,17 @@ test("cold Full Video restore rejects a provider result for another video", asyn
   assert.deepEqual(trainer.widgetCalls.move, []);
 });
 
-test("cold Full Video replaces restoring status when the provider finds no result", async t => {
+test("cold Full Video replaces the restoring banner when the provider finds no result", async t => {
   const trainer = await createTrainer({
     url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&resumeTime=400&language=english&accent=uk",
   });
   t.after(trainer.close);
 
-  assert.equal(trainer.providerStatus.classList.contains("restoring"), true);
+  assert.equal(trainer.restoreBanner.hidden, false);
 
   trainer.events.onFetchDone({ totalResult: 0 });
 
-  assert.equal(trainer.providerStatus.classList.contains("restoring"), false);
+  assert.equal(trainer.restoreBanner.hidden, true);
   assert.equal(trainer.providerStatus.classList.contains("error"), true);
   assert.match(trainer.providerStatus.textContent, /could not restore the saved video/i);
 });

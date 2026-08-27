@@ -19,6 +19,8 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
   keep restore alive until the next timed provider caption.
 - [x] Milestone 7: Make the unavoidable provider wait explicit with a restoring
   status tied to confirmed resume state.
+- [x] Milestone 8: Move restoring feedback onto the video without blocking the
+  learner's access to native player controls.
 
 ## Task Breakdown
 
@@ -99,6 +101,9 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
 - [x] T16: Add a RED browser/CSS contract for `Restoring to mm:ss…`, expose it
   before readiness and across untimed callbacks, then clear it only after
   confirmation or error without changing seek behavior.
+- [x] T17: Add a RED public DOM/CSS contract for a dedicated in-player banner,
+  render it prominently with `pointer-events: none`, and keep the widget visible
+  and interactive throughout restore.
 
 ## Dependencies and Sequencing
 
@@ -144,3 +149,5 @@ PR #26. The final local provider trace proved the first matched caption is
 untimed; restore now plays through it and moves only after the next callback
 provides a finite timestamp. The pending interval is now represented by a
 visible, accessible restoring status instead of hidden provider notices.
+The follow-up banner remains coupled only to that pending state and does not
+change the widget command sequence or block native player interactions.

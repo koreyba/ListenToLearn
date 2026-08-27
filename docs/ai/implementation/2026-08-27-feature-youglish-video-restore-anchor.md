@@ -110,13 +110,16 @@ the previously correct saved position. If all three moves remain unconfirmed,
 automatic progress stays blocked for that failed Full Video session.
 
 Cold resume now exposes the same state machine to the learner. The normally
-hidden provider status becomes a polite live region with
-`Restoring to mm:ss…` and a reduced-motion-safe spinner before player readiness.
-Fetch, video-change, readiness and untimed-caption callbacks preserve the
-message. Confirming the target removes the restoring class and records
-`Full video ready at mm:ss.`; provider errors remove restoring before displaying
-their existing error text. No timeout, widget command or resume calculation was
-added.
+hidden provider status is supplemented by a dedicated semantic output inside
+the video frame. It renders a large `Restoring to mm:ss…` banner with a
+reduced-motion-safe spinner before player readiness. Absolute positioning keeps
+the banner attached to the media, while `pointer-events: none` lets clicks reach
+the native YouGlish player, including pause and volume controls. Fetch,
+video-change, readiness and untimed-caption callbacks preserve the message.
+Confirming the target hides the banner and records `Full video ready at mm:ss.`;
+provider errors hide it before displaying their existing error text. No timeout,
+widget command or resume calculation was added, and the player is neither hidden
+nor muted.
 
 ### Warm transition
 
@@ -132,6 +135,8 @@ cached locator.
   waits for a later timed callback.
 - Pending resume is visible and accessible without making an unconfirmed
   provider movement look complete.
+- Restoring feedback does not capture pointer input or remove access to the
+  provider's own playback and volume controls.
 - Relative movement is bounded to the existing seven-day progress limit.
 - Resume attempts are callback-gated and capped at three per cold open.
 - Wrong-video callbacks still show the restore error and are not activated.
@@ -169,6 +174,14 @@ cached locator.
   errors with the same two generated-file warnings.
 - The post-push Sonar findings were resolved by decomposing the resume coordinator
   and replacing the marker regex with a bounded forward `indexOf` scan.
+- In-player banner RED had no dedicated media-frame output; GREEN adds the
+  prominent pass-through overlay without changing provider commands. A mutation
+  to `pointer-events: auto` fails the focused rendered contract. The real local
+  widget hit-test at the banner center resolves to `iframe#fr_yg-widget`, and the
+  banner hides after the provider confirms the saved target.
+- Final banner verification passes 246/246 repository tests, TypeScript,
+  lifecycle lint and diff checks; ESLint remains at zero errors with the same two
+  generated-file warnings.
 
 ## Final Review
 

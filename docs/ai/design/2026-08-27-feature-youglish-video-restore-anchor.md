@@ -81,10 +81,14 @@ locator from the current verified YouGlish result.
   restore has settled. Exhausted retries keep automatic progress blocked for
   that failed session so the known-good saved target is not replaced by the
   phrase anchor.
-- The normally hidden provider status becomes a visible live region only while
-  cold resume is pending. It shows `Restoring to mm:ss…` with a reduced-motion-
-  safe activity indicator, survives fetch/readiness/caption callbacks, and is
-  removed only by confirmed completion or a provider error.
+- A dedicated semantic output inside `.widget-frame` becomes a prominent banner
+  only while cold resume is pending. It shows `Restoring to mm:ss…` with a
+  reduced-motion-safe activity indicator, survives fetch/readiness/caption
+  callbacks, and is removed only by confirmed completion or a provider error.
+  Absolute positioning keeps it visually attached to the video, while
+  `pointer-events: none` leaves the underlying YouGlish pause, volume and other
+  player interactions available. Provider errors continue to use the separate
+  status output outside the iframe.
 - `onVideoChange` keeps the existing expected-video guard.
 
 ## Resume State Machine
@@ -136,6 +140,8 @@ stateDiagram-v2
   extra search retries or transcript requests are added.
 - The restoring indicator adds no timer, provider command, request or seek; it
   only reflects the existing resume state machine.
+- The banner does not hide, disable or mute the cross-origin widget; it adds one
+  composited overlay only during the existing pending interval.
 
 ## Rollout
 

@@ -191,6 +191,8 @@
     }
 
     .widget-frame {
+      position: relative;
+      isolation: isolate;
       width: 100%;
       min-height: 260px;
       min-width: 200px;
@@ -216,6 +218,48 @@
       border: 0;
     }
     .youglish-player[hidden] { display: none; }
+
+    .video-restore-banner {
+      position: absolute;
+      z-index: 2;
+      top: clamp(10px, 3vw, 18px);
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      width: max-content;
+      max-width: calc(100% - 24px);
+      min-height: 52px;
+      padding: 12px 18px;
+      border: 1px solid var(--color-border-strong);
+      border-radius: 999px;
+      background: var(--color-sticky-background);
+      color: var(--color-text-primary);
+      box-shadow: 0 8px 24px var(--color-interactive-shadow);
+      backdrop-filter: blur(10px);
+      pointer-events: none;
+      font-size: clamp(16px, 2.4vw, 22px);
+      font-weight: 800;
+      line-height: 1.2;
+      text-align: center;
+    }
+    .video-restore-banner::before {
+      content: "";
+      width: 20px;
+      height: 20px;
+      flex: 0 0 auto;
+      border: 3px solid var(--color-border);
+      border-top-color: var(--accent-2);
+      border-radius: 50%;
+      animation: restore-spin .8s linear infinite;
+    }
+    .video-restore-banner[hidden] { display: none; }
+    @keyframes restore-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      .video-restore-banner::before { animation: none; }
+    }
 
     .source-row {
       display: flex;
@@ -608,29 +652,8 @@
       color: var(--muted);
     }
     .status.error { color: var(--danger); }
-    .status:not(.error):not(.restoring),
+    .status:not(.error),
     .caption-navigation-status { display: none; }
-    .status.restoring {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      color: var(--color-label);
-      font-weight: 700;
-    }
-    .status.restoring::before {
-      content: "";
-      width: 12px;
-      height: 12px;
-      flex: 0 0 auto;
-      border: 2px solid var(--color-border);
-      border-top-color: var(--accent-2);
-      border-radius: 50%;
-      animation: restore-spin .8s linear infinite;
-    }
-    @keyframes restore-spin { to { transform: rotate(360deg); } }
-    @media (prefers-reduced-motion: reduce) {
-      .status.restoring::before { animation: none; }
-    }
 
     .caption-box {
       margin-top: 8px;
@@ -1357,6 +1380,7 @@
           <div id="youglishPlayer" class="youglish-player">
             <div id="yg-widget" aria-label="YouGlish player"></div>
           </div>
+          <output id="fullVideoRestoreStatus" class="video-restore-banner" aria-live="polite" hidden>Restoring video…</output>
           <div id="tatoebaPlayer" class="tatoeba-player" hidden aria-label="Tatoeba audio player">
             <div class="tatoeba-kicker">Human-recorded audio</div>
             <div id="tatoebaSentence" class="tatoeba-sentence">Looking for a matching recording…</div>
@@ -1643,6 +1667,7 @@
 
     const el = {
       status: document.getElementById("status"),
+      fullVideoRestoreStatus: document.getElementById("fullVideoRestoreStatus"),
       captionText: document.getElementById("captionText"),
       selectionActions: document.getElementById("selectionActions"),
       selectionPreview: document.getElementById("selectionPreview"),
@@ -3939,10 +3964,10 @@
 
     function showFullVideoRestoreStatus() {
       const restoring = fullVideoMode && fullVideoResumePending;
-      el.status.classList.toggle("restoring", restoring);
+      el.fullVideoRestoreStatus.hidden = !restoring;
       if (!restoring) return false;
       el.status.classList.remove("error");
-      el.status.textContent = `Restoring to ${formatAudioTime(fullVideoOrigin.resumeTime)}…`;
+      el.fullVideoRestoreStatus.textContent = `Restoring to ${formatAudioTime(fullVideoOrigin.resumeTime)}…`;
       return true;
     }
 
@@ -3957,7 +3982,7 @@
       fullVideoResumePlayRequested = false;
       fullVideoResumeMoveAwaitingConfirmation = false;
       fullVideoResumeMoveAttempts = 0;
-      el.status.classList.remove("restoring");
+      el.fullVideoRestoreStatus.hidden = true;
     }
 
     function observeFullVideoResumeAnchor(currentTime) {
@@ -4203,8 +4228,8 @@
     }
 
     function showWidgetError(message) {
+      clearFullVideoResume();
       el.status.textContent = message;
-      el.status.classList.remove("restoring");
       el.status.classList.add("error");
     }
 

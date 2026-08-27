@@ -611,7 +611,7 @@ test("desktop mirrors the mobile learning flow and places media last", async () 
   );
 });
 
-test("trainer hides idle player notices but exposes the restoring status", async () => {
+test("trainer renders a prominent non-blocking restoring banner inside the video", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),
     "utf8",
@@ -619,10 +619,19 @@ test("trainer hides idle player notices but exposes the restoring status", async
 
   assert.match(
     trainer,
-    /\.status:not\(\.error\):not\(\.restoring\),\s*\.caption-navigation-status \{ display: none; \}/,
+    /\.status:not\(\.error\),\s*\.caption-navigation-status \{ display: none; \}/,
   );
-  assert.match(trainer, /\.status\.restoring \{[\s\S]*?display: flex;/);
+  assert.match(trainer, /\.widget-frame \{[\s\S]*?position: relative;/);
+  assert.match(
+    trainer,
+    /\.video-restore-banner \{[^}]*position: absolute;[^}]*pointer-events: none;[^}]*font-size: clamp\(/,
+  );
+  assert.match(trainer, /\.video-restore-banner\[hidden\] \{ display: none; \}/);
   assert.match(trainer, /<output id="status" class="status" aria-live="polite">/);
+  assert.match(
+    trainer,
+    /id="widgetFrame"[\s\S]*?<output id="fullVideoRestoreStatus" class="video-restore-banner" aria-live="polite" hidden>/,
+  );
   assert.doesNotMatch(trainer, /class="media-label">Media<\/div>/);
 });
 

@@ -47,6 +47,8 @@ description: TDD contracts for provider locator persistence, cold restore and in
 - [x] `Restoring to mm:ss…` is visible before player readiness, remains through
   fetch/video/untimed-caption callbacks, and clears only when the saved position
   is confirmed.
+- [x] The restoring output is a prominent child of the video frame with
+  `pointer-events: none`, so it cannot intercept native player controls.
 - [x] A zero-result provider response replaces restoring with the existing
   visible saved-video restore error instead of leaving the spinner active.
 - [x] A mismatched `onVideoChange.video` remains rejected.
@@ -77,8 +79,8 @@ description: TDD contracts for provider locator persistence, cold restore and in
   next provider timestamp `469.022370...`; before the fix it fails because no
   playback is requested and the restore is cleared.
 - The restoring-status test uses a `400s` target and verifies the public DOM
-  state (semantic `<output>`, polite live region, visible restoring class and
-  `6:40` copy) rather than internal resume flags.
+  state (dedicated semantic `<output>` inside the video frame, polite live
+  region, visible state and `6:40` copy) rather than internal resume flags.
 
 ## Verification Commands
 
@@ -157,3 +159,14 @@ new record without `restoreQuery` blocks the PR.
   lint and `git diff --check` pass. A local real-widget browser run visibly
   rendered `Restoring to 7:50…`, then hid it after reporting
   `Full video ready at 7:50.`
+- In-player banner RED failed because no dedicated output existed inside the
+  media frame. GREEN passes the focused 4/4 contracts and the related 114/114
+  suite. Changing its `pointer-events` to `auto` makes the focused contract fail;
+  restoring `none` returns it to GREEN.
+- Final real-widget validation rendered a 52px-high banner with 22px text inside
+  `widgetFrame`; hit-testing its center returned `iframe#fr_yg-widget`, proving
+  that the overlay does not intercept the player's pointer target. The banner
+  became hidden after confirmed restore.
+- Final banner verification: fresh Vinext build and 246/246 repository tests
+  pass; ESLint has zero errors and the same two generated warnings; TypeScript,
+  lifecycle lint and `git diff --check` pass.

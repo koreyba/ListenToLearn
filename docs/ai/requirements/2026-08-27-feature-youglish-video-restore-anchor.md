@@ -51,6 +51,9 @@ Videos section.
   exposes enough timing information.
 - As a learner, I see `Restoring to mm:ss…` while YouGlish is still moving to my
   saved position, instead of mistaking the provider delay for a broken action.
+- As a learner, that restoring state is prominent on the video while the
+  YouGlish player remains visible and fully interactive, including its native
+  pause and volume controls.
 - As a learner, a provider result for another video is rejected instead of being
   presented as the saved video.
 - As a learner with legacy saved data, I accept that entries without the new
@@ -77,6 +80,8 @@ Videos section.
 - Cold restore exposes a visible, politely announced `Restoring to mm:ss…`
   status from initialization through provider confirmation. Success hides it;
   a provider error replaces it.
+- The restoring status is rendered inside the video frame as a large overlay
+  that does not receive pointer events or block the embedded player.
 - Automated contracts cover extraction, guest/API/schema persistence, URL
   construction, cold widget fetch, accent, confirmed bounded resume and untimed
   anchor continuation.
@@ -94,6 +99,8 @@ Videos section.
   must wait across that boundary.
 - Saved videos remain bounded and deduplicated by `videoId` for both account and
   guest storage.
+- The YouGlish widget remains mounted and interactive during restore; the app
+  does not claim to mute it because the documented widget API has no mute call.
 - The new D1 column may default to an empty string for migration safety, while
   reads expose only rows containing the new locator.
 

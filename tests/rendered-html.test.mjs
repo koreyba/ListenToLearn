@@ -210,6 +210,7 @@ test("video history stores account videos independently from phrase examples", a
 
   assert.match(schema, /export const savedVideos/);
   assert.match(schema, /youtubeVideoId: text\("youtube_video_id"\)/);
+  assert.match(schema, /restoreQuery: text\("restore_query"\)/);
   assert.match(schema, /language: text\("language"\)/);
   assert.match(schema, /accent: text\("accent"\)/);
   assert.match(schema, /uniqueIndex\("idx_saved_videos_user_youtube"\)/);
@@ -229,7 +230,7 @@ test("video history API validates ids and scopes every mutation to the current u
 
   assert.match(route, /getCurrentUser\(request\)/);
   assert.match(route, /isYouTubeVideoId\(videoId\)/);
-  assert.match(route, /!originQuery/);
+  assert.match(route, /!originQuery \|\| !restoreQuery/);
   assert.match(route, /language === "english"/);
   assert.match(route, /accent === "us" \|\| accent === "uk"/);
   assert.match(route, /ON CONFLICT\(user_id, youtube_video_id\) DO UPDATE/);
@@ -252,6 +253,7 @@ test("legacy owner migration carries saved videos into the authenticated account
   );
 
   assert.match(auth, /INSERT OR IGNORE INTO saved_videos/);
+  assert.match(auth, /origin_query, restore_query, restore_anchor_seconds,[\s\S]*?origin_caption/);
   assert.match(auth, /current\.youtube_video_id = legacy\.youtube_video_id/);
   assert.match(auth, /DELETE FROM saved_videos WHERE user_id = \?/);
 });
@@ -285,6 +287,8 @@ test("Full Video Mode keeps learning controls and removes result-only controls",
 
   assert.match(trainer, /full-video-mode/);
   assert.match(trainer, /fullVideoMode/);
+  assert.match(trainer, /<script src="\/youglish-video-restore\.js"><\/script>/);
+  assert.match(trainer, /fullVideoOrigin\.restoreQuery/);
   assert.match(trainer, /resumeCaption/);
   assert.match(trainer, /MAX_OBSERVED_CAPTIONS = 200/);
   assert.match(trainer, /result\.history\.slice\(-MAX_OBSERVED_CAPTIONS\)/);
@@ -300,14 +304,15 @@ test("Full Video Mode keeps learning controls and removes result-only controls",
   assert.match(trainer, /body\.full-video-mode[^}]*#exampleTools/s);
   assert.match(trainer, /el\.accentControl\.hidden = tatoeba \|\| fullVideoMode;/);
   const warmTransition = trainer.match(/function watchCurrentFullVideo\(\) \{([\s\S]*?)\n    \}\n\n    function setExampleMode/)?.[1] || "";
-  assert.match(warmTransition, /widget\.pause\(\)/);
+  assert.doesNotMatch(warmTransition, /widget\.pause\(\)/);
   assert.match(warmTransition, /history\.pushState\(\{ fullVideo: true \}/);
   assert.doesNotMatch(warmTransition, /fetchPhrase|fetchYouglish|widget\.fetch|window\.location/);
 
   const listenTransition = trainer.match(/function listenToText\(text\) \{([\s\S]*?)\n    \}\n\n    async function addTextToLearn/)?.[1] || "";
   assert.match(listenTransition, /persistFullVideoProgress\(\{ flush: true \}\)/);
   assert.match(listenTransition, /history\.pushState\(\{ listenFromFullVideo: true \}/);
-  assert.match(trainer, /window\.addEventListener\("popstate"[\s\S]*?fetchPhrase\(fullVideoOrigin\.resumeCaption/);
+  assert.match(trainer, /window\.addEventListener\("popstate"[\s\S]*?fetchPhrase\(fullVideoOrigin\.originalQuery/);
+  assert.doesNotMatch(trainer, /const restoreQuery = fullVideoOrigin\.resumeCaption/);
   assert.match(trainer, /event\.state && event\.state\.listenFromFullVideo[\s\S]*?fetchPhrase\(VIEWER_PHRASE, true\)/);
 });
 
@@ -353,7 +358,7 @@ test("YouGlish results keep clip filters aligned and record history on Full Vide
   const warmTransition = trainer.match(/function watchCurrentFullVideo\(\) \{([\s\S]*?)\n    \}/)?.[1] || "";
   assert.match(warmTransition, /void recordCurrentVideoHistory\(origin, progress\)/);
   assert.ok(
-    warmTransition.indexOf("recordCurrentVideoHistory(origin, progress)") < warmTransition.indexOf("widget.pause()"),
+    warmTransition.indexOf("recordCurrentVideoHistory(origin, progress)") < warmTransition.indexOf("fullVideoMode = true"),
     "history upsert must start before entering Full Video Mode",
   );
   assert.match(page, /<SiteNavigation\s+active=\{surface\}/);
@@ -503,7 +508,7 @@ test("trainer uses one unbroken toolbar and one stateful play pause control", as
   assert.match(trainer, /id="slowPlaybackBtn"[^>]*aria-label="Slow playback"/);
   assert.match(trainer, /function renderPlaybackControl\(\)/);
   assert.match(trainer, /const wantsPlayback = playerState !== 1;[\s\S]*?requestedYouglishPlayback = wantsPlayback;[\s\S]*?callWidget\(wantsPlayback \? "play" : "pause"\)/);
-  assert.match(trainer, /playerState = nextState;\s*renderPlaybackControl\(\);/);
+  assert.match(trainer, /playerState = nextState;\s*if \(nextState === 1\) beginCurrentYouglishRestoreAnchorClock\(\);\s*renderPlaybackControl\(\);/);
   assert.match(trainer, /Recording ready — press Play\./);
   assert.doesNotMatch(trainer, /Recording ready — press Listen\./);
 });
@@ -606,13 +611,27 @@ test("desktop mirrors the mobile learning flow and places media last", async () 
   );
 });
 
-test("trainer removes idle player notices and the media title", async () => {
+test("trainer renders a prominent non-blocking restoring banner inside the video", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),
     "utf8",
   );
 
-  assert.match(trainer, /\.status:not\(\.error\),\s*\.caption-navigation-status \{ display: none; \}/);
+  assert.match(
+    trainer,
+    /\.status:not\(\.error\),\s*\.caption-navigation-status \{ display: none; \}/,
+  );
+  assert.match(trainer, /\.widget-frame \{[\s\S]*?position: relative;/);
+  assert.match(
+    trainer,
+    /\.video-restore-banner \{[^}]*position: absolute;[^}]*pointer-events: none;[^}]*font-size: clamp\(/,
+  );
+  assert.match(trainer, /\.video-restore-banner\[hidden\] \{ display: none; \}/);
+  assert.match(trainer, /<output id="status" class="status" aria-live="polite">/);
+  assert.match(
+    trainer,
+    /id="widgetFrame"[\s\S]*?<output id="fullVideoRestoreStatus" class="video-restore-banner" aria-live="polite" hidden>/,
+  );
   assert.doesNotMatch(trainer, /class="media-label">Media<\/div>/);
 });
 
@@ -676,7 +695,11 @@ test("mobile example controls align to two columns and collapse Tatoeba actions"
   );
   assert.match(trainer, /\.example-actions:has\(\.media-full-video-btn\[hidden\]\) \{ grid-template-columns: minmax\(0, 1fr\); \}/);
   assert.match(trainer, /const validYouTubeVideo = isYouGlish && \/\^\[A-Za-z0-9_-\]\{11\}\$\//);
-  assert.match(trainer, /el\.watchFullVideoBtn\.hidden = fullVideoMode \|\| !validYouTubeVideo;/);
+  assert.match(
+    trainer,
+    /const canRestoreFullVideo = validYouTubeVideo\s*&& Boolean\(currentYouglishRestoreQuery\)\s*&& currentYouglishRestoreAnchorTime !== null;/,
+  );
+  assert.match(trainer, /el\.watchFullVideoBtn\.hidden = fullVideoMode \|\| !canRestoreFullVideo;/);
 });
 
 test("saved example button names the remove action", async () => {

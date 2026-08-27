@@ -106,8 +106,10 @@ export async function ensureUser(user: AuthenticatedUser) {
     `).bind(user.subject, LEGACY_OWNER_ID, user.subject),
     db.prepare(`
       INSERT OR IGNORE INTO saved_videos
-        (id, user_id, youtube_video_id, origin_phrase_id, origin_query, origin_caption, language, accent, created_at, updated_at)
-      SELECT 'migrated-' || id, ?, youtube_video_id, origin_phrase_id, origin_query, origin_caption, language, accent, created_at, updated_at
+        (id, user_id, youtube_video_id, origin_phrase_id, origin_query, restore_query, restore_anchor_seconds,
+          origin_caption, language, accent, created_at, updated_at)
+      SELECT 'migrated-' || id, ?, youtube_video_id, origin_phrase_id, origin_query, restore_query,
+        restore_anchor_seconds, origin_caption, language, accent, created_at, updated_at
       FROM saved_videos AS legacy
       WHERE legacy.user_id = ?
         AND NOT EXISTS (

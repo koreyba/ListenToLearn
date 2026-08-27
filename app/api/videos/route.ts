@@ -11,6 +11,8 @@ type SavedVideoRow = {
   youtube_video_id: string;
   origin_phrase_id: string | null;
   origin_query: string;
+  restore_query: string;
+  restore_anchor_seconds: number;
   origin_caption: string;
   language: string;
   accent: string;
@@ -26,12 +28,21 @@ function cleanText(value: unknown, limit: number) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ").slice(0, limit) : "";
 }
 
+function validVideoTime(value: unknown) {
+  if (value === null || value === undefined
+      || (typeof value === "string" && !value.trim())) return null;
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds >= 0 && seconds <= 604_800 ? seconds : null;
+}
+
 function publicVideo(row: SavedVideoRow) {
   return {
     id: row.id,
     videoId: row.youtube_video_id,
     originPhraseId: row.origin_phrase_id || "",
     originQuery: row.origin_query,
+    restoreQuery: row.restore_query,
+    restoreAnchorTime: row.restore_anchor_seconds,
     originCaption: row.origin_caption,
     language: row.language,
     accent: row.accent,
@@ -58,10 +69,11 @@ export async function GET(request: Request) {
 
   try {
     const result = await getD1().prepare(`
-      SELECT id, youtube_video_id, origin_phrase_id, origin_query, origin_caption, language, accent,
+      SELECT id, youtube_video_id, origin_phrase_id, origin_query, restore_query, restore_anchor_seconds,
+        origin_caption, language, accent,
         resume_seconds, resume_caption_id, resume_caption_text, progress_updated_at, created_at, updated_at
       FROM saved_videos
-      WHERE user_id = ?
+      WHERE user_id = ? AND restore_query <> '' AND restore_anchor_seconds >= 0
       ORDER BY updated_at DESC, id ASC
       LIMIT 200
     `).bind(user.subject).all<SavedVideoRow>();
@@ -96,14 +108,16 @@ export async function POST(request: Request) {
     const videoId = cleanText(payload.videoId, 20);
     const originPhraseId = cleanText(payload.originPhraseId, 120);
     const originQuery = cleanText(payload.originQuery, 240);
+    const restoreQuery = cleanText(payload.restoreQuery, 240);
+    const restoreAnchorTime = validVideoTime(payload.restoreAnchorTime);
     const originCaption = cleanText(payload.originCaption, 1_000);
     const language = cleanText(payload.language, 20).toLocaleLowerCase("en") || "english";
     const accent = cleanText(payload.accent, 20).toLocaleLowerCase("en");
     const progressResult = readVideoProgressInput(payload.progress);
     const validLanguage = language === "english";
     const validAccent = !accent || accent === "us" || accent === "uk";
-    if (!isYouTubeVideoId(videoId) || !originQuery) {
-      return json({ error: "A valid YouTube video and its original query are required." }, { status: 400 });
+    if (!isYouTubeVideoId(videoId) || !originQuery || !restoreQuery || restoreAnchorTime === null) {
+      return json({ error: "A valid YouTube video, display query, restore query, and restore anchor are required." }, { status: 400 });
     }
     if (!validLanguage || !validAccent) {
       return json({ error: "Unsupported YouGlish language or accent." }, { status: 400 });
@@ -135,9 +149,10 @@ export async function POST(request: Request) {
     const id = existing?.id || "video-" + crypto.randomUUID();
     await db.prepare(`
       INSERT INTO saved_videos
-        (id, user_id, youtube_video_id, origin_phrase_id, origin_query, origin_caption, language, accent,
+        (id, user_id, youtube_video_id, origin_phrase_id, origin_query, restore_query, restore_anchor_seconds,
+          origin_caption, language, accent,
           resume_seconds, resume_caption_id, resume_caption_text, progress_updated_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(user_id, youtube_video_id) DO UPDATE SET
         origin_phrase_id = CASE
           WHEN excluded.origin_phrase_id IS NOT NULL THEN excluded.origin_phrase_id
@@ -147,6 +162,8 @@ export async function POST(request: Request) {
           WHEN excluded.origin_query <> '' THEN excluded.origin_query
           ELSE saved_videos.origin_query
         END,
+        restore_query = excluded.restore_query,
+        restore_anchor_seconds = excluded.restore_anchor_seconds,
         origin_caption = CASE
           WHEN excluded.origin_caption <> '' THEN excluded.origin_caption
           ELSE saved_videos.origin_caption
@@ -176,6 +193,8 @@ export async function POST(request: Request) {
       videoId,
       visiblePhraseId,
       originQuery,
+      restoreQuery,
+      restoreAnchorTime,
       originCaption,
       language,
       accent,
@@ -188,7 +207,8 @@ export async function POST(request: Request) {
     ).run();
 
     const row = await db.prepare(`
-      SELECT id, youtube_video_id, origin_phrase_id, origin_query, origin_caption, language, accent,
+      SELECT id, youtube_video_id, origin_phrase_id, origin_query, restore_query, restore_anchor_seconds,
+        origin_caption, language, accent,
         resume_seconds, resume_caption_id, resume_caption_text, progress_updated_at, created_at, updated_at
       FROM saved_videos
       WHERE user_id = ? AND youtube_video_id = ?

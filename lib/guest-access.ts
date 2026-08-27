@@ -1,5 +1,6 @@
 const publicAssetPaths = new Set([
   "/caption-navigation.js",
+  "/youglish-video-restore.js",
   "/video-progress-sync.js",
   "/favicon.svg",
   "/file.svg",

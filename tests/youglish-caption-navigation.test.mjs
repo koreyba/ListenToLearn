@@ -5,6 +5,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 
 const trainerPath = new URL("../public/trainer.html", import.meta.url);
 const navigationPath = new URL("../public/caption-navigation.js", import.meta.url);
+const videoRestorePath = new URL("../public/youglish-video-restore.js", import.meta.url);
 const liveTracePath = new URL("./fixtures/youglish-live-caption-traces.json", import.meta.url);
 
 async function nextTurn() {
@@ -19,15 +20,19 @@ async function liveTraceScenario(id) {
 }
 
 async function createTrainer({
+  autoPlayerReady = true,
   controlledTimeoutMs = null,
   playError = null,
+  requireReadyAndPlayingForMove = false,
   replayError = null,
   trace = false,
+  url = "",
 } = {}) {
   let nowMs = 1_000;
-  const [rawTrainerSource, navigationSource] = await Promise.all([
+  const [rawTrainerSource, navigationSource, videoRestoreSource] = await Promise.all([
     readFile(trainerPath, "utf8"),
     readFile(navigationPath, "utf8"),
+    readFile(videoRestorePath, "utf8"),
   ]);
   const trainerSource = controlledTimeoutMs === null
     ? rawTrainerSource
@@ -35,11 +40,17 @@ async function createTrainer({
         "const CONTROLLED_CAPTION_TIMEOUT_MS = 20_000;",
         `const CONTROLLED_CAPTION_TIMEOUT_MS = ${controlledTimeoutMs};`,
       );
-  const html = trainerSource.replace(
-    '<script src="/caption-navigation.js"></script>',
-    `<script>${navigationSource}</script>`,
-  );
+  const html = trainerSource
+    .replace(
+      '<script src="/caption-navigation.js"></script>',
+      `<script>${navigationSource}</script>`,
+    )
+    .replace(
+      '<script src="/youglish-video-restore.js"></script>',
+      `<script>${videoRestoreSource}</script>`,
+    );
   const widgetCalls = {
+    droppedMove: [],
     fetch: [],
     move: [],
     pause: 0,
@@ -47,6 +58,8 @@ async function createTrainer({
     replay: 0,
   };
   let widgetEvents;
+  let providerPlaying = false;
+  let providerReady = false;
 
   class FakeWidget {
     constructor(_elementId, options) {
@@ -58,6 +71,10 @@ async function createTrainer({
     }
 
     move(delta) {
+      if (requireReadyAndPlayingForMove && (!providerReady || !providerPlaying)) {
+        widgetCalls.droppedMove.push(delta);
+        return;
+      }
       widgetCalls.move.push(delta);
     }
 
@@ -104,9 +121,9 @@ async function createTrainer({
     },
     pretendToBeVisual: true,
     runScripts: "dangerously",
-    url: trace
+    url: url || (trace
       ? "http://127.0.0.1/trainer?phrase=test&phraseId=phrase-1&captionTrace=1"
-      : "https://listen-to-learn.test/trainer?phrase=test&phraseId=phrase-1",
+      : "https://listen-to-learn.test/trainer?phrase=test&phraseId=phrase-1"),
     virtualConsole,
   });
 
@@ -115,7 +132,15 @@ async function createTrainer({
   assert.equal(typeof dom.window.onYouglishAPIReady, "function");
   dom.window.onYouglishAPIReady();
   assert.ok(widgetEvents, "the fake widget must receive YouGlish event callbacks");
-  widgetEvents.onPlayerReady();
+  const emitPlayerReady = () => {
+    providerReady = true;
+    widgetEvents.onPlayerReady();
+  };
+  const emitPlayerStateChange = event => {
+    providerPlaying = Number(event && event.state) === 1;
+    widgetEvents.onPlayerStateChange(event);
+  };
+  if (autoPlayerReady) emitPlayerReady();
 
   const document = dom.window.document;
   const controls = {
@@ -125,17 +150,387 @@ async function createTrainer({
     replay: document.getElementById("replayBtn"),
     repeat: document.getElementById("repeatCaptionBtn"),
     status: document.getElementById("captionNavigationHint"),
+    watchFullVideo: document.getElementById("watchFullVideoBtn"),
   };
 
   return {
     advanceTime: milliseconds => { nowMs += milliseconds; },
     close: () => dom.window.close(),
     controls,
-    events: widgetEvents,
+    events: {
+      ...widgetEvents,
+      onPlayerReady: emitPlayerReady,
+      onPlayerStateChange: emitPlayerStateChange,
+    },
+    providerStatus: document.getElementById("status"),
+    restoreBanner: document.getElementById("fullVideoRestoreStatus"),
+    location: () => dom.window.location.href,
+    storedProgress: videoId => {
+      const raw = dom.window.localStorage.getItem("unmumble-youtube-progress-v1:anonymous");
+      return raw ? JSON.parse(raw).videos?.[videoId] || null : null;
+    },
+    storedVideos: () => {
+      const raw = dom.window.localStorage.getItem("unmumble-guest-library-v1");
+      return raw ? JSON.parse(raw).savedVideos || [] : [];
+    },
     trace: () => JSON.parse(controls.previous.parentElement.dataset.trace || "{}"),
     widgetCalls,
   };
 }
+
+test("Continue in video retains the first marked locator after playback advances", async t => {
+  const trainer = await createTrainer();
+  t.after(trainer.close);
+
+  trainer.events.onVideoChange({ trackNumber: 0, video: "w66ecIT-Xkk" });
+  trainer.events.onCaptionChange(caption(
+    "matched",
+    100,
+    "That is [[[the actual match]]] in this video.",
+    "w66ecIT-Xkk",
+  ));
+  assert.equal(trainer.controls.watchFullVideo.hidden, false);
+
+  trainer.events.onCaptionChange(caption(
+    "later",
+    104,
+    "A later caption without provider markers.",
+    "w66ecIT-Xkk",
+  ));
+  assert.equal(trainer.controls.watchFullVideo.hidden, false);
+
+  const fetchCount = trainer.widgetCalls.fetch.length;
+  trainer.controls.watchFullVideo.click();
+  const fullVideoUrl = new URL(trainer.location());
+
+  assert.equal(fullVideoUrl.searchParams.get("restoreQuery"), "the actual match");
+  assert.equal(trainer.widgetCalls.fetch.length, fetchCount);
+});
+
+test("Continue in video keeps an actively playing result playing", async t => {
+  const trainer = await createTrainer();
+  t.after(trainer.close);
+
+  trainer.events.onVideoChange({ trackNumber: 0, video: "w66ecIT-Xkk" });
+  trainer.events.onCaptionChange(caption(
+    "matched",
+    100,
+    "That is [[[the actual match]]] in this video.",
+    "w66ecIT-Xkk",
+  ));
+  trainer.events.onPlayerStateChange({ state: 1 });
+
+  trainer.controls.watchFullVideo.click();
+
+  assert.equal(trainer.widgetCalls.pause, 0);
+});
+
+test("Continue in video measures and carries the original playback anchor", async t => {
+  const trainer = await createTrainer();
+  t.after(trainer.close);
+
+  trainer.events.onVideoChange({ trackNumber: 0, video: "w66ecIT-Xkk" });
+  trainer.events.onCaptionChange(caption(
+    "matched",
+    undefined,
+    "That is [[[the actual match]]] in this video.",
+    "w66ecIT-Xkk",
+  ));
+
+  assert.equal(trainer.controls.watchFullVideo.hidden, true);
+
+  trainer.advanceTime(5_000);
+  trainer.events.onCaptionChange(caption(
+    "timed",
+    105,
+    "The first timed caption after the match.",
+    "w66ecIT-Xkk",
+  ));
+
+  assert.equal(trainer.controls.watchFullVideo.hidden, false);
+  trainer.controls.watchFullVideo.click();
+
+  const fullVideoUrl = new URL(trainer.location());
+  assert.equal(fullVideoUrl.searchParams.get("restoreAnchorTime"), "100");
+  assert.equal(trainer.storedVideos()[0]?.restoreAnchorTime, 100);
+});
+
+test("restore anchor clock starts when a new result begins after the previous video ended", async t => {
+  const trainer = await createTrainer();
+  t.after(trainer.close);
+
+  trainer.events.onPlayerStateChange({ state: -1 });
+  trainer.events.onVideoChange({ trackNumber: 1, video: "w66ecIT-Xkk" });
+  trainer.events.onCaptionChange(caption(
+    "matched",
+    undefined,
+    "That is [[[the actual match]]] in this video.",
+    "w66ecIT-Xkk",
+  ));
+  trainer.events.onPlayerStateChange({ state: 3 });
+  trainer.events.onPlayerStateChange({ state: 1 });
+  trainer.advanceTime(5_000);
+  trainer.events.onCaptionChange(caption(
+    "timed",
+    105,
+    "The first timed caption after the match.",
+    "w66ecIT-Xkk",
+  ));
+
+  trainer.controls.watchFullVideo.click();
+  assert.equal(new URL(trainer.location()).searchParams.get("restoreAnchorTime"), "100");
+});
+
+test("cold Full Video keeps a non-blocking in-player banner until the saved position is confirmed", async t => {
+  const trainer = await createTrainer({
+    autoPlayerReady: false,
+    url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&resumeTime=400&language=english&accent=uk",
+  });
+  t.after(trainer.close);
+
+  assert.ok(trainer.restoreBanner, "the video frame must expose a dedicated restore banner");
+  assert.equal(trainer.restoreBanner.tagName, "OUTPUT");
+  assert.equal(trainer.restoreBanner.getAttribute("role"), null);
+  assert.equal(trainer.restoreBanner.getAttribute("aria-live"), "polite");
+  assert.equal(trainer.restoreBanner.closest("#widgetFrame")?.id, "widgetFrame");
+  assert.equal(trainer.restoreBanner.hidden, false);
+  assert.equal(trainer.restoreBanner.textContent, "Restoring to 6:40…");
+
+  trainer.events.onFetchDone({ totalResult: 1 });
+  trainer.events.onVideoChange({ trackNumber: 0, video: "w66ecIT-Xkk" });
+  trainer.events.onCaptionChange(caption(
+    "anchor",
+    undefined,
+    "That is [[[the actual match]]] in this video.",
+    "w66ecIT-Xkk",
+  ));
+  trainer.events.onPlayerReady();
+  trainer.events.onPlayerStateChange({ state: 1 });
+
+  assert.equal(trainer.restoreBanner.hidden, false);
+  assert.equal(trainer.restoreBanner.textContent, "Restoring to 6:40…");
+
+  trainer.events.onCaptionChange(caption(
+    "resumed",
+    399.8,
+    "The saved position is confirmed.",
+    "w66ecIT-Xkk",
+  ));
+
+  assert.equal(trainer.restoreBanner.hidden, true);
+  assert.equal(trainer.providerStatus.textContent, "Full video ready at 6:40.");
+});
+
+test("cold Full Video without saved progress does not pause its first caption", async t => {
+  const trainer = await createTrainer({
+    url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&restoreAnchorTime=100&language=english&accent=uk",
+  });
+  t.after(trainer.close);
+
+  trainer.events.onVideoChange({ trackNumber: 0, video: "w66ecIT-Xkk" });
+  trainer.events.onCaptionChange(caption(
+    "first",
+    100,
+    "That is [[[the actual match]]] in this video.",
+    "w66ecIT-Xkk",
+  ));
+
+  assert.equal(trainer.widgetCalls.pause, 0);
+});
+
+test("cold Full Video keeps playing after a caption confirms the saved position", async t => {
+  const trainer = await createTrainer({
+    autoPlayerReady: false,
+    requireReadyAndPlayingForMove: true,
+    url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&resumeCaption=mutable+last+caption&resumeTime=400&language=english&accent=uk",
+  });
+  t.after(trainer.close);
+
+  assert.deepEqual(trainer.widgetCalls.fetch, [[
+    "the actual match #w66ecIT-Xkk",
+    "english",
+    "uk",
+  ]]);
+
+  trainer.events.onVideoChange({ trackNumber: 0, video: "w66ecIT-Xkk" });
+  trainer.events.onCaptionChange(caption(
+    "anchor",
+    100,
+    "That is [[[the actual match]]] in this video.",
+    "w66ecIT-Xkk",
+  ));
+
+  assertDeltas(trainer.widgetCalls.droppedMove, []);
+  assertDeltas(trainer.widgetCalls.move, []);
+  assert.equal(trainer.widgetCalls.play, 0);
+
+  trainer.events.onPlayerReady();
+
+  assert.equal(trainer.widgetCalls.play, 1);
+  assertDeltas(trainer.widgetCalls.move, []);
+
+  trainer.events.onPlayerStateChange({ state: 3 });
+
+  assert.equal(trainer.storedProgress("w66ecIT-Xkk"), null);
+
+  trainer.events.onPlayerStateChange({ state: 1 });
+
+  assertDeltas(trainer.widgetCalls.move, [300]);
+  assert.equal(trainer.widgetCalls.pause, 0);
+
+  trainer.events.onPlayerStateChange({ state: 3 });
+  trainer.events.onPlayerStateChange({ state: 1 });
+
+  assertDeltas(trainer.widgetCalls.move, [300]);
+
+  trainer.events.onCaptionChange(caption(
+    "anchor-after-ignored-move",
+    100,
+    "The provider ignored the first movement.",
+    "w66ecIT-Xkk",
+  ));
+
+  assertDeltas(trainer.widgetCalls.move, [300, 300]);
+  assert.equal(trainer.widgetCalls.pause, 0);
+
+  trainer.events.onCaptionChange(caption(
+    "resumed",
+    400,
+    "The mutable resumed caption.",
+    "w66ecIT-Xkk",
+  ));
+
+  assertDeltas(trainer.widgetCalls.move, [300, 300]);
+  assert.equal(trainer.widgetCalls.pause, 0);
+});
+
+test("cold Full Video stops retrying after three unconfirmed resume moves", async t => {
+  const trainer = await createTrainer({
+    url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&resumeTime=400&language=english&accent=uk",
+  });
+  t.after(trainer.close);
+
+  trainer.events.onVideoChange({ trackNumber: 0, video: "w66ecIT-Xkk" });
+  trainer.events.onCaptionChange(caption("anchor", 100, "Anchor", "w66ecIT-Xkk"));
+  trainer.events.onPlayerStateChange({ state: 1 });
+
+  trainer.events.onCaptionChange(caption("ignored-1", 100, "Ignored 1", "w66ecIT-Xkk"));
+  trainer.events.onCaptionChange(caption("ignored-2", 100, "Ignored 2", "w66ecIT-Xkk"));
+  trainer.events.onCaptionChange(caption("ignored-3", 100, "Ignored 3", "w66ecIT-Xkk"));
+  trainer.events.onCaptionChange(caption("ignored-4", 100, "Ignored 4", "w66ecIT-Xkk"));
+
+  assertDeltas(trainer.widgetCalls.move, [300, 300, 300]);
+  assert.equal(trainer.restoreBanner.hidden, true);
+  assert.match(trainer.providerStatus.textContent, /could not resume/i);
+  assert.equal(trainer.storedProgress("w66ecIT-Xkk"), null);
+});
+
+test("cold Full Video plays past an untimed anchor and resumes from the next timed caption", async t => {
+  const trainer = await createTrainer({
+    url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&resumeTime=470.57427815255215&language=english&accent=uk",
+  });
+  t.after(trainer.close);
+
+  trainer.events.onVideoChange({ trackNumber: 0, video: "w66ecIT-Xkk" });
+  trainer.events.onCaptionChange(caption(
+    "anchor",
+    undefined,
+    "That is [[[the actual match]]] in this video.",
+    "w66ecIT-Xkk",
+  ));
+
+  assert.equal(trainer.widgetCalls.play, 1);
+  assert.deepEqual(trainer.widgetCalls.move, []);
+  assert.equal(trainer.widgetCalls.pause, 0);
+
+  trainer.events.onPlayerStateChange({ state: 1 });
+  trainer.events.onCaptionChange(caption(
+    "first-timed-caption",
+    469.02237007247925,
+    "The first callback with provider timing.",
+    "w66ecIT-Xkk",
+  ));
+
+  assertDeltas(trainer.widgetCalls.move, [1.5519080800729]);
+});
+
+test("cold Full Video waits for actual provider time instead of making an intermediate jump", async t => {
+  const trainer = await createTrainer({
+    autoPlayerReady: false,
+    requireReadyAndPlayingForMove: true,
+    url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&restoreAnchorTime=2400&resumeTime=2580&language=english&accent=uk",
+  });
+  t.after(trainer.close);
+
+  trainer.events.onVideoChange({ trackNumber: 0, video: "w66ecIT-Xkk" });
+  trainer.events.onPlayerReady();
+
+  assert.equal(trainer.widgetCalls.play, 1);
+  assertDeltas(trainer.widgetCalls.move, []);
+
+  trainer.events.onPlayerStateChange({ state: 1 });
+
+  assertDeltas(trainer.widgetCalls.move, []);
+
+  trainer.events.onCaptionChange(caption(
+    "actual-provider-position",
+    1020,
+    "YouGlish opened another occurrence at 17:00.",
+    "w66ecIT-Xkk",
+  ));
+
+  assertDeltas(trainer.widgetCalls.move, [1560]);
+
+  trainer.events.onCaptionChange(caption(
+    "saved-position",
+    2580,
+    "The saved position is confirmed at 43:00.",
+    "w66ecIT-Xkk",
+  ));
+
+  assertDeltas(trainer.widgetCalls.move, [1560]);
+});
+
+test("cold Full Video waits for the expected video before requesting playback", async t => {
+  const trainer = await createTrainer({
+    url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&restoreAnchorTime=2400&resumeTime=2580&language=english&accent=uk",
+  });
+  t.after(trainer.close);
+
+  assert.equal(trainer.widgetCalls.play, 0);
+
+  trainer.events.onVideoChange({ trackNumber: 0, video: "w66ecIT-Xkk" });
+
+  assert.equal(trainer.widgetCalls.play, 1);
+  assertDeltas(trainer.widgetCalls.move, []);
+});
+
+test("cold Full Video restore rejects a provider result for another video", async t => {
+  const trainer = await createTrainer({
+    url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&language=english&accent=uk",
+  });
+  t.after(trainer.close);
+
+  trainer.events.onVideoChange({ trackNumber: 0, video: "M7lc1UVf-VE" });
+
+  assert.match(trainer.providerStatus.textContent, /could not restore the saved video/i);
+  assert.deepEqual(trainer.widgetCalls.move, []);
+});
+
+test("cold Full Video replaces the restoring banner when the provider finds no result", async t => {
+  const trainer = await createTrainer({
+    url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&resumeTime=400&language=english&accent=uk",
+  });
+  t.after(trainer.close);
+
+  assert.equal(trainer.restoreBanner.hidden, false);
+
+  trainer.events.onFetchDone({ totalResult: 0 });
+
+  assert.equal(trainer.restoreBanner.hidden, true);
+  assert.equal(trainer.providerStatus.classList.contains("error"), true);
+  assert.match(trainer.providerStatus.textContent, /could not restore the saved video/i);
+});
 
 function caption(id, time, text = id, video) {
   return {
@@ -191,6 +586,32 @@ test("local caption traces capture commands and state without retaining provider
   assert.doesNotMatch(serialized, /sensitive-video-id/);
   assert.doesNotMatch(serialized, /sensitive-caption/);
   assert.doesNotMatch(serialized, /private .* caption words/);
+});
+
+test("sanitized caption traces can be enabled on the branch preview", async t => {
+  const trainer = await createTrainer({
+    url: "https://feature-youglish-video-restore-anchor-unmumble-preview.koreybadenis.workers.dev/trainer?phrase=test&phraseId=phrase-1&captionTrace=1",
+  });
+  t.after(trainer.close);
+
+  observeVideo(trainer, "sensitive-video-id", [
+    caption("sensitive-caption", 603, "private caption words"),
+  ]);
+
+  const trace = trainer.trace();
+  assert.equal(trace.version, "listen-to-learn.youglish-caption-trace/v1");
+  assert.doesNotMatch(JSON.stringify(trace), /sensitive|private caption words/);
+});
+
+test("caption traces remain disabled on production even with the opt-in parameter", async t => {
+  const trainer = await createTrainer({
+    url: "https://unmumble.online/trainer?phrase=test&phraseId=phrase-1&captionTrace=1",
+  });
+  t.after(trainer.close);
+
+  observeVideo(trainer, "video-id", [caption("caption-id", 603, "caption words")]);
+
+  assert.deepEqual(trainer.trace(), {});
 });
 
 test("local caption traces record CaptionConsumed even when Repeat is off", async t => {

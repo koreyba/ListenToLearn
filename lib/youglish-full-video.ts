@@ -2,6 +2,8 @@ export type FullVideoOrigin = {
   videoId: string;
   originPhraseId?: string;
   originQuery: string;
+  restoreQuery: string;
+  restoreAnchorTime: number;
   originCaption?: string;
   language?: string;
   accent?: string;
@@ -24,6 +26,13 @@ function isYouTubeVideoId(value: string) {
   return /^[A-Za-z0-9_-]{11}$/.test(value);
 }
 
+function videoTime(value: unknown) {
+  if (value === null || value === undefined
+      || (typeof value === "string" && !value.trim())) return null;
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds >= 0 && seconds <= 604_800 ? seconds : null;
+}
+
 export function videoSpecificQuery(queryValue: unknown, videoIdValue: unknown) {
   const query = cleanText(queryValue, 1_000);
   const videoId = cleanText(videoIdValue, 20);
@@ -43,12 +52,19 @@ export function buildFullVideoTrainerUrl(
 ) {
   const videoId = cleanText(origin.videoId, 20);
   const originalQuery = cleanText(origin.originQuery, 240);
-  if (!isYouTubeVideoId(videoId) || !originalQuery) return "";
+  const restoreQuery = cleanText(origin.restoreQuery, 240);
+  const restoreAnchorTime = videoTime(origin.restoreAnchorTime);
+  if (!isYouTubeVideoId(videoId)
+      || !originalQuery
+      || !restoreQuery
+      || restoreAnchorTime === null) return "";
 
   const url = new URL("/trainer", baseUrl);
   url.searchParams.set("fullVideo", "1");
   url.searchParams.set("video", videoId);
   url.searchParams.set("query", originalQuery);
+  url.searchParams.set("restoreQuery", restoreQuery);
+  url.searchParams.set("restoreAnchorTime", String(restoreAnchorTime));
   const phraseId = cleanText(origin.originPhraseId, 120);
   const originCaption = cleanText(origin.originCaption, 1_000);
   const language = cleanText(origin.language, 20).toLocaleLowerCase("en") || "english";

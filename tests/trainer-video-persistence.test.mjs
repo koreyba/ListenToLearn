@@ -19,6 +19,9 @@ test("trainer sends initial resume metadata and flushes changed progress on paus
   const trainer = await readFile(new URL("../public/trainer.html", import.meta.url), "utf8");
 
   assert.match(trainer, /recordCurrentVideoHistory\(origin, progress\)/);
+  assert.match(trainer, /restoreQuery: fullVideoOrigin\.restoreQuery/);
+  assert.match(trainer, /const matchedRestoreQuery = youglishVideoRestore[\s\S]*?extractRestoreQuery\(nextCaptionRaw\)/);
+  assert.match(trainer, /restoreQuery: currentYouglishRestoreQuery/);
   assert.match(trainer, /persistFullVideoProgress\(\{ flush: true \}\)/);
   assert.match(trainer, /pagehide[\s\S]*?persistFullVideoProgress\(\{ flush: true, keepalive: true \}\)/);
   assert.match(trainer, /accountVideoProgressSync\.flush\(\{ keepalive: Boolean\(options\.keepalive\) \}\)/);

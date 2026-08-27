@@ -1,0 +1,1 @@
+ALTER TABLE `saved_videos` ADD `restore_anchor_seconds` real DEFAULT -1 NOT NULL;

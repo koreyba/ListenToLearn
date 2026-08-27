@@ -67,15 +67,25 @@ function readProgressState(storageKey: string, legacyKeys: readonly string[]) {
 function openLegacyDirectLink(progress: Record<string, YouTubeProgressEntry>) {
   const searchParams = new URLSearchParams(window.location.search);
   const requestedVideo = searchParams.get("video") || "";
+  const requestedRestoreAnchor = searchParams.get("restoreAnchorTime");
+  const restoreAnchorTime = requestedRestoreAnchor === null || !requestedRestoreAnchor.trim()
+    ? null
+    : Number(requestedRestoreAnchor);
   const directOrigin = {
     videoId: requestedVideo,
     originPhraseId: (searchParams.get("phraseId") || "").slice(0, 120),
     originQuery: (searchParams.get("query") || "").slice(0, 240),
+    restoreQuery: (searchParams.get("restoreQuery") || "").slice(0, 240),
+    restoreAnchorTime: restoreAnchorTime ?? Number.NaN,
     originCaption: (searchParams.get("caption") || "").slice(0, 1_000),
     language: "english",
     accent: (searchParams.get("accent") || "").slice(0, 20),
   };
-  if (!isYouTubeVideoId(requestedVideo) || !directOrigin.originQuery) return;
+  if (!isYouTubeVideoId(requestedVideo)
+      || !directOrigin.originQuery
+      || !directOrigin.restoreQuery
+      || restoreAnchorTime === null
+      || !Number.isFinite(restoreAnchorTime)) return;
   const resume = readYouTubeResume({ version: 1, videos: progress }, requestedVideo);
   const fullVideoUrl = buildFullVideoTrainerUrl(directOrigin, resume);
   if (fullVideoUrl) window.location.replace(fullVideoUrl);

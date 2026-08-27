@@ -17,11 +17,13 @@ test("video-specific query preserves the phrase and appends one canonical video 
   assert.equal(videoSpecificQuery("hello", "invalid"), "");
 });
 
-test("full-video URL uses the last caption for cold restore and retains the original query", () => {
+test("full-video URL keeps a stable restore query separate from resume progress", () => {
   const url = new URL(buildFullVideoTrainerUrl({
     videoId: "w66ecIT-Xkk",
     originPhraseId: "base-0",
     originQuery: "I don't know if it's",
+    restoreQuery: "the actual match",
+    restoreAnchorTime: 100.25,
     originCaption: "I just think a mix would have been nice.",
     language: "english",
     accent: "us",
@@ -36,9 +38,32 @@ test("full-video URL uses the last caption for cold restore and retains the orig
   assert.equal(url.searchParams.get("fullVideo"), "1");
   assert.equal(url.searchParams.get("video"), "w66ecIT-Xkk");
   assert.equal(url.searchParams.get("query"), "I don't know if it's");
+  assert.equal(url.searchParams.get("restoreQuery"), "the actual match");
+  assert.equal(url.searchParams.get("restoreAnchorTime"), "100.25");
   assert.equal(url.searchParams.get("resumeCaption"), "relatively in the weeds of actually allocating capital");
   assert.equal(url.searchParams.get("resumeCaptionId"), "187152571");
   assert.equal(url.searchParams.get("resumeTime"), "2401.069");
   assert.equal(url.searchParams.get("language"), "english");
   assert.equal(url.searchParams.get("accent"), "us");
+});
+
+test("full-video URL rejects a video without the immutable restore query", () => {
+  assert.equal(buildFullVideoTrainerUrl({
+    videoId: "w66ecIT-Xkk",
+    originQuery: "I don't know if it's",
+  }), "");
+});
+
+test("full-video URL rejects a video without its measured restore anchor", () => {
+  assert.equal(buildFullVideoTrainerUrl({
+    videoId: "w66ecIT-Xkk",
+    originQuery: "I don't know if it's",
+    restoreQuery: "the actual match",
+  }), "");
+  assert.equal(buildFullVideoTrainerUrl({
+    videoId: "w66ecIT-Xkk",
+    originQuery: "I don't know if it's",
+    restoreQuery: "the actual match",
+    restoreAnchorTime: null,
+  }), "");
 });

@@ -30,13 +30,27 @@
 }
 
 .site-brand {
+  display: inline-flex;
+  height: 40px;
+  align-items: center;
   width: max-content;
-  font-size: 15px;
-  font-weight: 800;
-  letter-spacing: -.025em;
 }
 
 .site-brand[aria-current="page"] { color: var(--text); }
+
+.site-brand-logo {
+  display: block;
+  width: 140px;
+  aspect-ratio: 1845 / 505;
+  background-image: url("/brand/unmumble-logo-dark.png");
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+}
+
+:root[data-theme="light"] .site-brand-logo {
+  background-image: url("/brand/unmumble-logo-light.png");
+}
 
 .site-primary-links {
   display: flex;
@@ -163,6 +177,8 @@
     min-height: 56px;
     padding: 6px 14px;
   }
+
+  .site-brand-logo { width: 118px; }
 
   .site-primary-links {
     position: fixed;

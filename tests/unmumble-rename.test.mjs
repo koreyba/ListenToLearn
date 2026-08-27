@@ -34,12 +34,13 @@ test("active product surfaces present the Unmumble brand", async () => {
   assert.equal(packageConfig.name, "unmumble");
   assert.equal(packageConfig.displayName, "Unmumble");
   assert.match(layout, /title: "Unmumble"/);
-  assert.match(navigation, />Unmumble<\/Link>/);
-  assert.match(navigation, /aria-label="Unmumble library"/);
+  assert.match(navigation, /aria-label="Unmumble"/);
+  assert.match(navigation, /className="site-brand-logo"/);
   assert.doesNotMatch(workspace, /Connected speech trainer/i);
   assert.doesNotMatch(integrations, /Connected speech trainer/i);
   assert.match(trainer, /<title>Unmumble<\/title>/);
-  assert.match(trainer, /aria-label="Unmumble library">Unmumble<\/a>/);
+  assert.match(trainer, /aria-label="Unmumble"/);
+  assert.match(trainer, /class="site-brand-logo"/);
   assert.doesNotMatch(trainer, /Connected Speech Trainer/i);
   assert.match(readme, /^# Unmumble$/m);
   assert.match(readme, /unmumble\.online/);

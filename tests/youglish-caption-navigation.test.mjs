@@ -20,8 +20,10 @@ async function liveTraceScenario(id) {
 }
 
 async function createTrainer({
+  autoPlayerReady = true,
   controlledTimeoutMs = null,
   playError = null,
+  requireReadyAndPlayingForMove = false,
   replayError = null,
   trace = false,
   url = "",
@@ -48,6 +50,7 @@ async function createTrainer({
       `<script>${videoRestoreSource}</script>`,
     );
   const widgetCalls = {
+    droppedMove: [],
     fetch: [],
     move: [],
     pause: 0,
@@ -55,6 +58,8 @@ async function createTrainer({
     replay: 0,
   };
   let widgetEvents;
+  let providerPlaying = false;
+  let providerReady = false;
 
   class FakeWidget {
     constructor(_elementId, options) {
@@ -66,6 +71,10 @@ async function createTrainer({
     }
 
     move(delta) {
+      if (requireReadyAndPlayingForMove && (!providerReady || !providerPlaying)) {
+        widgetCalls.droppedMove.push(delta);
+        return;
+      }
       widgetCalls.move.push(delta);
     }
 
@@ -123,7 +132,15 @@ async function createTrainer({
   assert.equal(typeof dom.window.onYouglishAPIReady, "function");
   dom.window.onYouglishAPIReady();
   assert.ok(widgetEvents, "the fake widget must receive YouGlish event callbacks");
-  widgetEvents.onPlayerReady();
+  const emitPlayerReady = () => {
+    providerReady = true;
+    widgetEvents.onPlayerReady();
+  };
+  const emitPlayerStateChange = event => {
+    providerPlaying = Number(event && event.state) === 1;
+    widgetEvents.onPlayerStateChange(event);
+  };
+  if (autoPlayerReady) emitPlayerReady();
 
   const document = dom.window.document;
   const controls = {
@@ -140,9 +157,17 @@ async function createTrainer({
     advanceTime: milliseconds => { nowMs += milliseconds; },
     close: () => dom.window.close(),
     controls,
-    events: widgetEvents,
+    events: {
+      ...widgetEvents,
+      onPlayerReady: emitPlayerReady,
+      onPlayerStateChange: emitPlayerStateChange,
+    },
     providerStatus: document.getElementById("status"),
     location: () => dom.window.location.href,
+    storedProgress: videoId => {
+      const raw = dom.window.localStorage.getItem("unmumble-youtube-progress-v1:anonymous");
+      return raw ? JSON.parse(raw).videos?.[videoId] || null : null;
+    },
     trace: () => JSON.parse(controls.previous.parentElement.dataset.trace || "{}"),
     widgetCalls,
   };
@@ -177,8 +202,10 @@ test("Continue in video retains the first marked locator after playback advances
   assert.equal(trainer.widgetCalls.fetch.length, fetchCount);
 });
 
-test("cold Full Video restore uses the immutable match, saved accent, and one resume move", async t => {
+test("cold Full Video waits for provider readiness and active playback before one resume move", async t => {
   const trainer = await createTrainer({
+    autoPlayerReady: false,
+    requireReadyAndPlayingForMove: true,
     url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&resumeCaption=mutable+last+caption&resumeTime=400&language=english&accent=uk",
   });
   t.after(trainer.close);
@@ -196,6 +223,21 @@ test("cold Full Video restore uses the immutable match, saved accent, and one re
     "That is [[[the actual match]]] in this video.",
     "w66ecIT-Xkk",
   ));
+
+  assertDeltas(trainer.widgetCalls.droppedMove, []);
+  assertDeltas(trainer.widgetCalls.move, []);
+  assert.equal(trainer.widgetCalls.play, 0);
+
+  trainer.events.onPlayerReady();
+
+  assert.equal(trainer.widgetCalls.play, 1);
+  assertDeltas(trainer.widgetCalls.move, []);
+
+  trainer.events.onPlayerStateChange({ state: 3 });
+
+  assert.equal(trainer.storedProgress("w66ecIT-Xkk"), null);
+
+  trainer.events.onPlayerStateChange({ state: 1 });
 
   assertDeltas(trainer.widgetCalls.move, [300]);
   assert.equal(trainer.widgetCalls.pause, 0);

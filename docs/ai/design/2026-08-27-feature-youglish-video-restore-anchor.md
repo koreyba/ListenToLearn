@@ -66,11 +66,17 @@ locator from the current verified YouGlish result.
   valid video ID and marked match are both available.
 - The warm transition stores/pushes the same `restoreQuery` but does not refetch.
 - Cold initialization and Full Video `popstate` both require the new locator.
-- `onCaptionChange` attempts one resume move after the stable fetch. The pending
-  flag is cleared before calling the widget to prevent callback loops. If timing
-  is absent or the delta is negligible, no move is made and normal pause/restore
-  behavior continues at the anchor. Resume values retain the existing seven-day
-  upper bound before they can become a provider movement.
+- The first anchor caption stores its provider timestamp without consuming the
+  resume request. Resume waits for `onPlayerReady`; because cold Full Video uses
+  `autoStart: 0`, it then requests playback and waits for `PLAYING` before sending
+  exactly one relative move. The pending flag is cleared before that move to
+  prevent callback loops. If timing is absent or the delta is negligible, no
+  move is made and normal pause/restore behavior continues at the anchor. Resume
+  values retain the existing seven-day upper bound before they can become a
+  provider movement.
+- Buffering/pause callbacks produced by this controlled startup cannot persist
+  anchor progress over the saved target; progress writes resume only after the
+  restore has settled.
 - `onVideoChange` keeps the existing expected-video guard.
 
 ## Resume State Machine
@@ -80,7 +86,10 @@ stateDiagram-v2
   [*] --> Fetching: cold Full Video URL
   Fetching --> Rejected: different video ID
   Fetching --> Anchor: expected video and first caption
-  Anchor --> Seeking: finite resumeTime and current_time, nontrivial delta
+  Anchor --> ReadyWait: player is not ready
+  ReadyWait --> PlayWait: onPlayerReady
+  Anchor --> PlayWait: player ready but paused
+  PlayWait --> Seeking: PLAYING and finite resume delta
   Anchor --> Ready: timing absent or already near target
   Seeking --> Ready: resumed caption callback
   Ready --> [*]: pause restored and progress continues
@@ -94,6 +103,9 @@ stateDiagram-v2
   information exists only during discovery.
 - Relative resume uses documented `widget.move`; direct iframe or YouTube access
   is not introduced.
+- A provider command being callable is not treated as proof that the embedded
+  player is ready. Resume movement is gated by `onPlayerReady` and `PLAYING` so a
+  paused or still-loading widget cannot silently discard the one-shot command.
 - Missing timing falls back to the stable anchor, not to a text-search retry.
 - Legacy rows are filtered/dropped rather than migrated because the missing
   provider marker cannot be reconstructed reliably and the user accepted loss.

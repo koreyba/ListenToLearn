@@ -1531,6 +1531,7 @@
 
     let widget = null;
     let widgetReady = false;
+    let youglishPlayerReady = false;
     let blindRevealed = false;
     let currentQueryOverride = null;
     let currentCaptionRaw = "";
@@ -1588,6 +1589,9 @@
     let fullVideoMode = initialViewerParams.get("fullVideo") === "1";
     let fullVideoReturnSource = "youglish";
     let fullVideoRestoreShouldPause = fullVideoMode;
+    let fullVideoResumeAnchorObserved = false;
+    let fullVideoResumeAnchorTime = null;
+    let fullVideoResumePlayRequested = false;
     let fullVideoOrigin = {
       videoId: (initialViewerParams.get("video") || "").trim(),
       originPhraseId: (initialViewerParams.get("phraseId") || "").trim().slice(0, 120),
@@ -3837,6 +3841,9 @@
       fullVideoMode = true;
       fullVideoResumePending = false;
       fullVideoRestoreShouldPause = false;
+      fullVideoResumeAnchorObserved = false;
+      fullVideoResumeAnchorTime = null;
+      fullVideoResumePlayRequested = false;
       history.pushState({ fullVideo: true }, "", fullVideoUrl(fullVideoOrigin, readFullVideoProgress(origin.videoId)));
       applyFullVideoMode();
     }
@@ -3894,14 +3901,51 @@
       return `auto-caption-${captionEntrySequence}`;
     }
 
-    function moveToFullVideoResume(currentTime) {
+    function advanceFullVideoResume(currentTime, captionObserved = false) {
       if (!fullVideoMode || !fullVideoResumePending) return false;
-      fullVideoResumePending = false;
+      if (captionObserved) {
+        fullVideoResumeAnchorObserved = true;
+        const observedTime = finiteCaptionTime(currentTime);
+        if (observedTime !== null) fullVideoResumeAnchorTime = observedTime;
+      }
+      if (!fullVideoResumeAnchorObserved) return true;
+      if (fullVideoResumeAnchorTime === null) {
+        fullVideoResumePending = false;
+        fullVideoResumePlayRequested = false;
+        return false;
+      }
       const delta = youglishVideoRestore
-        ? youglishVideoRestore.resumeDelta(fullVideoOrigin.resumeTime, currentTime)
+        ? youglishVideoRestore.resumeDelta(fullVideoOrigin.resumeTime, fullVideoResumeAnchorTime)
         : null;
-      if (delta === null || !widget || typeof widget.move !== "function") return false;
+      if (delta === null) {
+        fullVideoResumePending = false;
+        fullVideoResumePlayRequested = false;
+        return false;
+      }
+      if (!youglishPlayerReady || !widget) return true;
+      if (playerState !== 1) {
+        if (!fullVideoResumePlayRequested && typeof widget.play === "function") {
+          try {
+            recordCaptionTrace("widget.command", { command: "play", reason: "full-video-resume" });
+            widget.play();
+            fullVideoResumePlayRequested = true;
+          } catch (error) {
+            fullVideoResumePending = false;
+            console.error(error);
+            return false;
+          }
+        }
+        return true;
+      }
+      fullVideoResumePending = false;
+      fullVideoResumePlayRequested = false;
+      if (typeof widget.move !== "function") return false;
       try {
+        recordCaptionTrace("widget.command", {
+          command: "move",
+          reason: "full-video-resume",
+          delta: Math.round(delta * 1000) / 1000
+        });
         widget.move(delta);
         return true;
       } catch (error) {
@@ -4021,7 +4065,7 @@
       hideTranslation();
       renderCaptionNavigation();
       if (!fullVideoMode) renderExampleTools();
-      const resumeMoveRequested = moveToFullVideoResume(currentTime);
+      const resumeMoveRequested = advanceFullVideoResume(currentTime, true);
       if (fullVideoMode && !resumeMoveRequested) {
         persistFullVideoProgress();
         if (fullVideoRestoreShouldPause && widgetReady && widget && typeof widget.pause === "function") {
@@ -4069,7 +4113,10 @@
       }
       playerState = nextState;
       renderPlaybackControl();
-      if (fullVideoMode && nextState !== 1) persistFullVideoProgress({ flush: true });
+      if (fullVideoMode && nextState === 1) advanceFullVideoResume();
+      if (fullVideoMode && nextState !== 1 && !fullVideoRestoreShouldPause) {
+        persistFullVideoProgress({ flush: true });
+      }
       recordCaptionTrace("widget.player-state-applied", { state: nextState });
     }
 
@@ -4141,12 +4188,14 @@
 
     function onPlayerReady() {
       widgetReady = true;
+      youglishPlayerReady = true;
       if (playerState === null) playerState = fullVideoMode ? 2 : 1;
       renderPlaybackControl();
       if (widget && typeof widget.setSpeed === "function") {
         try { widget.setSpeed(state.speed); } catch (_) {}
       }
       if (state.source !== "youglish") return;
+      advanceFullVideoResume();
       el.status.classList.remove("error");
       el.status.textContent = "Player ready.";
       if (!youglishHasFetched) {
@@ -4562,6 +4611,9 @@
         fullVideoResumePending = Number.isFinite(fullVideoOrigin.resumeTime)
           && fullVideoOrigin.resumeTime > 0;
         fullVideoRestoreShouldPause = true;
+        fullVideoResumeAnchorObserved = false;
+        fullVideoResumeAnchorTime = null;
+        fullVideoResumePlayRequested = false;
         state.source = "youglish";
         applyFullVideoMode();
         fetchPhrase(fullVideoOrigin.originalQuery, true);

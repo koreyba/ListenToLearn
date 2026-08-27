@@ -10,7 +10,9 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
 
 - [x] Milestone 1: Capture RED contracts for the stable locator and cold restore.
 - [x] Milestone 2: Implement and integrate the new-format saved-video contract.
-- [ ] Milestone 3: Complete full verification, review, documentation and PR.
+- [x] Milestone 3: Complete full verification, review, documentation and PR.
+- [x] Milestone 4: Correct the preview-reported resume command race and update
+  the existing PR.
 
 ## Task Breakdown
 
@@ -77,8 +79,11 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
   migration/lifecycle lint and diff checks; update testing evidence.
 - [x] T11: Reconcile planning and implementation docs, perform lifecycle review,
   and fix any blocking design, behavior, security or integration finding.
-- [ ] T12: Prepare a scoped conventional commit, push the feature branch and open
+- [x] T12: Prepare a scoped conventional commit, push the feature branch and open
   a pull request. Do not merge or deploy.
+- [x] T13: Reproduce the dropped resume command with a provider-readiness fake,
+  implement the callback-safe resume state machine, run mutation/full
+  verification, and update PR #26.
 
 ## Dependencies and Sequencing
 
@@ -114,7 +119,8 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
 
 ## Progress Summary
 
-T1-T11 are complete. A design-alignment pass added one required edge case: the
-first provider-marked locator is cached for the active video so later unmarked
-captions cannot hide Continue or change the saved identity. T12 PR delivery is
-next; no blocker or unresolved scope item remains.
+T1-T13 are complete. Preview feedback reproduced a test blind spot: the fake
+accepted `move` before the real player was ready or playing. The corrected
+contract waits for `onPlayerReady` and `PLAYING`, prevents buffering from
+overwriting saved progress, and has RED/GREEN plus mutation and full-suite proof
+on PR #26.

@@ -67,11 +67,26 @@ Cold Full Video initialization requires `videoId`, `originQuery` and
 US/UK accent (or omits accent for All). `resumeCaption` remains progress metadata
 and is never a search key. The existing `onVideoChange` expected-ID guard remains.
 
-After the anchor caption arrives, the trainer clears a one-shot pending flag and,
-when both times are finite and bounded, calls
-`widget.move(resumeTime - current_time)`. It waits for the resumed caption before
-restoring pause and persisting progress. Missing timing, a negligible delta or a
-movement error falls back to the stable anchor without another search.
+After the anchor caption arrives, the trainer retains its timestamp and the
+one-shot pending request until the embedded player reports `onPlayerReady` and
+`PLAYING`. A paused cold player is started only for this controlled resume; the
+trainer then clears the pending flag and calls
+`widget.move(resumeTime - current_time)` exactly once. It waits for the resumed
+caption before restoring pause and persisting progress. Missing timing, a
+negligible delta or a movement error falls back to the stable anchor without
+another search.
+
+The original PR implementation called `move` directly from the first caption
+callback while cold Full Video used `autoStart: 0`. Its fake widget always fired
+`onPlayerReady` before captions and recorded commands even when the provider
+would not accept them, so the test proved an attempted call rather than an
+effective resume. The callback-safe state machine and provider-readiness fake
+close that preview-reported gap.
+
+Transient `BUFFERING`/pause callbacks during controlled startup do not persist
+the anchor timestamp. Progress writes remain suspended until the target caption
+settles the restore, preventing a failed or interrupted attempt from replacing
+the previously correct saved position.
 
 ### Warm transition
 
@@ -107,6 +122,9 @@ cached locator.
   lifecycle lint and diff checks pass.
 - Mutation proof fails on the old mutable-caption query and returns to GREEN on
   the implemented locator.
+- Preview-follow-up mutation proofs fail when readiness/playing gates are removed
+  and when buffering is allowed to overwrite progress; both return to GREEN with
+  the callback-safe state machine and progress-write guard restored.
 
 ## Final Review
 

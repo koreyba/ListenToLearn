@@ -30,9 +30,12 @@ description: TDD contracts for provider locator persistence, cold restore and in
 
 - [x] A cold Full Video URL fetches `restoreQuery #videoId`, not
   `resumeCaption #videoId`, and uses the saved accent on the first call.
-- [x] The expected video callback followed by a timed anchor caption issues one
-  relative `move(resumeTime - current_time)`.
+- [x] A timed anchor arriving before `onPlayerReady` issues no movement; after
+  readiness, the paused player is started and exactly one relative
+  `move(resumeTime - current_time)` is accepted only after `PLAYING`.
 - [x] The resumed caption pauses playback once and does not issue another move.
+- [x] A transient `BUFFERING` callback before the move cannot persist anchor time
+  over the saved resume target.
 - [x] Missing `current_time` issues no speculative move and leaves the correct
   video usable at its stable anchor.
 - [x] A mismatched `onVideoChange.video` remains rejected.
@@ -54,7 +57,9 @@ description: TDD contracts for provider locator persistence, cold restore and in
 - Provider caption: `That is [[[the actual match]]] in this video.`.
 - Stable locator: `the actual match`.
 - Resume example: anchor `100s`, saved target `400s`, expected move `300s`.
-- Fake YouGlish widget records `fetch`, `move`, `pause`, `play` and callbacks.
+- Fake YouGlish widget records `fetch`, `move`, `pause`, `play` and callbacks;
+  the cold-resume contract can reject moves before provider readiness or active
+  playback instead of treating every attempted call as successful.
 
 ## Verification Commands
 
@@ -83,3 +88,15 @@ new record without `restoreQuery` blocks the PR.
 - Mutation proof: replacing the cold locator with `resumeCaption` made the
   browser contract fail on `mutable last caption #w66ecIT-Xkk`; restoring
   `restoreQuery` returned the same test to GREEN.
+- Preview follow-up RED: the provider-realistic fake discarded the pre-ready
+  movement and the old implementation never retried it. GREEN waits for
+  `onPlayerReady`, requests playback, waits for `PLAYING`, moves once, then
+  restores pause on the resumed caption.
+- A second RED exposed anchor-progress overwrite during the controlled
+  `BUFFERING` transition. GREEN suppresses progress writes until restore settles.
+- Follow-up mutation proofs fail when either readiness/playing gating or the
+  progress-write guard is removed, then pass again when each fix is restored.
+- Follow-up full verification: Vinext build and 241/241 tests pass; focused
+  caption and rendered contracts pass 64/64 and 42/42; TypeScript, lifecycle
+  lint and `git diff --check` pass; ESLint remains at 0 errors with the same two
+  generated-file warnings.

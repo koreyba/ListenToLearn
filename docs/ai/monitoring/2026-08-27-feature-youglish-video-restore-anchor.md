@@ -29,7 +29,9 @@ The deterministic tests use synthetic text and the existing trace stays sanitize
 - Guest and account: add a fresh result, advance to an unmarked caption, and
   confirm Continue still records one card.
 - Cold-open with US, UK and All; verify the first fetch uses the saved choice.
-- Reopen with progress: one relative movement at most, then normal playback.
+- Reopen with progress: no movement before `onPlayerReady`/`PLAYING`, one
+  relative movement at most, no anchor-progress write while buffering, then
+  normal playback.
 - Simulate missing timing: correct video opens at the stable match with no move.
 - Simulate a different video ID: the trainer rejects it.
 - Confirm old empty-locator account/guest records remain absent.

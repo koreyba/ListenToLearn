@@ -17,33 +17,34 @@ description: TDD contracts for provider locator persistence, cold restore and in
 
 - [x] Extract one or multiple marked `[[[...]]]` segments, normalize whitespace,
   and reject captions without a marked match.
-- [x] Build a Full Video URL only with a valid `videoId`, `originQuery`, and
-  `restoreQuery`; retain resume metadata without using it as the locator.
-- [x] Guest save/normalization round-trips `restoreQuery`, refreshes it on
-  deduplicating upsert, and drops legacy records without it.
-- [x] Account schema/migration/API round-trip `restore_query`, require it on new
-  writes, and filter old empty rows from reads.
-- [x] Rendered trainer contracts pass `restoreQuery` through guest/account
-  history, Full Video URLs and progress sync.
+- [x] Build a Full Video URL only with a valid `videoId`, `originQuery`,
+  `restoreQuery`, and `restoreAnchorTime`; retain resume metadata independently.
+- [x] Guest save/normalization round-trips both restore fields, refreshes them on
+  deduplicating upsert, and drops legacy records without either field.
+- [x] Account schema/migrations/API round-trip `restore_query` and
+  `restore_anchor_seconds`, require both on new writes, and filter old rows.
+- [x] Rendered trainer contracts pass both fields through guest/account history,
+  Full Video URLs and progress sync.
 
 ## Browser Integration Tests
 
 - [x] A cold Full Video URL fetches `restoreQuery #videoId`, not
   `resumeCaption #videoId`, and uses the saved accent on the first call.
-- [x] A timed anchor arriving before `onPlayerReady` issues no movement; after
-  readiness, the paused player is started and a relative
-  `move(resumeTime - current_time)` is sent only after `PLAYING`.
+- [x] A saved anchor arriving before `onPlayerReady` issues no movement; after
+  readiness, the paused player is started and
+  `move(resumeTime - restoreAnchorTime)` is sent on first `PLAYING`.
 - [x] An accepted-but-ignored movement is retried only after a new timed caption;
   player-state noise cannot duplicate it, and retries stop after three moves.
 - [x] A caption confirming the saved target pauses playback once and does not
   issue another move.
-- [x] A real-shape cold sequence with an untimed matched caption requests
-  playback, keeps restore pending, then calculates the move only when the next
-  caption supplies `current_time`.
+- [x] A cold sequence moves from the persisted anchor before any caption
+  callback; an untimed matched caption is not an initial-movement gate.
 - [x] A transient `BUFFERING` callback before the move cannot persist anchor time
   over the saved resume target.
-- [x] Missing `current_time` on the first caption issues no speculative move and
-  does not abandon restore.
+- [x] Discovery with an untimed match measures the anchor from the first later
+  timestamp minus only accumulated `PLAYING` time.
+- [x] `ENDED -> BUFFERING -> PLAYING` starts the discovery clock after state
+  application, avoiding the real `105` instead of `100` race.
 - [x] `Restoring to mm:ss…` is visible before player readiness, remains through
   fetch/video/untimed-caption callbacks, and clears only when the saved position
   is confirmed.
@@ -78,6 +79,8 @@ description: TDD contracts for provider locator persistence, cold restore and in
 - The untimed-anchor test uses the observed saved target `470.574278...` and the
   next provider timestamp `469.022370...`; before the fix it fails because no
   playback is requested and the restore is cleared.
+- The new immediate-move contract supplies `restoreAnchorTime=100`, emits no
+  caption callback, then expects `move(300)` on first `PLAYING`.
 - The restoring-status test uses a `400s` target and verifies the public DOM
   state (dedicated semantic `<output>` inside the video frame, polite live
   region, visible state and `6:40` copy) rather than internal resume flags.
@@ -170,3 +173,11 @@ new record without `restoreQuery` blocks the PR.
 - Final banner verification: fresh Vinext build and 246/246 repository tests
   pass; ESLint has zero errors and the same two generated warnings; TypeScript,
   lifecycle lint and `git diff --check` pass.
+- Persisted-anchor final verification: a fresh Vinext build and all 251/251
+  repository tests pass. ESLint has zero errors and the same two generated-file
+  warnings; TypeScript, lifecycle lint, dependency validation, repeat migration
+  generation and `git diff --check` pass.
+- A real local YouGlish run measured the discovery anchor at `343.986s`. A cold
+  open targeting `643.986s` sent `move(300)` on the first `PLAYING` callback,
+  before any timed cold caption; the next callbacks corrected by `-1.547s` and
+  confirmed `644.184s`.

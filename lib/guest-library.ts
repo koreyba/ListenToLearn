@@ -41,6 +41,7 @@ export type GuestSavedVideo = {
   originPhraseId: string;
   originQuery: string;
   restoreQuery: string;
+  restoreAnchorTime: number;
   originCaption: string;
   language: string;
   accent: string;
@@ -77,6 +78,7 @@ export type GuestVideoInput = {
   originPhraseId?: unknown;
   originQuery?: unknown;
   restoreQuery?: unknown;
+  restoreAnchorTime?: unknown;
   originCaption?: unknown;
   language?: unknown;
   accent?: unknown;
@@ -114,6 +116,13 @@ function videoLanguage() {
 function videoAccent(value: unknown) {
   const valueText = text(value, 20).toLocaleLowerCase("en");
   return valueText === "us" || valueText === "uk" ? valueText : "";
+}
+
+function videoTime(value: unknown) {
+  if (value === null || value === undefined
+      || (typeof value === "string" && !value.trim())) return null;
+  const seconds = Number(value);
+  return Number.isFinite(seconds) && seconds >= 0 && seconds <= 604_800 ? seconds : null;
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -205,13 +214,16 @@ export function normalizeGuestLibrary(value: unknown): GuestLibraryState {
     const savedVideoId = text(item.id, 160);
     const originQuery = text(item.originQuery, 240);
     const restoreQuery = text(item.restoreQuery, 240);
-    if (!savedVideoId || !isYouTubeVideoId(videoId) || !originQuery || !restoreQuery) continue;
+    const restoreAnchorTime = videoTime(item.restoreAnchorTime);
+    if (!savedVideoId || !isYouTubeVideoId(videoId) || !originQuery || !restoreQuery
+        || restoreAnchorTime === null) continue;
     savedVideos.push({
       id: savedVideoId,
       videoId,
       originPhraseId: text(item.originPhraseId, 120),
       originQuery,
       restoreQuery,
+      restoreAnchorTime,
       originCaption: text(item.originCaption, 1_000),
       language: videoLanguage(),
       accent: videoAccent(item.accent),
@@ -340,8 +352,9 @@ export function saveGuestVideo(
   const videoId = text(input.videoId, 20);
   const originQuery = text(input.originQuery, 240);
   const restoreQuery = text(input.restoreQuery, 240);
+  const restoreAnchorTime = videoTime(input.restoreAnchorTime);
   const existing = next.savedVideos.find((video) => video.videoId === videoId);
-  if (!isYouTubeVideoId(videoId) || !originQuery || !restoreQuery) {
+  if (!isYouTubeVideoId(videoId) || !originQuery || !restoreQuery || restoreAnchorTime === null) {
     return { state: next, video: null, created: false };
   }
 
@@ -352,6 +365,7 @@ export function saveGuestVideo(
         originPhraseId: text(input.originPhraseId, 120) || existing.originPhraseId,
         originQuery,
         restoreQuery,
+        restoreAnchorTime,
         originCaption: text(input.originCaption, 1_000) || existing.originCaption,
         language: videoLanguage(),
         accent: input.accent === undefined ? existing.accent : videoAccent(input.accent),
@@ -363,6 +377,7 @@ export function saveGuestVideo(
         originPhraseId: text(input.originPhraseId, 120),
         originQuery,
         restoreQuery,
+        restoreAnchorTime,
         originCaption: text(input.originCaption, 1_000),
         language: videoLanguage(),
         accent: videoAccent(input.accent),

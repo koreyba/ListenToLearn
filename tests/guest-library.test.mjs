@@ -51,6 +51,7 @@ test("guest saved-video normalization keeps only bounded valid YouTube records",
         originPhraseId: " preset-0 ",
         originQuery: "  courage  ",
         restoreQuery: "  have courage  ",
+        restoreAnchorTime: 96.5,
         originCaption: "  have courage  ",
         language: " English ",
         accent: " us ",
@@ -67,6 +68,7 @@ test("guest saved-video normalization keeps only bounded valid YouTube records",
     originPhraseId: "preset-0",
     originQuery: "courage",
     restoreQuery: "have courage",
+    restoreAnchorTime: 96.5,
     originCaption: "have courage",
     language: "english",
     accent: "us",
@@ -81,6 +83,7 @@ test("guest video save deduplicates by video id and refreshes origin context", (
     originPhraseId: "preset-0",
     originQuery: "courage",
     restoreQuery: "courage",
+    restoreAnchorTime: 90,
     originCaption: "have courage",
     language: "english",
     accent: "us",
@@ -90,6 +93,7 @@ test("guest video save deduplicates by video id and refreshes origin context", (
     originPhraseId: "preset-1",
     originQuery: "real courage",
     restoreQuery: "real courage",
+    restoreAnchorTime: 180,
     originCaption: "that takes real courage",
     language: "english",
     accent: "uk",
@@ -103,12 +107,13 @@ test("guest video save deduplicates by video id and refreshes origin context", (
   assert.equal(second.video.updatedAt, "2026-08-25T10:00:00.000Z");
   assert.equal(second.video.originPhraseId, "preset-1");
   assert.equal(second.video.restoreQuery, "real courage");
+  assert.equal(second.video.restoreAnchorTime, 180);
   assert.equal(second.video.originCaption, "that takes real courage");
   assert.equal(second.video.language, "english");
   assert.equal(second.video.accent, "uk");
 });
 
-test("new guest video saves require display and restore queries and normalize supported locale metadata", () => {
+test("new guest video saves require display query, restore query and measured anchor", () => {
   const missingRestoreQuery = saveGuestVideo(createGuestLibrary(), {
     videoId: "M7lc1UVf-VE",
     originQuery: "courage",
@@ -118,12 +123,26 @@ test("new guest video saves require display and restore queries and normalize su
     videoId: "M7lc1UVf-VE",
     originQuery: "courage",
     restoreQuery: "have courage",
+    restoreAnchorTime: 90,
     language: "ENGLISH",
     accent: "invalid",
   }, "2026-08-25T09:00:00.000Z");
 
   assert.equal(missingRestoreQuery.created, false);
   assert.equal(missingRestoreQuery.video, null);
+  const missingAnchor = saveGuestVideo(createGuestLibrary(), {
+    videoId: "M7lc1UVf-VE",
+    originQuery: "courage",
+    restoreQuery: "have courage",
+  });
+  assert.equal(missingAnchor.video, null);
+  const blankAnchor = saveGuestVideo(createGuestLibrary(), {
+    videoId: "M7lc1UVf-VE",
+    originQuery: "courage",
+    restoreQuery: "have courage",
+    restoreAnchorTime: "   ",
+  });
+  assert.equal(blankAnchor.video, null);
   assert.equal(saved.video.language, "english");
   assert.equal(saved.video.accent, "");
 });
@@ -154,6 +173,7 @@ test("guest video removal does not affect phrase examples", () => {
     originPhraseId: "preset-0",
     originQuery: "courage",
     restoreQuery: "courage",
+    restoreAnchorTime: 90,
   }, "2026-08-25T09:00:00.000Z");
   const removed = removeGuestSavedVideo(saved.state, saved.video.id);
 
@@ -168,6 +188,7 @@ test("guest video saves keep only the 200 newest records", () => {
       videoId: `v${String(index).padStart(10, "0")}`,
       originQuery: `query ${index}`,
       restoreQuery: `restore ${index}`,
+      restoreAnchorTime: index,
     }, new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString()).state;
   }
 

@@ -20,12 +20,15 @@ description: Implemented provider locator persistence, cold restore and independ
 
 - `public/youglish-video-restore.js`: pure marker extraction and bounded relative
   resume delta.
-- `public/trainer.html`: immutable per-video locator capture, guest persistence,
-  Full Video URL/state, saved-accent fetch and confirmed bounded resume movement.
+- `public/trainer.html`: immutable per-video locator/anchor measurement, guest
+  persistence, Full Video URL/state, saved-accent fetch and confirmed bounded
+  resume movement.
 - `lib/youglish-full-video.ts`: typed new-format origin and URL contract.
-- `lib/guest-library.ts`: guest normalization/upsert requiring `restoreQuery`.
-- `app/api/videos/route.ts`, `db/schema.ts`, `drizzle/0014_square_spectrum.sql`:
-  account validation, round-trip, legacy-row filtering and append-only schema.
+- `lib/guest-library.ts`: guest normalization/upsert requiring `restoreQuery`
+  and `restoreAnchorTime`.
+- `app/api/videos/route.ts`, `db/schema.ts`, `drizzle/0014_square_spectrum.sql`
+  and `drizzle/0015_blushing_nightshade.sql`: account validation, round-trip,
+  legacy-row filtering and append-only schema.
 - `app/videos/page.tsx`: new-format direct-link and card navigation.
 - `lib/auth.ts`: ownership transfer retains `restore_query`.
 - `lib/guest-access.ts`: exposes the browser helper to public trainer sessions.
@@ -40,8 +43,11 @@ description: Implemented provider locator persistence, cold restore and independ
 The trainer extracts YouGlish text inside `[[[...]]]` from the decoded provider
 caption. The first non-empty match is cached for the active video and remains
 unchanged as playback advances through later unmarked captions. A new fetch/video
-session clears the cache. `Continue in video` is available only when both a
-valid video ID and cached locator exist.
+session clears the cache. The matched callback starts a media-time clock; the
+first later finite timestamp minus accumulated `PLAYING` time becomes the
+original phrase anchor. Pause/buffering time is excluded, including the real
+`ENDED -> BUFFERING -> PLAYING` transition. `Continue in video` is available
+only when a valid video ID, cached locator and measured anchor all exist.
 
 This immutable cache was added during implementation alignment: reading only the
 current caption satisfied the initial happy path but lost the locator after the
@@ -50,11 +56,12 @@ changing the approved architecture.
 
 ### New-format persistence
 
-`restoreQuery` is required by the guest save/upsert, typed Full Video origin,
-trainer URL builder and account POST API. D1 stores it in
-`restore_query TEXT NOT NULL DEFAULT ''`. Account GET excludes empty values and
-guest normalization drops records without the field, intentionally implementing
-the accepted loss of old saved videos without inference or retry code.
+`restoreQuery` and `restoreAnchorTime` are required by the guest save/upsert,
+typed Full Video origin, trainer URL builder and account POST API. D1 stores the
+anchor in `restore_anchor_seconds REAL NOT NULL DEFAULT -1`. Account GET excludes
+negative anchors and guest normalization drops records without one,
+intentionally implementing the accepted loss of old saved videos without
+inference or compatibility code.
 
 The account upsert refreshes the locator for a newly observed valid result.
 Deduplication, owner scope, bounds, display query/caption and progress storage are
@@ -62,27 +69,26 @@ unchanged.
 
 ### Cold restore and resume
 
-Cold Full Video initialization requires `videoId`, `originQuery` and
-`restoreQuery`, then sends exactly `restoreQuery #videoId` with the saved
+Cold Full Video initialization requires `videoId`, `originQuery`, `restoreQuery`
+and `restoreAnchorTime`, then sends exactly `restoreQuery #videoId` with the saved
 US/UK accent (or omits accent for All). `resumeCaption` remains progress metadata
 and is never a search key. The existing `onVideoChange` expected-ID guard remains.
 
-After the anchor caption arrives, the trainer retains the pending request until
-the embedded player reports `onPlayerReady` and `PLAYING`. A real local trace
-showed that YouGlish omits `current_time` on that first matched caption and
-provides it on the next caption. The paused cold player is therefore started and
-restore remains pending across the untimed anchor. Once a later callback has a
-finite timestamp, the trainer calls `widget.move(resumeTime - current_time)` but
-does not treat the returned fire-and-forget call as success. It waits for a later
-timed caption: reaching the target within one second restores pause and progress,
-while a timestamp still far away recalculates the delta and permits another
-movement. Only a new timed caption can unlock a retry, and one cold restore is
-capped at three moves.
+Once `onVideoChange` verifies the saved video, the trainer retains the pending
+request until the embedded player reports `onPlayerReady` and `PLAYING`. On the
+first `PLAYING`, it immediately calls
+`widget.move(resumeTime - restoreAnchorTime)`; it does not wait for the cold
+matched caption's missing `current_time`. It still does not treat the returned
+fire-and-forget call as success. A later timed caption reaching the target within
+one second restores pause and progress; a still-distant timestamp recalculates
+the delta and permits another movement. Only a new timed caption can unlock a
+correction, and one cold restore is capped at three moves.
 A negligible delta completes at the observed caption without another search;
 exhausted retries keep playback usable and display a resume error without
 overwriting the known-good saved target.
 
-The original PR implementation called `move` directly from the first caption
+Earlier preview revisions, now superseded by the persisted discovery anchor,
+called `move` directly from the first caption
 callback while cold Full Video used `autoStart: 0`. Its fake widget always fired
 `onPlayerReady` before captions and recorded commands even when the provider
 would not accept them, so the test proved an attempted call rather than an
@@ -96,12 +102,12 @@ acknowledgement. The new feedback loop keeps the intent pending until
 noise cannot duplicate a move, and repeated unconfirmed callbacks stop after
 three attempts.
 
-The third preview retest exposed the actual upstream gate: the first matched
+The third preview retest exposed the upstream gate in that earlier revision: the first matched
 caption callback had `current_time: null`, and the implementation cleared the
 resume request before any move path could run. A local provider run reproduced
 `null`, then `468.924`, issued bounded deltas toward saved `470.574`, confirmed
-`470.810`, and paused. The production change is deliberately one branch: an
-untimed anchor requests or continues playback instead of clearing restore.
+`470.810`, and paused. That evidence motivated measuring the same phrase anchor
+during discovery instead of waiting to rediscover it on every cold open.
 
 Transient `BUFFERING`/pause callbacks during controlled startup do not persist
 the anchor timestamp. Progress writes remain suspended until the target caption
@@ -129,10 +135,10 @@ cached locator.
 
 ## Error Handling and Boundaries
 
-- Invalid/missing locator records are rejected on write and absent on read.
+- Invalid/missing locator or anchor records are rejected on write and absent on read.
 - Marker absence keeps Continue unavailable rather than inventing a query.
-- Provider timing is optional and never fabricated; an untimed first caption
-  waits for a later timed callback.
+- Provider timing is never fabricated: discovery waits to measure an anchor,
+  while cold restore consumes the persisted value without another timing wait.
 - Pending resume is visible and accessible without making an unconfirmed
   provider movement look complete.
 - Restoring feedback does not capture pointer input or remove access to the
@@ -157,8 +163,14 @@ cached locator.
 - Public helper access RED: 1 allowlist failure; GREEN: 4/4 guest access tests.
 - Advanced-caption locator RED: Continue became hidden after the next unmarked
   caption; GREEN retains the original locator and warm transition.
+- Anchor persistence RED failed URL, guest, API and schema contracts; GREEN
+  requires the measured value through every new-record boundary.
+- Caption-independent restore RED emitted `play = 0` without a cold caption;
+  GREEN verifies the expected video and issues `move(300)` on first `PLAYING`.
+- Real-state measurement RED stored `105` instead of `100` after an ended prior
+  video; GREEN starts the clock after the `PLAYING` state is applied.
 - Latest focused integration run: 143/143 passed.
-- `npm test`: fresh build and 241/241 repository tests passed.
+- `npm test`: fresh build and 251/251 repository tests passed.
 - ESLint reports 0 errors and two existing generated-file warnings; TypeScript,
   lifecycle lint and diff checks pass.
 - Mutation proof fails on the old mutable-caption query and returns to GREEN on
@@ -182,6 +194,10 @@ cached locator.
 - Final banner verification passes 246/246 repository tests, TypeScript,
   lifecycle lint and diff checks; ESLint remains at zero errors with the same two
   generated-file warnings.
+- Final persisted-anchor verification passes 251/251 repository tests,
+  TypeScript, lifecycle lint, dependency validation, repeat migration generation
+  and diff checks; ESLint remains at zero errors with the same two generated-file
+  warnings.
 
 ## Final Review
 
@@ -194,6 +210,9 @@ cached locator.
   allowlist; `npm ls --depth=0` reports a valid dependency tree.
 - The migration is additive and reproducible: a second `npm run db:generate`
   reports no schema changes.
+- The real widget sent the initial `move(300)` on first `PLAYING`, before its
+  first timed cold caption, then used caption feedback only to correct and
+  confirm the target.
 - Rollback cannot recover old data and does not attempt to; this matches the
   accepted scope and is documented explicitly.
 

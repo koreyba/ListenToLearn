@@ -169,6 +169,10 @@ async function createTrainer({
       const raw = dom.window.localStorage.getItem("unmumble-youtube-progress-v1:anonymous");
       return raw ? JSON.parse(raw).videos?.[videoId] || null : null;
     },
+    storedVideos: () => {
+      const raw = dom.window.localStorage.getItem("unmumble-guest-library-v1");
+      return raw ? JSON.parse(raw).savedVideos || [] : [];
+    },
     trace: () => JSON.parse(controls.previous.parentElement.dataset.trace || "{}"),
     widgetCalls,
   };
@@ -201,6 +205,62 @@ test("Continue in video retains the first marked locator after playback advances
 
   assert.equal(fullVideoUrl.searchParams.get("restoreQuery"), "the actual match");
   assert.equal(trainer.widgetCalls.fetch.length, fetchCount);
+});
+
+test("Continue in video measures and carries the original playback anchor", async t => {
+  const trainer = await createTrainer();
+  t.after(trainer.close);
+
+  trainer.events.onVideoChange({ trackNumber: 0, video: "w66ecIT-Xkk" });
+  trainer.events.onCaptionChange(caption(
+    "matched",
+    undefined,
+    "That is [[[the actual match]]] in this video.",
+    "w66ecIT-Xkk",
+  ));
+
+  assert.equal(trainer.controls.watchFullVideo.hidden, true);
+
+  trainer.advanceTime(5_000);
+  trainer.events.onCaptionChange(caption(
+    "timed",
+    105,
+    "The first timed caption after the match.",
+    "w66ecIT-Xkk",
+  ));
+
+  assert.equal(trainer.controls.watchFullVideo.hidden, false);
+  trainer.controls.watchFullVideo.click();
+
+  const fullVideoUrl = new URL(trainer.location());
+  assert.equal(fullVideoUrl.searchParams.get("restoreAnchorTime"), "100");
+  assert.equal(trainer.storedVideos()[0]?.restoreAnchorTime, 100);
+});
+
+test("restore anchor clock starts when a new result begins after the previous video ended", async t => {
+  const trainer = await createTrainer();
+  t.after(trainer.close);
+
+  trainer.events.onPlayerStateChange({ state: -1 });
+  trainer.events.onVideoChange({ trackNumber: 1, video: "w66ecIT-Xkk" });
+  trainer.events.onCaptionChange(caption(
+    "matched",
+    undefined,
+    "That is [[[the actual match]]] in this video.",
+    "w66ecIT-Xkk",
+  ));
+  trainer.events.onPlayerStateChange({ state: 3 });
+  trainer.events.onPlayerStateChange({ state: 1 });
+  trainer.advanceTime(5_000);
+  trainer.events.onCaptionChange(caption(
+    "timed",
+    105,
+    "The first timed caption after the match.",
+    "w66ecIT-Xkk",
+  ));
+
+  trainer.controls.watchFullVideo.click();
+  assert.equal(new URL(trainer.location()).searchParams.get("restoreAnchorTime"), "100");
 });
 
 test("cold Full Video keeps a non-blocking in-player banner until the saved position is confirmed", async t => {
@@ -357,6 +417,25 @@ test("cold Full Video plays past an untimed anchor and resumes from the next tim
   ));
 
   assertDeltas(trainer.widgetCalls.move, [1.5519080800729]);
+});
+
+test("cold Full Video moves from a saved restore anchor before any caption callback", async t => {
+  const trainer = await createTrainer({
+    autoPlayerReady: false,
+    requireReadyAndPlayingForMove: true,
+    url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&restoreAnchorTime=100&resumeTime=400&language=english&accent=uk",
+  });
+  t.after(trainer.close);
+
+  trainer.events.onVideoChange({ trackNumber: 0, video: "w66ecIT-Xkk" });
+  trainer.events.onPlayerReady();
+
+  assert.equal(trainer.widgetCalls.play, 1);
+  assertDeltas(trainer.widgetCalls.move, []);
+
+  trainer.events.onPlayerStateChange({ state: 1 });
+
+  assertDeltas(trainer.widgetCalls.move, [300]);
 });
 
 test("cold Full Video restore rejects a provider result for another video", async t => {

@@ -253,7 +253,7 @@ test("legacy owner migration carries saved videos into the authenticated account
   );
 
   assert.match(auth, /INSERT OR IGNORE INTO saved_videos/);
-  assert.match(auth, /origin_query, restore_query, origin_caption/);
+  assert.match(auth, /origin_query, restore_query, restore_anchor_seconds,[\s\S]*?origin_caption/);
   assert.match(auth, /current\.youtube_video_id = legacy\.youtube_video_id/);
   assert.match(auth, /DELETE FROM saved_videos WHERE user_id = \?/);
 });
@@ -508,7 +508,7 @@ test("trainer uses one unbroken toolbar and one stateful play pause control", as
   assert.match(trainer, /id="slowPlaybackBtn"[^>]*aria-label="Slow playback"/);
   assert.match(trainer, /function renderPlaybackControl\(\)/);
   assert.match(trainer, /const wantsPlayback = playerState !== 1;[\s\S]*?requestedYouglishPlayback = wantsPlayback;[\s\S]*?callWidget\(wantsPlayback \? "play" : "pause"\)/);
-  assert.match(trainer, /playerState = nextState;\s*renderPlaybackControl\(\);/);
+  assert.match(trainer, /playerState = nextState;\s*if \(nextState === 1\) beginCurrentYouglishRestoreAnchorClock\(\);\s*renderPlaybackControl\(\);/);
   assert.match(trainer, /Recording ready — press Play\./);
   assert.doesNotMatch(trainer, /Recording ready — press Listen\./);
 });
@@ -695,7 +695,10 @@ test("mobile example controls align to two columns and collapse Tatoeba actions"
   );
   assert.match(trainer, /\.example-actions:has\(\.media-full-video-btn\[hidden\]\) \{ grid-template-columns: minmax\(0, 1fr\); \}/);
   assert.match(trainer, /const validYouTubeVideo = isYouGlish && \/\^\[A-Za-z0-9_-\]\{11\}\$\//);
-  assert.match(trainer, /const canRestoreFullVideo = validYouTubeVideo && Boolean\(currentYouglishRestoreQuery\);/);
+  assert.match(
+    trainer,
+    /const canRestoreFullVideo = validYouTubeVideo\s*&& Boolean\(currentYouglishRestoreQuery\)\s*&& currentYouglishRestoreAnchorTime !== null;/,
+  );
   assert.match(trainer, /el\.watchFullVideoBtn\.hidden = fullVideoMode \|\| !canRestoreFullVideo;/);
 });
 

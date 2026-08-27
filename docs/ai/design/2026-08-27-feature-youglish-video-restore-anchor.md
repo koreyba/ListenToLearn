@@ -11,7 +11,8 @@ description: Persist a provider-derived restore anchor and keep playback progres
 ```mermaid
 flowchart LR
   Result[YouGlish result caption] --> Extract[Extract marked restoreQuery]
-  Extract --> Save[Save video identity]
+  Extract --> Measure[Measure restoreAnchorTime]
+  Measure --> Save[Save video identity]
   Save --> Guest[Guest localStorage]
   Save --> Account[D1 saved_videos]
   Guest --> Videos[/videos]
@@ -19,7 +20,7 @@ flowchart LR
   Videos --> URL[Trainer URL with restoreQuery and progress]
   URL --> Fetch[fetch restoreQuery plus videoId with saved accent]
   Fetch --> Verify[Verify onVideoChange videoId]
-  Verify --> Resume[Confirmed bounded moves to resumeTime]
+  Verify --> Resume[Move from saved anchor on first PLAYING]
   Resume --> Player[Full Video Mode]
 ```
 
@@ -28,29 +29,32 @@ selects the video; mutable local/account progress selects a later playback point
 
 ## Data Model
 
-Add `restore_query TEXT NOT NULL DEFAULT ''` to `saved_videos` and add
-`restoreQuery` to the guest/account public record.
+Add `restore_query TEXT NOT NULL DEFAULT ''` and
+`restore_anchor_seconds REAL NOT NULL DEFAULT -1` to `saved_videos`; add
+`restoreQuery` and `restoreAnchorTime` to the guest/account public record.
 
 ```text
-identity: videoId, restoreQuery, language, accent
+identity: videoId, restoreQuery, restoreAnchorTime, language, accent
 display context: originPhraseId, originQuery, originCaption
 progress: resumeSeconds, resumeCaptionId, resumeCaptionText, progressUpdatedAt
 ```
 
-New writes require `videoId`, `originQuery`, and `restoreQuery`. Account reads
-filter out `restore_query = ''`; guest normalization drops records without a
-locator. This intentionally retires legacy records without migration heuristics.
+New writes require `videoId`, `originQuery`, `restoreQuery` and a finite,
+non-negative `restoreAnchorTime`. Account reads filter out `restore_query = ''`
+and `restore_anchor_seconds < 0`; guest normalization drops records without the
+same fields. This intentionally retires legacy records without migration heuristics.
 Deduplication remains `(userId, videoId)` / `videoId`, and an upsert refreshes the
 locator from the current verified YouGlish result.
 
 ## API and URL Contracts
 
-- `POST /api/videos` accepts and validates `restoreQuery` (240 characters).
-- `GET /api/videos` returns `restoreQuery` only for new-format rows.
+- `POST /api/videos` accepts and validates `restoreQuery` (240 characters) and
+  `restoreAnchorTime` (0 through seven days).
+- `GET /api/videos` returns both fields only for new-format rows.
 - The one-time legacy-owner account copy includes `restore_query`, so a valid
   new-format record is not downgraded while ownership is transferred.
-- `buildFullVideoTrainerUrl` requires `restoreQuery` and emits it as the
-  `restoreQuery` search parameter. `query` remains display/phrase context.
+- `buildFullVideoTrainerUrl` requires both restore fields and emits them as
+  `restoreQuery` and `restoreAnchorTime`. `query` remains display/phrase context.
 - Resume caption ID/text remain optional diagnostics and local navigation state;
   they are never passed to `widget.fetch`.
 - Full Video initialization calls
@@ -66,12 +70,15 @@ locator from the current verified YouGlish result.
   valid video ID and marked match are both available.
 - The warm transition stores/pushes the same `restoreQuery` but does not refetch.
 - Cold initialization and Full Video `popstate` both require the new locator.
-- The first anchor caption keeps the resume request pending even when its
-  provider timestamp is absent. Resume waits for `onPlayerReady`; because cold
-  Full Video uses `autoStart: 0`, it requests playback and waits through the
-  untimed anchor until a later caption supplies the first finite timestamp.
-  Only then can it send a relative move. The command remains pending until a
-  later `onCaptionChange.current_time` confirms the target within one second. A
+- During discovery, the first matched callback starts a media-time clock. The
+  first later finite caption timestamp minus accumulated `PLAYING` time becomes
+  `restoreAnchorTime`; buffering and pause stop the clock. Continue becomes
+  available only after this value is measured and all persistence paths carry it.
+- Cold resume verifies the expected video, waits for `onPlayerReady`, requests
+  playback when needed, and sends
+  `move(resumeTime - restoreAnchorTime)` in the first `PLAYING` callback without
+  waiting for any cold-load caption. The command remains pending until a later
+  `onCaptionChange.current_time` confirms the target within one second. A
   callback still far from the target recalculates the relative delta and permits
   another move, capped at three attempts; player-state noise alone cannot resend
   it. A negligible delta completes restore without a move. Resume values retain
@@ -97,15 +104,11 @@ locator from the current verified YouGlish result.
 stateDiagram-v2
   [*] --> Fetching: cold Full Video URL
   Fetching --> Rejected: different video ID
-  Fetching --> Anchor: expected video and first caption
-  Anchor --> ReadyWait: player is not ready
-  Anchor --> TimingWait: first caption has no current_time
+  Fetching --> Verified: expected video ID
+  Verified --> ReadyWait: player is not ready
   ReadyWait --> PlayWait: onPlayerReady
-  Anchor --> PlayWait: player ready but paused
-  TimingWait --> PlayWait: request playback
-  PlayWait --> TimingWait: PLAYING but timestamp still absent
-  TimingWait --> Seeking: later caption supplies current_time
-  PlayWait --> Seeking: PLAYING and finite resume delta
+  Verified --> PlayWait: player ready but paused
+  PlayWait --> Seeking: first PLAYING uses saved anchor
   Seeking --> Seeking: timed caption still far and attempts remain
   Seeking --> Failed: three moves remain unconfirmed
   Anchor --> Ready: already near target
@@ -126,8 +129,8 @@ stateDiagram-v2
   paused or still-loading widget cannot silently discard the initial command.
 - A returned `widget.move` call is not treated as acknowledgement. Only a later
   provider timestamp confirms movement; retries are callback-gated and bounded.
-- An untimed first caption waits for the next timed callback instead of ending
-  restore at the phrase anchor or starting another text search.
+- An untimed cold first caption is irrelevant to initial movement because the
+  phrase anchor was already measured and persisted during discovery.
 - Legacy rows are filtered/dropped rather than migrated because the missing
   provider marker cannot be reconstructed reliably and the user accepted loss.
 
@@ -145,8 +148,8 @@ stateDiagram-v2
 
 ## Rollout
 
-- Ship one append-only D1 migration with the empty default required for existing
-  tables; do not backfill or infer locator values.
+- Ship one append-only D1 migration with the `-1` anchor default required for
+  existing tables; do not backfill or infer values.
 - Deploying the migration before or with application code is safe: old rows stay
   stored but are absent from API results, and guest normalization drops the
   equivalent old local records.

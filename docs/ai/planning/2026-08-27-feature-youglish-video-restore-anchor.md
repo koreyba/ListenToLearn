@@ -21,6 +21,8 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
   status tied to confirmed resume state.
 - [x] Milestone 8: Move restoring feedback onto the video without blocking the
   learner's access to native player controls.
+- [x] Milestone 9: Remove the cold caption wait by measuring and persisting the
+  phrase playback anchor when a new video is discovered.
 
 ## Task Breakdown
 
@@ -104,6 +106,15 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
 - [x] T17: Add a RED public DOM/CSS contract for a dedicated in-player banner,
   render it prominently with `pointer-events: none`, and keep the widget visible
   and interactive throughout restore.
+- [x] T18: Add RED persistence/URL/API contracts for required
+  `restoreAnchorTime`, then add the append-only D1 field and guest/account
+  propagation.
+- [x] T19: Add a RED browser contract requiring `move` on first `PLAYING`
+  before any cold caption callback, then use the saved anchor for that move.
+- [x] T20: Reproduce the ended-video-to-new-result measurement race, fix the
+  clock transition order, and verify the measured anchor in the real widget.
+- [x] T21: Run a real cold restore 300 seconds from the discovered anchor and
+  confirm YouTube reaches the target while YouGlish captions follow it.
 
 ## Dependencies and Sequencing
 
@@ -119,14 +130,16 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
 
 - **Provider markers absent:** keep Continue hidden until a non-empty marked match
   arrives; never persist an invented locator.
-- **First timestamp missing:** keep restore pending, start playback, and wait for
-  a later timed caption before calculating any movement.
+- **Discovery timestamp missing:** do not expose Continue until a later timed
+  callback permits a real anchor measurement; never persist a guessed value.
+- **Cold first timestamp missing:** use the persisted discovery anchor and move
+  on first `PLAYING`; a cold caption is not required for initial movement.
 - **Callback loop after move:** wait for a new timed caption before permitting
   another move, and cap one cold restore at three attempts.
 - **Wrong provider result:** preserve the expected-video check and error state.
 - **Legacy rows resurfacing:** require the field on writes and filter/drop empty
   values on both account and guest reads.
-- **Schema rollout ordering:** use a non-null empty default and no data backfill.
+- **Schema rollout ordering:** use a non-null `-1` anchor default and no backfill.
 
 ## Scope and Resources
 
@@ -139,15 +152,12 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
 
 ## Progress Summary
 
-T1-T15 are complete. Preview feedback reproduced three test blind spots: the fake
-accepted `move` before the real player was ready or playing. The corrected
-contract waits for `onPlayerReady` and `PLAYING`, prevents buffering from
-overwriting saved progress, and no longer equates a returned fire-and-forget
-`move` call with success. A later provider timestamp confirms the target or
-unlocks one of three bounded retries. RED/GREEN and full-suite evidence are on
-PR #26. The final local provider trace proved the first matched caption is
-untimed; restore now plays through it and moves only after the next callback
-provides a finite timestamp. The pending interval is now represented by a
-visible, accessible restoring status instead of hidden provider notices.
-The follow-up banner remains coupled only to that pending state and does not
-change the widget command sequence or block native player interactions.
+T1-T21 are complete. The final contract waits for `onPlayerReady` and `PLAYING`,
+prevents buffering from overwriting saved progress, and does not equate a
+returned fire-and-forget `move` call with success. Discovery persists
+`restoreAnchorTime`, so cold restore sends its initial movement on first
+`PLAYING`; later provider timestamps only confirm or unlock one of three bounded
+total attempts. The visible in-player banner remains coupled to pending state
+without blocking native controls. Real-widget proof moved from `343.986` to a
+saved `643.986` target before any timed cold caption, then confirmed at
+`644.184`. RED/GREEN and full-suite evidence are maintained on PR #26.

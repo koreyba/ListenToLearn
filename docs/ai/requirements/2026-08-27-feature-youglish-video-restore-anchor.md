@@ -26,8 +26,10 @@ Videos section.
 - Reopen with exactly `restoreQuery #videoId` and the saved accent.
 - Keep restore identity (`restoreQuery`, `videoId`, language/accent) separate
   from resume progress (seconds, caption ID/text).
-- After the stable fetch restores the expected video, use the saved timestamp as
-  a relative seek target when YouGlish supplies a current timestamp.
+- Measure and persist the original phrase playback time (`restoreAnchorTime`)
+  once, while the video is discovered.
+- After the stable fetch restores the expected video, seek from the persisted
+  anchor on the first `PLAYING` event without waiting for a caption timestamp.
 - Keep the warm `Continue in video` transition and account/guest ownership
   behavior unchanged.
 
@@ -37,9 +39,9 @@ Videos section.
   saved-video records. Records without `restoreQuery` may disappear.
 - No switch to direct YouTube playback or transcript retrieval.
 - No transcript storage or provider scraping.
-- No guarantee of exact resume when every YouGlish callback omits timing; an
-  untimed first matched caption must not be mistaken for final evidence that
-  timing is unavailable.
+- No attempt to fabricate an anchor when discovery never produces a timed
+  callback. `Continue in video` remains unavailable until the anchor is
+  measurable, so new saved records never silently inherit the old delay.
 
 ## User Stories & Use Cases
 
@@ -62,7 +64,7 @@ Videos section.
 ## Success Criteria
 
 - A new guest or account video cannot be persisted without a non-empty
-  `restoreQuery` and valid YouTube video ID.
+  `restoreQuery`, valid YouTube video ID and finite `restoreAnchorTime`.
 - The Videos page opens new records with `restoreQuery`, original display query,
   saved language/accent and independent resume metadata.
 - Cold restore sends one initial `widget.fetch` for
@@ -70,21 +72,23 @@ Videos section.
   the locator.
 - The first fetch uses the stored accent, including an empty accent for `All`.
 - `onVideoChange` still verifies the expected video ID.
-- With provider `current_time`, the trainer calls documented relative
-  `widget.move(resumeTime - current_time)`, waits for a later caption timestamp
-  to confirm the result, and retries at most three times when the provider
-  remains far from the saved target.
-- An untimed first caption keeps restore pending and starts playback until the
-  first later timed caption can anchor the relative move; no move is calculated
-  from missing timing.
+- Discovery measures `restoreAnchorTime` from the first later finite
+  `current_time` minus only the media time actually played since the matched
+  callback; pause/buffering intervals are excluded.
+- Once cold restore verifies the saved `videoId`, the trainer calls documented
+  relative `widget.move(resumeTime - restoreAnchorTime)` on the first
+  `PLAYING`, before any cold-load caption callback is required.
+- Later provider timestamps confirm the result and permit at most two bounded
+  corrections after the initial move when the provider remains far from the
+  saved target.
 - Cold restore exposes a visible, politely announced `Restoring to mm:ss…`
   status from initialization through provider confirmation. Success hides it;
   a provider error replaces it.
 - The restoring status is rendered inside the video frame as a large overlay
   that does not receive pointer events or block the embedded player.
 - Automated contracts cover extraction, guest/API/schema persistence, URL
-  construction, cold widget fetch, accent, confirmed bounded resume and untimed
-  anchor continuation.
+  construction, discovery-time anchor measurement, cold widget fetch, accent,
+  caption-independent initial movement and confirmed bounded correction.
 - Full tests, build, TypeScript, lint, lifecycle lint and diff checks pass.
 
 ## Constraints & Assumptions
@@ -94,15 +98,15 @@ Videos section.
 - The documented `onCaptionChange.caption` markers identify the provider-matched
   text, and `widget.move(seconds)` is relative.
 - `event.current_time` is an optional observed provider field already consumed
-  by the trainer, not a guaranteed public contract. Real cold restores omit it
-  on the matched first caption and provide it on the next caption, so restore
-  must wait across that boundary.
+  by the trainer, not a guaranteed public contract. It is used during discovery
+  to measure the immutable anchor and after movement to confirm the result; it
+  is no longer a gate before the first cold-resume move.
 - Saved videos remain bounded and deduplicated by `videoId` for both account and
   guest storage.
 - The YouGlish widget remains mounted and interactive during restore; the app
   does not claim to mute it because the documented widget API has no mute call.
-- The new D1 column may default to an empty string for migration safety, while
-  reads expose only rows containing the new locator.
+- The new D1 anchor column defaults to `-1` for migration safety, while reads
+  expose only rows containing both the locator and a non-negative anchor.
 
 ## Considered Approaches
 
@@ -112,8 +116,12 @@ Videos section.
   exact provider match and already failed for some stored examples.
 - **Provider-marked match plus video ID (chosen):** captures the phrase YouGlish
   demonstrably used to locate that exact result, while keeping progress separate.
+- **Wait for a cold caption timestamp:** rejected for new records because it
+  recreates the visible multi-second delay even though discovery already had
+  enough information to measure and persist the phrase position.
 
 ## Questions & Open Items
 
-No material open question remains. Legacy loss was explicitly accepted; the
-untimed-first-caption behavior is now backed by a local provider trace.
+No material open question remains. Legacy loss was explicitly accepted; both
+discovery measurement and caption-independent first movement are backed by RED
+contracts and a local real-widget trace.

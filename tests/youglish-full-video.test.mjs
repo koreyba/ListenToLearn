@@ -23,6 +23,7 @@ test("full-video URL keeps a stable restore query separate from resume progress"
     originPhraseId: "base-0",
     originQuery: "I don't know if it's",
     restoreQuery: "the actual match",
+    restoreAnchorTime: 100.25,
     originCaption: "I just think a mix would have been nice.",
     language: "english",
     accent: "us",
@@ -38,6 +39,7 @@ test("full-video URL keeps a stable restore query separate from resume progress"
   assert.equal(url.searchParams.get("video"), "w66ecIT-Xkk");
   assert.equal(url.searchParams.get("query"), "I don't know if it's");
   assert.equal(url.searchParams.get("restoreQuery"), "the actual match");
+  assert.equal(url.searchParams.get("restoreAnchorTime"), "100.25");
   assert.equal(url.searchParams.get("resumeCaption"), "relatively in the weeds of actually allocating capital");
   assert.equal(url.searchParams.get("resumeCaptionId"), "187152571");
   assert.equal(url.searchParams.get("resumeTime"), "2401.069");
@@ -49,5 +51,19 @@ test("full-video URL rejects a video without the immutable restore query", () =>
   assert.equal(buildFullVideoTrainerUrl({
     videoId: "w66ecIT-Xkk",
     originQuery: "I don't know if it's",
+  }), "");
+});
+
+test("full-video URL rejects a video without its measured restore anchor", () => {
+  assert.equal(buildFullVideoTrainerUrl({
+    videoId: "w66ecIT-Xkk",
+    originQuery: "I don't know if it's",
+    restoreQuery: "the actual match",
+  }), "");
+  assert.equal(buildFullVideoTrainerUrl({
+    videoId: "w66ecIT-Xkk",
+    originQuery: "I don't know if it's",
+    restoreQuery: "the actual match",
+    restoreAnchorTime: null,
   }), "");
 });

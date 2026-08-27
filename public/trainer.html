@@ -1588,6 +1588,9 @@
     let tatoebaAbortController = null;
     let currentYouglishVideoId = "";
     let currentYouglishRestoreQuery = "";
+    let currentYouglishRestoreAnchorTime = null;
+    let currentYouglishRestoreAnchorElapsed = 0;
+    let currentYouglishRestoreAnchorPlayingAt = null;
     let savedExamples = [];
     let savedExampleIndex = 0;
     let isAuthenticated = false;
@@ -1622,6 +1625,7 @@
     const CAPTION_NAVIGATION_LOCK_MS = 500;
     const CONTROLLED_CAPTION_TIMEOUT_MS = 20_000;
     const FULL_VIDEO_RESUME_MAX_MOVE_ATTEMPTS = 3;
+    const MAX_VIDEO_PROGRESS_SECONDS = 604_800;
     let lastTranslation = { source: "", context: "", translation: "" };
     let translationRequest = 0;
     let translationAbortController = null;
@@ -1641,6 +1645,14 @@
     let fullVideoResumeMoveAwaitingConfirmation = false;
     let fullVideoResumeMoveAttempts = 0;
     let fullVideoResumeProgressBlocked = false;
+    function normalizeFullVideoRestoreAnchorTime(value) {
+      if (value === null || value === undefined
+          || (typeof value === "string" && !value.trim())) return null;
+      const seconds = Number(value);
+      return Number.isFinite(seconds) && seconds >= 0 && seconds <= MAX_VIDEO_PROGRESS_SECONDS
+        ? seconds
+        : null;
+    }
     let fullVideoOrigin = {
       videoId: (initialViewerParams.get("video") || "").trim(),
       originPhraseId: (initialViewerParams.get("phraseId") || "").trim().slice(0, 120),
@@ -1650,6 +1662,7 @@
       resumeCaptionId: (initialViewerParams.get("resumeCaptionId") || "").trim().slice(0, 160),
       resumeCaption: (initialViewerParams.get("resumeCaption") || "").trim().replace(/\s+/g, " ").slice(0, 1000),
       resumeTime: Number(initialViewerParams.get("resumeTime") || 0),
+      restoreAnchorTime: normalizeFullVideoRestoreAnchorTime(initialViewerParams.get("restoreAnchorTime")),
       language: (initialViewerParams.get("language") || "english").trim().toLowerCase().slice(0, 20),
       accent: (initialViewerParams.get("accent") || "").trim().toLowerCase().slice(0, 20)
     };
@@ -1658,6 +1671,7 @@
         || !fullVideoOrigin.restoreQuery) {
       fullVideoMode = false;
     }
+    fullVideoResumeAnchorTime = fullVideoMode ? fullVideoOrigin.restoreAnchorTime : null;
     let fullVideoResumePending = fullVideoMode
       && Number.isFinite(fullVideoOrigin.resumeTime)
       && fullVideoOrigin.resumeTime > 0;
@@ -1973,13 +1987,16 @@
               const videoId = guestText(item.videoId, 20);
               const originQuery = guestText(item.originQuery, 240);
               const restoreQuery = guestText(item.restoreQuery, 240);
-              if (!id || !/^[A-Za-z0-9_-]{11}$/.test(videoId) || !originQuery || !restoreQuery) return [];
+              const restoreAnchorTime = normalizeFullVideoRestoreAnchorTime(item.restoreAnchorTime);
+              if (!id || !/^[A-Za-z0-9_-]{11}$/.test(videoId) || !originQuery || !restoreQuery
+                  || restoreAnchorTime === null) return [];
               return [{
                 id,
                 videoId,
                 originPhraseId: guestText(item.originPhraseId, 120),
                 originQuery,
                 restoreQuery,
+                restoreAnchorTime,
                 originCaption: guestText(item.originCaption, 1_000),
                 language: "english",
                 accent: ["us", "uk"].includes(guestText(item.accent, 20).toLowerCase())
@@ -2142,7 +2159,9 @@
       const videoId = guestText(input.videoId, 20);
       const originQuery = guestText(input.originQuery, 240);
       const restoreQuery = guestText(input.restoreQuery, 240);
-      if (!/^[A-Za-z0-9_-]{11}$/.test(videoId) || !originQuery || !restoreQuery) return null;
+      const restoreAnchorTime = normalizeFullVideoRestoreAnchorTime(input.restoreAnchorTime);
+      if (!/^[A-Za-z0-9_-]{11}$/.test(videoId) || !originQuery || !restoreQuery
+          || restoreAnchorTime === null) return null;
       const timestamp = new Date().toISOString();
       const existing = guestLibrary.savedVideos.find((video) => video.videoId === videoId);
       const video = {
@@ -2151,6 +2170,7 @@
         originPhraseId: guestText(input.originPhraseId, 120) || (existing ? existing.originPhraseId : ""),
         originQuery,
         restoreQuery,
+        restoreAnchorTime,
         originCaption: guestText(input.originCaption, 1_000) || (existing ? existing.originCaption : ""),
         language: "english",
         accent: ["us", "uk"].includes(guestText(input.accent, 20).toLowerCase())
@@ -2442,7 +2462,9 @@
 
       const isYouGlish = state.source === "youglish";
       const validYouTubeVideo = isYouGlish && /^[A-Za-z0-9_-]{11}$/.test(currentYouglishVideoId);
-      const canRestoreFullVideo = validYouTubeVideo && Boolean(currentYouglishRestoreQuery);
+      const canRestoreFullVideo = validYouTubeVideo
+        && Boolean(currentYouglishRestoreQuery)
+        && currentYouglishRestoreAnchorTime !== null;
       el.watchFullVideoBtn.hidden = fullVideoMode || !canRestoreFullVideo;
       el.watchFullVideoBtn.disabled = !canRestoreFullVideo;
 
@@ -2624,6 +2646,44 @@
 
     function finiteCaptionTime(value) {
       return captionNavigation ? captionNavigation.finiteTime(value) : null;
+    }
+
+    function resetCurrentYouglishRestoreAnchor() {
+      currentYouglishRestoreAnchorTime = null;
+      currentYouglishRestoreAnchorElapsed = 0;
+      currentYouglishRestoreAnchorPlayingAt = null;
+    }
+
+    function beginCurrentYouglishRestoreAnchorClock() {
+      if (!currentYouglishRestoreQuery
+          || currentYouglishRestoreAnchorTime !== null
+          || playerState !== 1
+          || currentYouglishRestoreAnchorPlayingAt !== null) return;
+      currentYouglishRestoreAnchorPlayingAt = performance.now();
+    }
+
+    function pauseCurrentYouglishRestoreAnchorClock() {
+      if (currentYouglishRestoreAnchorPlayingAt === null) return;
+      const speed = Number(state.speed) > 0 ? Number(state.speed) : 1;
+      currentYouglishRestoreAnchorElapsed += Math.max(
+        0,
+        performance.now() - currentYouglishRestoreAnchorPlayingAt
+      ) / 1000 * speed;
+      currentYouglishRestoreAnchorPlayingAt = null;
+    }
+
+    function captureCurrentYouglishRestoreAnchor(currentTime) {
+      const timedCaption = finiteCaptionTime(currentTime);
+      if (!currentYouglishRestoreQuery
+          || currentYouglishRestoreAnchorTime !== null
+          || timedCaption === null) return;
+      let elapsed = currentYouglishRestoreAnchorElapsed;
+      if (currentYouglishRestoreAnchorPlayingAt !== null) {
+        const speed = Number(state.speed) > 0 ? Number(state.speed) : 1;
+        elapsed += Math.max(0, performance.now() - currentYouglishRestoreAnchorPlayingAt) / 1000 * speed;
+      }
+      currentYouglishRestoreAnchorTime = Math.max(0, timedCaption - elapsed);
+      currentYouglishRestoreAnchorPlayingAt = null;
     }
 
     function currentCaptionEntry() {
@@ -3257,6 +3317,7 @@
       currentCaptionRaw = "";
       currentCaptionText = "";
       currentYouglishRestoreQuery = "";
+      resetCurrentYouglishRestoreAnchor();
       currentYouglishVideoId = fullVideoMode ? fullVideoOrigin.videoId : "";
       resetCaptionHistory();
       renderCaption("");
@@ -3785,6 +3846,7 @@
             originPhraseId: fullVideoOrigin.originPhraseId,
             originQuery: fullVideoOrigin.originalQuery,
             restoreQuery: fullVideoOrigin.restoreQuery,
+            restoreAnchorTime: fullVideoOrigin.restoreAnchorTime,
             originCaption: fullVideoOrigin.originCaption,
             language: fullVideoOrigin.language || "english",
             accent: fullVideoOrigin.accent || ""
@@ -3812,6 +3874,10 @@
       if (progress && progress.captionId) query.set("resumeCaptionId", progress.captionId);
       if (progress && progress.captionText) query.set("resumeCaption", progress.captionText);
       if (progress && Number.isFinite(Number(progress.seconds))) query.set("resumeTime", String(progress.seconds));
+      const restoreAnchorTime = normalizeFullVideoRestoreAnchorTime(origin.restoreAnchorTime);
+      if (restoreAnchorTime !== null) {
+        query.set("restoreAnchorTime", String(restoreAnchorTime));
+      }
       return `/trainer?${query.toString()}`;
     }
 
@@ -3836,6 +3902,7 @@
         originPhraseId: VIEWER_PHRASE_ID || "",
         originQuery: currentQueryOverride || VIEWER_PHRASE,
         restoreQuery: currentYouglishRestoreQuery,
+        restoreAnchorTime: currentYouglishRestoreAnchorTime,
         originCaption: currentCaptionText,
         language: "english",
         accent: state.accent
@@ -3871,7 +3938,8 @@
       if (state.source !== "youglish"
           || !/^[A-Za-z0-9_-]{11}$/.test(origin.videoId)
           || !origin.originQuery
-          || !origin.restoreQuery) return;
+          || !origin.restoreQuery
+          || origin.restoreAnchorTime === null) return;
       const current = currentCaptionEntry();
       const progress = writeFullVideoProgress(
         origin.videoId,
@@ -3889,6 +3957,7 @@
         originPhraseId: origin.originPhraseId,
         originalQuery: origin.originQuery,
         restoreQuery: origin.restoreQuery,
+        restoreAnchorTime: origin.restoreAnchorTime,
         originCaption: origin.originCaption,
         resumeCaptionId: currentCaptionEntry() ? currentCaptionEntry().id : "",
         resumeCaption: currentCaptionText,
@@ -4073,8 +4142,10 @@
         : "";
       if (matchedRestoreQuery && !currentYouglishRestoreQuery) {
         currentYouglishRestoreQuery = matchedRestoreQuery;
+        beginCurrentYouglishRestoreAnchorClock();
       }
       const currentTime = finiteCaptionTime(event && event.current_time);
+      captureCurrentYouglishRestoreAnchor(currentTime);
       const captionId = resolveCaptionId(event, nextCaptionText, currentTime);
       const tracedCaption = captionTraceToken(captionTraceCaptionTokens, captionId, "caption");
       recordCaptionTrace("widget.caption", {
@@ -4202,6 +4273,7 @@
       if (!Number.isFinite(nextState)) return;
       recordCaptionTrace("widget.player-state", { from: playerState, to: nextState });
       if (nextState !== playerState) captionPlaybackContinuity += 1;
+      if (playerState === 1 && nextState !== 1) pauseCurrentYouglishRestoreAnchorClock();
       const current = currentCaptionEntry();
       if (current && playerState === 1 && nextState !== 1) {
         const pausedTime = estimatedCaptionTime(current);
@@ -4219,6 +4291,7 @@
         }
       }
       playerState = nextState;
+      if (nextState === 1) beginCurrentYouglishRestoreAnchorClock();
       renderPlaybackControl();
       if (fullVideoMode && nextState === 1) advanceFullVideoResume();
       if (fullVideoMode && nextState !== 1 && !fullVideoRestoreShouldPause) {
@@ -4278,6 +4351,7 @@
       activateCaptionVideo(nextVideoId);
       if (previousVideoId && previousVideoId !== nextVideoId) {
         currentYouglishRestoreQuery = "";
+        resetCurrentYouglishRestoreAnchor();
         controlledCaptionTargetId = "";
         controlledCaptionRestorePaused = false;
         clearReplayPending();
@@ -4291,6 +4365,10 @@
       hideTranslation();
       const n = Number(event.trackNumber);
       if (fullVideoResumePending) {
+        if (fullVideoResumeAnchorTime !== null) {
+          fullVideoResumeAnchorObserved = true;
+          advanceFullVideoResume();
+        }
         showFullVideoRestoreStatus();
       } else if (Number.isFinite(n)) {
         const existing = el.status.textContent;
@@ -4718,6 +4796,7 @@
           resumeCaptionId: cleanFullVideoText(params.get("resumeCaptionId"), 160),
           resumeCaption: cleanFullVideoText(params.get("resumeCaption"), 1000),
           resumeTime: Number(params.get("resumeTime") || 0),
+          restoreAnchorTime: normalizeFullVideoRestoreAnchorTime(params.get("restoreAnchorTime")),
           language: cleanFullVideoText(params.get("language"), 20) || "english",
           accent: cleanFullVideoText(params.get("accent"), 20)
         };
@@ -4729,7 +4808,7 @@
           && fullVideoOrigin.resumeTime > 0;
         fullVideoRestoreShouldPause = true;
         fullVideoResumeAnchorObserved = false;
-        fullVideoResumeAnchorTime = null;
+        fullVideoResumeAnchorTime = fullVideoOrigin.restoreAnchorTime;
         fullVideoResumePlayRequested = false;
         fullVideoResumeMoveAwaitingConfirmation = false;
         fullVideoResumeMoveAttempts = 0;

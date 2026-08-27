@@ -23,6 +23,8 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
   learner's access to native player controls.
 - [x] Milestone 9: Remove the cold caption wait by measuring and persisting the
   phrase playback anchor when a new video is discovered.
+- [x] Milestone 10: Remove automatic pause commands from warm Full Video entry
+  and successful cold restore.
 
 ## Task Breakdown
 
@@ -115,6 +117,8 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
   clock transition order, and verify the measured anchor in the real widget.
 - [x] T21: Run a real cold restore 300 seconds from the discovered anchor and
   confirm YouTube reaches the target while YouGlish captions follow it.
+- [x] T22: Add RED contracts for warm entry, confirmed cold restore and a cold
+  open without saved progress, then remove the obsolete restore-pause state.
 
 ## Dependencies and Sequencing
 
@@ -152,12 +156,13 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
 
 ## Progress Summary
 
-T1-T21 are complete. The final contract waits for `onPlayerReady` and `PLAYING`,
+T1-T22 are complete. The final contract waits for `onPlayerReady` and `PLAYING`,
 prevents buffering from overwriting saved progress, and does not equate a
 returned fire-and-forget `move` call with success. Discovery persists
 `restoreAnchorTime`, so cold restore sends its initial movement on first
 `PLAYING`; later provider timestamps only confirm or unlock one of three bounded
-total attempts. The visible in-player banner remains coupled to pending state
+total attempts. Full Video entry and restore completion no longer issue an
+automatic pause. The visible in-player banner remains coupled to pending state
 without blocking native controls. Real-widget proof moved from `343.986` to a
 saved `643.986` target before any timed cold caption, then confirmed at
 `644.184`. RED/GREEN and full-suite evidence are maintained on PR #26.

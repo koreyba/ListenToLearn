@@ -113,7 +113,7 @@ stateDiagram-v2
   Seeking --> Failed: three moves remain unconfirmed
   Anchor --> Ready: already near target
   Seeking --> Ready: resumed caption callback
-  Ready --> [*]: pause restored and progress continues
+  Ready --> [*]: playback and progress continue
 ```
 
 ## Design Decisions
@@ -131,6 +131,8 @@ stateDiagram-v2
   provider timestamp confirms movement; retries are callback-gated and bounded.
 - An untimed cold first caption is irrelevant to initial movement because the
   phrase anchor was already measured and persisted during discovery.
+- Full Video entry does not synthesize a pause. Warm entry preserves the current
+  widget state, and cold restore keeps playing after provider confirmation.
 - Legacy rows are filtered/dropped rather than migrated because the missing
   provider marker cannot be reconstructed reliably and the user accepted loss.
 

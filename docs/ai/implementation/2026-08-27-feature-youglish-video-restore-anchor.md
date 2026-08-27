@@ -80,9 +80,9 @@ first `PLAYING`, it immediately calls
 `widget.move(resumeTime - restoreAnchorTime)`; it does not wait for the cold
 matched caption's missing `current_time`. It still does not treat the returned
 fire-and-forget call as success. A later timed caption reaching the target within
-one second restores pause and progress; a still-distant timestamp recalculates
-the delta and permits another movement. Only a new timed caption can unlock a
-correction, and one cold restore is capped at three moves.
+one second completes restore and keeps playback running; a still-distant
+timestamp recalculates the delta and permits another movement. Only a new timed
+caption can unlock a correction, and one cold restore is capped at three moves.
 A negligible delta completes at the observed caption without another search;
 exhausted retries keep playback usable and display a resume error without
 overwriting the known-good saved target.
@@ -129,7 +129,9 @@ nor muted.
 
 ### Warm transition
 
-The current widget is still paused and reused; no new fetch or navigation occurs.
+The current widget is reused without an automatic pause; no new fetch or
+navigation occurs. A playing result therefore keeps playing after Full Video
+mode is applied, while a learner-paused result remains paused.
 The warm URL, guest/account history and later progress sync all carry the same
 cached locator.
 
@@ -213,6 +215,11 @@ cached locator.
 - The real widget sent the initial `move(300)` on first `PLAYING`, before its
   first timed cold caption, then used caption feedback only to correct and
   confirm the target.
+- Warm entry, confirmed cold restore and a cold open without saved progress have
+  RED/GREEN contracts proving that Full Video emits no automatic pause.
+- Final verification passes 253/253 repository tests and 116/116 focused
+  caption/rendered tests; TypeScript, lifecycle lint, dependency validation and
+  diff checks pass, with zero ESLint errors and two existing generated warnings.
 - Rollback cannot recover old data and does not attempt to; this matches the
   accepted scope and is documented explicitly.
 

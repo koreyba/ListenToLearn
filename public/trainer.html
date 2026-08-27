@@ -1638,7 +1638,6 @@
     let accountVideoProgressSync = null;
     let fullVideoMode = initialViewerParams.get("fullVideo") === "1";
     let fullVideoReturnSource = "youglish";
-    let fullVideoRestoreShouldPause = fullVideoMode;
     let fullVideoResumeAnchorObserved = false;
     let fullVideoResumeAnchorTime = null;
     let fullVideoResumePlayRequested = false;
@@ -3948,9 +3947,6 @@
         current ? current.text : currentCaptionText
       );
       void recordCurrentVideoHistory(origin, progress);
-      if (widgetReady && widget && typeof widget.pause === "function") {
-        try { widget.pause(); } catch (_) {}
-      }
       fullVideoReturnSource = state.source;
       fullVideoOrigin = {
         videoId: origin.videoId,
@@ -3967,7 +3963,6 @@
       };
       fullVideoMode = true;
       fullVideoResumePending = false;
-      fullVideoRestoreShouldPause = false;
       fullVideoResumeAnchorObserved = false;
       fullVideoResumeAnchorTime = null;
       fullVideoResumePlayRequested = false;
@@ -4086,7 +4081,6 @@
           attempts: fullVideoResumeMoveAttempts
         });
         clearFullVideoResume();
-        fullVideoRestoreShouldPause = false;
         fullVideoResumeProgressBlocked = true;
         showWidgetError("YouGlish could not resume at the saved position.");
         return true;
@@ -4246,12 +4240,6 @@
       const resumeMoveRequested = advanceFullVideoResume(currentTime, true);
       if (fullVideoMode && !resumeMoveRequested) {
         persistFullVideoProgress();
-        if (fullVideoRestoreShouldPause && widgetReady && widget && typeof widget.pause === "function") {
-          try { widget.pause(); } catch (_) {}
-          fullVideoRestoreShouldPause = false;
-          playerState = 2;
-          renderPlaybackControl();
-        }
       }
       recordCaptionTrace("widget.caption-applied", { caption: tracedCaption });
     }
@@ -4294,7 +4282,7 @@
       if (nextState === 1) beginCurrentYouglishRestoreAnchorClock();
       renderPlaybackControl();
       if (fullVideoMode && nextState === 1) advanceFullVideoResume();
-      if (fullVideoMode && nextState !== 1 && !fullVideoRestoreShouldPause) {
+      if (fullVideoMode && nextState !== 1) {
         persistFullVideoProgress({ flush: true });
       }
       recordCaptionTrace("widget.player-state-applied", { state: nextState });
@@ -4806,7 +4794,6 @@
         fullVideoMode = true;
         fullVideoResumePending = Number.isFinite(fullVideoOrigin.resumeTime)
           && fullVideoOrigin.resumeTime > 0;
-        fullVideoRestoreShouldPause = true;
         fullVideoResumeAnchorObserved = false;
         fullVideoResumeAnchorTime = fullVideoOrigin.restoreAnchorTime;
         fullVideoResumePlayRequested = false;

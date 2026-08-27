@@ -207,6 +207,24 @@ test("Continue in video retains the first marked locator after playback advances
   assert.equal(trainer.widgetCalls.fetch.length, fetchCount);
 });
 
+test("Continue in video keeps an actively playing result playing", async t => {
+  const trainer = await createTrainer();
+  t.after(trainer.close);
+
+  trainer.events.onVideoChange({ trackNumber: 0, video: "w66ecIT-Xkk" });
+  trainer.events.onCaptionChange(caption(
+    "matched",
+    100,
+    "That is [[[the actual match]]] in this video.",
+    "w66ecIT-Xkk",
+  ));
+  trainer.events.onPlayerStateChange({ state: 1 });
+
+  trainer.controls.watchFullVideo.click();
+
+  assert.equal(trainer.widgetCalls.pause, 0);
+});
+
 test("Continue in video measures and carries the original playback anchor", async t => {
   const trainer = await createTrainer();
   t.after(trainer.close);
@@ -303,7 +321,24 @@ test("cold Full Video keeps a non-blocking in-player banner until the saved posi
   assert.equal(trainer.providerStatus.textContent, "Full video ready at 6:40.");
 });
 
-test("cold Full Video retries a resume move until a caption confirms the saved position", async t => {
+test("cold Full Video without saved progress does not pause its first caption", async t => {
+  const trainer = await createTrainer({
+    url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&restoreAnchorTime=100&language=english&accent=uk",
+  });
+  t.after(trainer.close);
+
+  trainer.events.onVideoChange({ trackNumber: 0, video: "w66ecIT-Xkk" });
+  trainer.events.onCaptionChange(caption(
+    "first",
+    100,
+    "That is [[[the actual match]]] in this video.",
+    "w66ecIT-Xkk",
+  ));
+
+  assert.equal(trainer.widgetCalls.pause, 0);
+});
+
+test("cold Full Video keeps playing after a caption confirms the saved position", async t => {
   const trainer = await createTrainer({
     autoPlayerReady: false,
     requireReadyAndPlayingForMove: true,
@@ -366,7 +401,7 @@ test("cold Full Video retries a resume move until a caption confirms the saved p
   ));
 
   assertDeltas(trainer.widgetCalls.move, [300, 300]);
-  assert.equal(trainer.widgetCalls.pause, 1);
+  assert.equal(trainer.widgetCalls.pause, 0);
 });
 
 test("cold Full Video stops retrying after three unconfirmed resume moves", async t => {

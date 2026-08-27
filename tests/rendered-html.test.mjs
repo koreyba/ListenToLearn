@@ -304,7 +304,7 @@ test("Full Video Mode keeps learning controls and removes result-only controls",
   assert.match(trainer, /body\.full-video-mode[^}]*#exampleTools/s);
   assert.match(trainer, /el\.accentControl\.hidden = tatoeba \|\| fullVideoMode;/);
   const warmTransition = trainer.match(/function watchCurrentFullVideo\(\) \{([\s\S]*?)\n    \}\n\n    function setExampleMode/)?.[1] || "";
-  assert.match(warmTransition, /widget\.pause\(\)/);
+  assert.doesNotMatch(warmTransition, /widget\.pause\(\)/);
   assert.match(warmTransition, /history\.pushState\(\{ fullVideo: true \}/);
   assert.doesNotMatch(warmTransition, /fetchPhrase|fetchYouglish|widget\.fetch|window\.location/);
 
@@ -358,7 +358,7 @@ test("YouGlish results keep clip filters aligned and record history on Full Vide
   const warmTransition = trainer.match(/function watchCurrentFullVideo\(\) \{([\s\S]*?)\n    \}/)?.[1] || "";
   assert.match(warmTransition, /void recordCurrentVideoHistory\(origin, progress\)/);
   assert.ok(
-    warmTransition.indexOf("recordCurrentVideoHistory(origin, progress)") < warmTransition.indexOf("widget.pause()"),
+    warmTransition.indexOf("recordCurrentVideoHistory(origin, progress)") < warmTransition.indexOf("fullVideoMode = true"),
     "history upsert must start before entering Full Video Mode",
   );
   assert.match(page, /<SiteNavigation\s+active=\{surface\}/);

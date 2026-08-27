@@ -30,6 +30,8 @@ Videos section.
   once, while the video is discovered.
 - After the stable fetch restores the expected video, seek from the persisted
   anchor on the first `PLAYING` event without waiting for a caption timestamp.
+- Keep playback running when an actively playing result enters Full Video and
+  after a cold restore reaches the saved position; only the learner pauses it.
 - Keep the warm `Continue in video` transition and account/guest ownership
   behavior unchanged.
 
@@ -51,6 +53,8 @@ Videos section.
   regardless of my current trainer preference.
 - As a learner, playback resumes near my saved timestamp when the provider
   exposes enough timing information.
+- As a learner, switching to Full Video does not pause playback that was already
+  running, and a completed restore continues from the saved position.
 - As a learner, I see `Restoring to mm:ss…` while YouGlish is still moving to my
   saved position, instead of mistaking the provider delay for a broken action.
 - As a learner, that restoring state is prominent on the video while the
@@ -81,6 +85,8 @@ Videos section.
 - Later provider timestamps confirm the result and permit at most two bounded
   corrections after the initial move when the provider remains far from the
   saved target.
+- Warm Full Video entry and successful cold restore never issue an automatic
+  `widget.pause()` command.
 - Cold restore exposes a visible, politely announced `Restoring to mm:ss…`
   status from initialization through provider confirmation. Success hides it;
   a provider error replaces it.

@@ -35,7 +35,7 @@ description: TDD contracts for provider locator persistence, cold restore and in
   `move(resumeTime - restoreAnchorTime)` is sent on first `PLAYING`.
 - [x] An accepted-but-ignored movement is retried only after a new timed caption;
   player-state noise cannot duplicate it, and retries stop after three moves.
-- [x] A caption confirming the saved target pauses playback once and does not
+- [x] A caption confirming the saved target keeps playback running and does not
   issue another move.
 - [x] A cold sequence moves from the persisted anchor before any caption
   callback; an untimed matched caption is not an initial-movement gate.
@@ -56,6 +56,8 @@ description: TDD contracts for provider locator persistence, cold restore and in
 - [x] Warm `Continue in video` caches the first marker-derived locator across
   later unmarked captions, stores it, and still does
   not refetch or navigate the page.
+- [x] Warm `Continue in video`, confirmed cold restore and a cold Full Video open
+  without saved progress never issue an automatic pause.
 
 ## Regression Coverage
 
@@ -181,3 +183,11 @@ new record without `restoreQuery` blocks the PR.
   open targeting `643.986s` sent `move(300)` on the first `PLAYING` callback,
   before any timed cold caption; the next callbacks corrected by `-1.547s` and
   confirmed `644.184s`.
+- Autopause follow-up RED: warm entry and both cold completion variants each
+  observed one unwanted `pause`; GREEN removes the obsolete restore-pause state
+  and all three focused contracts pass without changing explicit user pause or
+  caption-navigation pause behavior.
+- Autopause final verification: fresh Vinext build and 253/253 repository tests
+  pass; the focused caption/rendered suite passes 116/116. ESLint has zero
+  errors and the same two generated-file warnings; TypeScript, lifecycle lint,
+  dependency validation and `git diff --check` pass.

@@ -96,7 +96,6 @@ test("interface typography stays readable while landing headings keep their disp
   assert.match(theme, /--app-display-font: "Avenir Next", Avenir/);
   assert.match(theme, /body \{[^}]*font-family: var\(--app-ui-font\)/s);
   assert.match(globals, /--landing-display-font: var\(--app-display-font\)/);
-  assert.match(navigation, /\.site-brand \{[^}]*font-weight: 800/s);
   assert.match(navigation, /\.site-primary-link \{[^}]*font-weight: 700/s);
 });
 
@@ -206,4 +205,23 @@ test("application and Trainer components consume semantic tokens instead of hard
   assert.match(globals, /\.landing-method \{[^}]*background: var\(--color-method-surface\);[^}]*color: var\(--color-method-text\)/s);
   assert.match(trainer, /\.sticky-stage \{[^}]*background: var\(--color-sticky-background\)/s);
   assert.match(trainer, /\.media-full-video-btn \{[^}]*background: var\(--color-interactive-surface\);[^}]*color: var\(--color-on-interactive\)/s);
+});
+
+test("site navigation serves matching transparent wordmarks for both color themes", async () => {
+  const [navigation, navigationStyles, trainer, lightLogo, darkLogo] = await Promise.all([
+    readFile(new URL("../app/components/site-navigation.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../public/site-navigation.css", import.meta.url), "utf8"),
+    readFile(new URL("../public/trainer.html", import.meta.url), "utf8"),
+    readFile(new URL("../public/brand/unmumble-logo-light.png", import.meta.url)),
+    readFile(new URL("../public/brand/unmumble-logo-dark.png", import.meta.url)),
+  ]);
+
+  for (const source of [navigation, trainer]) {
+    assert.match(source, /aria-label="Unmumble"/);
+    assert.match(source, /class(?:Name)?="site-brand-logo"/);
+  }
+  assert.match(navigationStyles, /\.site-brand-logo \{[^}]*background-image: url\("\/brand\/unmumble-logo-dark\.png"\)/s);
+  assert.match(navigationStyles, /:root\[data-theme="light"\] \.site-brand-logo \{[^}]*background-image: url\("\/brand\/unmumble-logo-light\.png"\)/s);
+  assert.deepEqual(lightLogo.subarray(0, 8), darkLogo.subarray(0, 8));
+  assert.deepEqual([...lightLogo.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
 });

@@ -81,6 +81,10 @@ locator from the current verified YouGlish result.
   restore has settled. Exhausted retries keep automatic progress blocked for
   that failed session so the known-good saved target is not replaced by the
   phrase anchor.
+- The normally hidden provider status becomes a visible live region only while
+  cold resume is pending. It shows `Restoring to mm:ss…` with a reduced-motion-
+  safe activity indicator, survives fetch/readiness/caption callbacks, and is
+  removed only by confirmed completion or a provider error.
 - `onVideoChange` keeps the existing expected-video guard.
 
 ## Resume State Machine
@@ -130,6 +134,8 @@ stateDiagram-v2
 - Account reads/writes remain session subject-scoped and guest data remains local.
 - The cold path performs one provider fetch and at most three relative moves; no
   extra search retries or transcript requests are added.
+- The restoring indicator adds no timer, provider command, request or seek; it
+  only reflects the existing resume state machine.
 
 ## Rollout
 

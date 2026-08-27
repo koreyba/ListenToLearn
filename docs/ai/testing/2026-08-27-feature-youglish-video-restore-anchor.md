@@ -44,6 +44,11 @@ description: TDD contracts for provider locator persistence, cold restore and in
   over the saved resume target.
 - [x] Missing `current_time` on the first caption issues no speculative move and
   does not abandon restore.
+- [x] `Restoring to mm:ss…` is visible before player readiness, remains through
+  fetch/video/untimed-caption callbacks, and clears only when the saved position
+  is confirmed.
+- [x] A zero-result provider response replaces restoring with the existing
+  visible saved-video restore error instead of leaving the spinner active.
 - [x] A mismatched `onVideoChange.video` remains rejected.
 - [x] Warm `Continue in video` caches the first marker-derived locator across
   later unmarked captions, stores it, and still does
@@ -71,6 +76,9 @@ description: TDD contracts for provider locator persistence, cold restore and in
 - The untimed-anchor test uses the observed saved target `470.574278...` and the
   next provider timestamp `469.022370...`; before the fix it fails because no
   playback is requested and the restore is cleared.
+- The restoring-status test uses a `400s` target and verifies the public DOM
+  state (`role=status`, polite live region, visible restoring class and `6:40`
+  copy) rather than internal resume flags.
 
 ## Verification Commands
 
@@ -137,3 +145,15 @@ new record without `restoreQuery` blocks the PR.
   waits for the next timed caption, and calculates the relative delta from that
   observed time. A local provider run reached `470.810` for saved `470.574` and
   paused.
+- Restoring UX RED: the provider status had no live-region semantics and all
+  non-error notices were hidden; before readiness it displayed the internal
+  search message instead of the saved target. GREEN exposes
+  `Restoring to 6:40…` through the full pending interval and removes it after a
+  `399.8s` confirmation. Review RED then caught a zero-result response leaving
+  the spinner active; GREEN replaces it with the saved-video restore error.
+- Final restoring verification: fresh Vinext build and 246/246 repository tests
+  pass; the focused caption/rendered/persistence suite passes 114/114; ESLint
+  has zero errors and the same two generated warnings; TypeScript, lifecycle
+  lint and `git diff --check` pass. A local real-widget browser run visibly
+  rendered `Restoring to 7:50…`, then hid it after reporting
+  `Full video ready at 7:50.`

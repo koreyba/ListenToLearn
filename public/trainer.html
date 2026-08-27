@@ -608,8 +608,29 @@
       color: var(--muted);
     }
     .status.error { color: var(--danger); }
-    .status:not(.error),
+    .status:not(.error):not(.restoring),
     .caption-navigation-status { display: none; }
+    .status.restoring {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--color-label);
+      font-weight: 700;
+    }
+    .status.restoring::before {
+      content: "";
+      width: 12px;
+      height: 12px;
+      flex: 0 0 auto;
+      border: 2px solid var(--color-border);
+      border-top-color: var(--accent-2);
+      border-radius: 50%;
+      animation: restore-spin .8s linear infinite;
+    }
+    @keyframes restore-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      .status.restoring::before { animation: none; }
+    }
 
     .caption-box {
       margin-top: 8px;
@@ -1270,7 +1291,7 @@
           </div>
         </div>
 
-        <div id="status" class="status">Preparing audio examples…</div>
+        <div id="status" class="status" role="status" aria-live="polite">Preparing audio examples…</div>
         <div id="noResults" class="no-results">
           <div id="noResultsText"></div>
           <button id="shorterBtn" type="button"></button>
@@ -3145,14 +3166,18 @@
     function fetchYouglish(query, displayQuery, savedLabel = "") {
       ensureYouglishApi();
       if (!widgetReady || !widget) {
-        el.status.textContent = "YouGlish is still loading. The phrase will start when it is ready.";
+        if (!showFullVideoRestoreStatus()) {
+          el.status.textContent = "YouGlish is still loading. The phrase will start when it is ready.";
+        }
         return;
       }
 
       el.status.classList.remove("error");
-      el.status.textContent = savedLabel
-        ? `Finding “${displayQuery}” in ${savedLabel}…`
-        : `Finding random examples: “${displayQuery}” · accent: ${accentLabel()}…`;
+      if (!showFullVideoRestoreStatus()) {
+        el.status.textContent = savedLabel
+          ? `Finding “${displayQuery}” in ${savedLabel}…`
+          : `Finding random examples: “${displayQuery}” · accent: ${accentLabel()}…`;
+      }
 
       try {
         const requestedAccent = fullVideoMode ? fullVideoOrigin.accent : state.accent;
@@ -3776,6 +3801,7 @@
         el.viewerPhrase.textContent = VIEWER_PHRASE;
         document.title = `${VIEWER_PHRASE} · Unmumble`;
       }
+      showFullVideoRestoreStatus();
       renderSource();
     }
 
@@ -3911,11 +3937,27 @@
       return `auto-caption-${captionEntrySequence}`;
     }
 
+    function showFullVideoRestoreStatus() {
+      const restoring = fullVideoMode && fullVideoResumePending;
+      el.status.classList.toggle("restoring", restoring);
+      if (!restoring) return false;
+      el.status.classList.remove("error");
+      el.status.textContent = `Restoring to ${formatAudioTime(fullVideoOrigin.resumeTime)}…`;
+      return true;
+    }
+
+    function completeFullVideoRestore() {
+      clearFullVideoResume();
+      el.status.classList.remove("error");
+      el.status.textContent = `Full video ready at ${formatAudioTime(fullVideoOrigin.resumeTime)}.`;
+    }
+
     function clearFullVideoResume() {
       fullVideoResumePending = false;
       fullVideoResumePlayRequested = false;
       fullVideoResumeMoveAwaitingConfirmation = false;
       fullVideoResumeMoveAttempts = 0;
+      el.status.classList.remove("restoring");
     }
 
     function observeFullVideoResumeAnchor(currentTime) {
@@ -3985,7 +4027,7 @@
         ? youglishVideoRestore.resumeDelta(fullVideoOrigin.resumeTime, fullVideoResumeAnchorTime)
         : null;
       if (delta === null) {
-        clearFullVideoResume();
+        completeFullVideoRestore();
         return false;
       }
       if (!youglishPlayerReady || !widget) return true;
@@ -4162,6 +4204,7 @@
 
     function showWidgetError(message) {
       el.status.textContent = message;
+      el.status.classList.remove("restoring");
       el.status.classList.add("error");
     }
 
@@ -4169,15 +4212,22 @@
       if (state.source !== "youglish") return;
       const query = currentQueryOverride || VIEWER_PHRASE;
       if (Number(event.totalResult) === 0) {
-        el.status.textContent = "No examples found.";
         showNoResults(query);
+        if (fullVideoMode) {
+          clearFullVideoResume();
+          showWidgetError("YouGlish could not restore the saved video.");
+        } else {
+          el.status.textContent = "No examples found.";
+        }
         return;
       }
 
       hideNoResults();
       el.status.classList.remove("error");
       if (fullVideoMode) {
-        el.status.textContent = "Full video ready at the saved caption.";
+        if (!showFullVideoRestoreStatus()) {
+          el.status.textContent = "Full video ready at the saved caption.";
+        }
         return;
       }
       const providerExamples = examplesForCurrentSource();
@@ -4215,7 +4265,9 @@
       renderCaption("");
       hideTranslation();
       const n = Number(event.trackNumber);
-      if (Number.isFinite(n)) {
+      if (fullVideoResumePending) {
+        showFullVideoRestoreStatus();
+      } else if (Number.isFinite(n)) {
         const existing = el.status.textContent;
         el.status.textContent = existing.replace(/\s·\sexample\s\d+$/i, "") + ` · example ${n + 1}`;
       }
@@ -4237,7 +4289,7 @@
       if (state.source !== "youglish") return;
       advanceFullVideoResume();
       el.status.classList.remove("error");
-      el.status.textContent = "Player ready.";
+      if (!showFullVideoRestoreStatus()) el.status.textContent = "Player ready.";
       if (!youglishHasFetched) {
         fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));
       }

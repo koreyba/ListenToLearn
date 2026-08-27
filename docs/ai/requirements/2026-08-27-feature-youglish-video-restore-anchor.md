@@ -49,6 +49,8 @@ Videos section.
   regardless of my current trainer preference.
 - As a learner, playback resumes near my saved timestamp when the provider
   exposes enough timing information.
+- As a learner, I see `Restoring to mm:ss…` while YouGlish is still moving to my
+  saved position, instead of mistaking the provider delay for a broken action.
 - As a learner, a provider result for another video is rejected instead of being
   presented as the saved video.
 - As a learner with legacy saved data, I accept that entries without the new
@@ -72,6 +74,9 @@ Videos section.
 - An untimed first caption keeps restore pending and starts playback until the
   first later timed caption can anchor the relative move; no move is calculated
   from missing timing.
+- Cold restore exposes a visible, politely announced `Restoring to mm:ss…`
+  status from initialization through provider confirmation. Success hides it;
+  a provider error replaces it.
 - Automated contracts cover extraction, guest/API/schema persistence, URL
   construction, cold widget fetch, accent, confirmed bounded resume and untimed
   anchor continuation.

@@ -17,6 +17,8 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
   confirmed bounded retries and add preview-only diagnostics.
 - [x] Milestone 6: Reproduce the real untimed-first-caption flow locally and
   keep restore alive until the next timed provider caption.
+- [x] Milestone 7: Make the unavoidable provider wait explicit with a restoring
+  status tied to confirmed resume state.
 
 ## Task Breakdown
 
@@ -94,6 +96,9 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
 - [x] T15: Capture a local YouGlish trace whose matched first caption has no
   `current_time`, write the failing contract, and start playback until the first
   later timed caption can drive resume movement.
+- [x] T16: Add a RED browser/CSS contract for `Restoring to mm:ss…`, expose it
+  before readiness and across untimed callbacks, then clear it only after
+  confirmation or error without changing seek behavior.
 
 ## Dependencies and Sequencing
 
@@ -137,4 +142,5 @@ overwriting saved progress, and no longer equates a returned fire-and-forget
 unlocks one of three bounded retries. RED/GREEN and full-suite evidence are on
 PR #26. The final local provider trace proved the first matched caption is
 untimed; restore now plays through it and moves only after the next callback
-provides a finite timestamp.
+provides a finite timestamp. The pending interval is now represented by a
+visible, accessible restoring status instead of hidden provider notices.

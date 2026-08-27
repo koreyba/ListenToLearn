@@ -109,6 +109,15 @@ settles the restore, preventing a failed or interrupted attempt from replacing
 the previously correct saved position. If all three moves remain unconfirmed,
 automatic progress stays blocked for that failed Full Video session.
 
+Cold resume now exposes the same state machine to the learner. The normally
+hidden provider status becomes a polite live region with
+`Restoring to mm:ss…` and a reduced-motion-safe spinner before player readiness.
+Fetch, video-change, readiness and untimed-caption callbacks preserve the
+message. Confirming the target removes the restoring class and records
+`Full video ready at mm:ss.`; provider errors remove restoring before displaying
+their existing error text. No timeout, widget command or resume calculation was
+added.
+
 ### Warm transition
 
 The current widget is still paused and reused; no new fetch or navigation occurs.
@@ -121,6 +130,8 @@ cached locator.
 - Marker absence keeps Continue unavailable rather than inventing a query.
 - Provider timing is optional and never fabricated; an untimed first caption
   waits for a later timed callback.
+- Pending resume is visible and accessible without making an unconfirmed
+  provider movement look complete.
 - Relative movement is bounded to the existing seven-day progress limit.
 - Resume attempts are callback-gated and capped at three per cold open.
 - Wrong-video callbacks still show the restore error and are not activated.

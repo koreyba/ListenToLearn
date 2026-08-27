@@ -611,13 +611,18 @@ test("desktop mirrors the mobile learning flow and places media last", async () 
   );
 });
 
-test("trainer removes idle player notices and the media title", async () => {
+test("trainer hides idle player notices but exposes the restoring status", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),
     "utf8",
   );
 
-  assert.match(trainer, /\.status:not\(\.error\),\s*\.caption-navigation-status \{ display: none; \}/);
+  assert.match(
+    trainer,
+    /\.status:not\(\.error\):not\(\.restoring\),\s*\.caption-navigation-status \{ display: none; \}/,
+  );
+  assert.match(trainer, /\.status\.restoring \{[\s\S]*?display: flex;/);
+  assert.match(trainer, /id="status" class="status" role="status" aria-live="polite"/);
   assert.doesNotMatch(trainer, /class="media-label">Media<\/div>/);
 });
 

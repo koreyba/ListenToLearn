@@ -37,8 +37,9 @@ Videos section.
   saved-video records. Records without `restoreQuery` may disappear.
 - No switch to direct YouTube playback or transcript retrieval.
 - No transcript storage or provider scraping.
-- No guarantee of exact resume when the YouGlish callback omits timing; opening
-  the correct video at its stable matched caption is the safe fallback.
+- No guarantee of exact resume when every YouGlish callback omits timing; an
+  untimed first matched caption must not be mistaken for final evidence that
+  timing is unavailable.
 
 ## User Stories & Use Cases
 
@@ -68,11 +69,12 @@ Videos section.
   `widget.move(resumeTime - current_time)`, waits for a later caption timestamp
   to confirm the result, and retries at most three times when the provider
   remains far from the saved target.
-- Without provider timing, the correct video remains usable at the stable anchor
-  and no speculative seek is attempted.
+- An untimed first caption keeps restore pending and starts playback until the
+  first later timed caption can anchor the relative move; no move is calculated
+  from missing timing.
 - Automated contracts cover extraction, guest/API/schema persistence, URL
-  construction, cold widget fetch, accent, confirmed bounded resume and timing
-  fallback.
+  construction, cold widget fetch, accent, confirmed bounded resume and untimed
+  anchor continuation.
 - Full tests, build, TypeScript, lint, lifecycle lint and diff checks pass.
 
 ## Constraints & Assumptions
@@ -82,8 +84,9 @@ Videos section.
 - The documented `onCaptionChange.caption` markers identify the provider-matched
   text, and `widget.move(seconds)` is relative.
 - `event.current_time` is an optional observed provider field already consumed
-  by the trainer, not a guaranteed public contract. Missing timing must degrade
-  safely.
+  by the trainer, not a guaranteed public contract. Real cold restores omit it
+  on the matched first caption and provide it on the next caption, so restore
+  must wait across that boundary.
 - Saved videos remain bounded and deduplicated by `videoId` for both account and
   guest storage.
 - The new D1 column may default to an empty string for migration safety, while
@@ -100,5 +103,5 @@ Videos section.
 
 ## Questions & Open Items
 
-No material open question remains. Legacy loss and timestamp fallback were
-explicitly accepted for this change.
+No material open question remains. Legacy loss was explicitly accepted; the
+untimed-first-caption behavior is now backed by a local provider trace.

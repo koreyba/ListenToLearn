@@ -37,10 +37,13 @@ description: TDD contracts for provider locator persistence, cold restore and in
   player-state noise cannot duplicate it, and retries stop after three moves.
 - [x] A caption confirming the saved target pauses playback once and does not
   issue another move.
+- [x] A real-shape cold sequence with an untimed matched caption requests
+  playback, keeps restore pending, then calculates the move only when the next
+  caption supplies `current_time`.
 - [x] A transient `BUFFERING` callback before the move cannot persist anchor time
   over the saved resume target.
-- [x] Missing `current_time` issues no speculative move and leaves the correct
-  video usable at its stable anchor.
+- [x] Missing `current_time` on the first caption issues no speculative move and
+  does not abandon restore.
 - [x] A mismatched `onVideoChange.video` remains rejected.
 - [x] Warm `Continue in video` caches the first marker-derived locator across
   later unmarked captions, stores it, and still does
@@ -65,6 +68,9 @@ description: TDD contracts for provider locator persistence, cold restore and in
   playback instead of treating every attempted call as successful.
 - The feedback test models a provider that accepts the JavaScript call but then
   reports the unchanged anchor time before succeeding on the second attempt.
+- The untimed-anchor test uses the observed saved target `470.574278...` and the
+  next provider timestamp `469.022370...`; before the fix it fails because no
+  playback is requested and the restore is cleared.
 
 ## Verification Commands
 
@@ -125,3 +131,9 @@ new record without `restoreQuery` blocks the PR.
   pass; the changed-path suite passes 133/133; TypeScript, lifecycle lint and
   `git diff --check` pass; ESLint reports zero errors and the same two generated
   warnings.
+- Third preview-follow-up RED: the real first callback had `current_time: null`;
+  the old fallback produced `play = 0`, paused at the phrase, and made every
+  movement retry unreachable. GREEN keeps restore pending, requests playback,
+  waits for the next timed caption, and calculates the relative delta from that
+  observed time. A local provider run reached `470.810` for saved `470.574` and
+  paused.

@@ -288,9 +288,9 @@ test("cold Full Video stops retrying after three unconfirmed resume moves", asyn
   assert.equal(trainer.storedProgress("w66ecIT-Xkk"), null);
 });
 
-test("cold Full Video restore falls back to the stable anchor when timing is absent", async t => {
+test("cold Full Video plays past an untimed anchor and resumes from the next timed caption", async t => {
   const trainer = await createTrainer({
-    url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&resumeTime=400&language=english&accent=uk",
+    url: "https://listen-to-learn.test/trainer?fullVideo=1&video=w66ecIT-Xkk&query=display+query&restoreQuery=the+actual+match&resumeTime=470.57427815255215&language=english&accent=uk",
   });
   t.after(trainer.close);
 
@@ -302,8 +302,19 @@ test("cold Full Video restore falls back to the stable anchor when timing is abs
     "w66ecIT-Xkk",
   ));
 
+  assert.equal(trainer.widgetCalls.play, 1);
   assert.deepEqual(trainer.widgetCalls.move, []);
-  assert.equal(trainer.widgetCalls.pause, 1);
+  assert.equal(trainer.widgetCalls.pause, 0);
+
+  trainer.events.onPlayerStateChange({ state: 1 });
+  trainer.events.onCaptionChange(caption(
+    "first-timed-caption",
+    469.02237007247925,
+    "The first callback with provider timing.",
+    "w66ecIT-Xkk",
+  ));
+
+  assertDeltas(trainer.widgetCalls.move, [1.5519080800729]);
 });
 
 test("cold Full Video restore rejects a provider result for another video", async t => {

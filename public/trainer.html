@@ -3978,8 +3978,8 @@
       if (captionObserved) observeFullVideoResumeAnchor(currentTime);
       if (!fullVideoResumeAnchorObserved) return true;
       if (fullVideoResumeAnchorTime === null) {
-        clearFullVideoResume();
-        return false;
+        if (!youglishPlayerReady || !widget || playerState === 1) return true;
+        return requestFullVideoResumePlayback();
       }
       const delta = youglishVideoRestore
         ? youglishVideoRestore.resumeDelta(fullVideoOrigin.resumeTime, fullVideoResumeAnchorTime)

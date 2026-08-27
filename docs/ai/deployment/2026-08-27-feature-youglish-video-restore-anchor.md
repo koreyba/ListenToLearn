@@ -40,8 +40,10 @@ accepted data-loss boundary.
 3. On a preview/new deployment, find a fresh YouGlish result, advance at least
    one caption, choose Continue, and verify one Videos card appears.
 4. Cold-open that card and verify the expected video, saved accent and resume
-   position. If the first provider move is ignored, verify a later timed caption
-   triggers a bounded retry and that the target confirmation restores pause.
+   position. Verify an untimed matched first caption starts playback and waits
+   for the next timed caption; if the first provider move is ignored, verify a
+   later timed caption triggers a bounded retry and target confirmation restores
+   pause.
 5. Verify an old row without `restore_query` is absent and no repair is attempted.
 
 For branch-preview diagnosis only, append `captionTrace=1` and inspect the

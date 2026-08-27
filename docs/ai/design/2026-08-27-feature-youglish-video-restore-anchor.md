@@ -66,16 +66,16 @@ locator from the current verified YouGlish result.
   valid video ID and marked match are both available.
 - The warm transition stores/pushes the same `restoreQuery` but does not refetch.
 - Cold initialization and Full Video `popstate` both require the new locator.
-- The first anchor caption stores its provider timestamp without consuming the
-  resume request. Resume waits for `onPlayerReady`; because cold Full Video uses
-  `autoStart: 0`, it then requests playback and waits for `PLAYING` before sending
-  a relative move. The command remains pending until a later
-  `onCaptionChange.current_time` confirms the target within one second. A callback
-  still far from the target recalculates the relative delta and permits another
-  move, capped at three attempts; player-state noise alone cannot resend it. If
-  timing is absent or the delta is negligible, no move is made and normal
-  pause/restore behavior continues at the anchor. Resume values retain the
-  existing seven-day upper bound before they can become a provider movement.
+- The first anchor caption keeps the resume request pending even when its
+  provider timestamp is absent. Resume waits for `onPlayerReady`; because cold
+  Full Video uses `autoStart: 0`, it requests playback and waits through the
+  untimed anchor until a later caption supplies the first finite timestamp.
+  Only then can it send a relative move. The command remains pending until a
+  later `onCaptionChange.current_time` confirms the target within one second. A
+  callback still far from the target recalculates the relative delta and permits
+  another move, capped at three attempts; player-state noise alone cannot resend
+  it. A negligible delta completes restore without a move. Resume values retain
+  the existing seven-day upper bound before they can become a provider movement.
 - Buffering/pause callbacks produced by this controlled startup cannot persist
   anchor progress over the saved target; progress writes resume only after the
   restore has settled. Exhausted retries keep automatic progress blocked for
@@ -91,12 +91,16 @@ stateDiagram-v2
   Fetching --> Rejected: different video ID
   Fetching --> Anchor: expected video and first caption
   Anchor --> ReadyWait: player is not ready
+  Anchor --> TimingWait: first caption has no current_time
   ReadyWait --> PlayWait: onPlayerReady
   Anchor --> PlayWait: player ready but paused
+  TimingWait --> PlayWait: request playback
+  PlayWait --> TimingWait: PLAYING but timestamp still absent
+  TimingWait --> Seeking: later caption supplies current_time
   PlayWait --> Seeking: PLAYING and finite resume delta
   Seeking --> Seeking: timed caption still far and attempts remain
   Seeking --> Failed: three moves remain unconfirmed
-  Anchor --> Ready: timing absent or already near target
+  Anchor --> Ready: already near target
   Seeking --> Ready: resumed caption callback
   Ready --> [*]: pause restored and progress continues
 ```
@@ -114,7 +118,8 @@ stateDiagram-v2
   paused or still-loading widget cannot silently discard the initial command.
 - A returned `widget.move` call is not treated as acknowledgement. Only a later
   provider timestamp confirms movement; retries are callback-gated and bounded.
-- Missing timing falls back to the stable anchor, not to a text-search retry.
+- An untimed first caption waits for the next timed callback instead of ending
+  restore at the phrase anchor or starting another text search.
 - Legacy rows are filtered/dropped rather than migrated because the missing
   provider marker cannot be reconstructed reliably and the user accepted loss.
 

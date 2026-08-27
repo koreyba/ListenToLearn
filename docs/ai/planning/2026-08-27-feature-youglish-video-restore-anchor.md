@@ -15,6 +15,8 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
   the existing PR.
 - [x] Milestone 5: Replace fire-and-forget resume completion with provider-
   confirmed bounded retries and add preview-only diagnostics.
+- [x] Milestone 6: Reproduce the real untimed-first-caption flow locally and
+  keep restore alive until the next timed provider caption.
 
 ## Task Breakdown
 
@@ -34,7 +36,7 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
   - Scenarios: URL independence from resume caption, guest round-trip/upsert/drop,
     account round-trip/filter/migration.
 - [x] T3: Add JSDOM fake-widget tests for cold fetch, saved accent, expected
-  video, confirmed bounded resume movement and no-timing fallback.
+  video, confirmed bounded resume movement and untimed-anchor continuation.
   - Outcome: the reported browser failure is reproduced at the provider boundary.
   - Depends on: current trainer harness.
   - Validation: test observes the current resume-caption fetch and wrong accent.
@@ -73,7 +75,7 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
   retain expected-video verification, and perform a relative resume.
   - Outcome: cold reopen selects the correct video independently from progress.
   - Depends on: T4, T7 and T8.
-  - Validation: T3 turns green, including missing-timestamp fallback.
+  - Validation: T3 turns green, including the untimed-first-caption path.
 
 ### Phase 4: Verification and delivery
 
@@ -89,6 +91,9 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
 - [x] T14: Reproduce an accepted-but-ignored movement, keep the restore pending
   until a timed caption confirms it, retry at most three times, and expose the
   sanitized trace only on localhost or the branch-preview hostname.
+- [x] T15: Capture a local YouGlish trace whose matched first caption has no
+  `current_time`, write the failing contract, and start playback until the first
+  later timed caption can drive resume movement.
 
 ## Dependencies and Sequencing
 
@@ -104,8 +109,8 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
 
 - **Provider markers absent:** keep Continue hidden until a non-empty marked match
   arrives; never persist an invented locator.
-- **Undocumented timestamp missing:** skip resume movement and open at the stable
-  anchor.
+- **First timestamp missing:** keep restore pending, start playback, and wait for
+  a later timed caption before calculating any movement.
 - **Callback loop after move:** wait for a new timed caption before permitting
   another move, and cap one cold restore at three attempts.
 - **Wrong provider result:** preserve the expected-video check and error state.
@@ -124,10 +129,12 @@ description: Ordered TDD, persistence, trainer integration, verification and PR 
 
 ## Progress Summary
 
-T1-T14 are complete. Preview feedback reproduced two test blind spots: the fake
+T1-T15 are complete. Preview feedback reproduced three test blind spots: the fake
 accepted `move` before the real player was ready or playing. The corrected
 contract waits for `onPlayerReady` and `PLAYING`, prevents buffering from
 overwriting saved progress, and no longer equates a returned fire-and-forget
 `move` call with success. A later provider timestamp confirms the target or
 unlocks one of three bounded retries. RED/GREEN and full-suite evidence are on
-PR #26.
+PR #26. The final local provider trace proved the first matched caption is
+untimed; restore now plays through it and moves only after the next callback
+provides a finite timestamp.

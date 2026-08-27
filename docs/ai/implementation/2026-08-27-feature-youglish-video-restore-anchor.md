@@ -67,17 +67,20 @@ Cold Full Video initialization requires `videoId`, `originQuery` and
 US/UK accent (or omits accent for All). `resumeCaption` remains progress metadata
 and is never a search key. The existing `onVideoChange` expected-ID guard remains.
 
-After the anchor caption arrives, the trainer retains its timestamp and the
-pending request until the embedded player reports `onPlayerReady` and `PLAYING`.
-A paused cold player is started only for this controlled resume. The trainer
-calls `widget.move(resumeTime - current_time)` but does not treat the returned
-fire-and-forget call as success. It waits for a later timed caption: reaching the
-target within one second restores pause and progress, while a timestamp still
-far away recalculates the delta and permits another movement. Only a new timed
-caption can unlock a retry, and one cold restore is capped at three moves.
-Missing timing or a negligible delta falls back to the stable anchor without
-another search; exhausted retries keep playback usable and display a resume
-error without overwriting the known-good saved target.
+After the anchor caption arrives, the trainer retains the pending request until
+the embedded player reports `onPlayerReady` and `PLAYING`. A real local trace
+showed that YouGlish omits `current_time` on that first matched caption and
+provides it on the next caption. The paused cold player is therefore started and
+restore remains pending across the untimed anchor. Once a later callback has a
+finite timestamp, the trainer calls `widget.move(resumeTime - current_time)` but
+does not treat the returned fire-and-forget call as success. It waits for a later
+timed caption: reaching the target within one second restores pause and progress,
+while a timestamp still far away recalculates the delta and permits another
+movement. Only a new timed caption can unlock a retry, and one cold restore is
+capped at three moves.
+A negligible delta completes at the observed caption without another search;
+exhausted retries keep playback usable and display a resume error without
+overwriting the known-good saved target.
 
 The original PR implementation called `move` directly from the first caption
 callback while cold Full Video used `autoStart: 0`. Its fake widget always fired
@@ -92,6 +95,13 @@ acknowledgement. The new feedback loop keeps the intent pending until
 `onCaptionChange.current_time` confirms the result. Synthetic provider-state
 noise cannot duplicate a move, and repeated unconfirmed callbacks stop after
 three attempts.
+
+The third preview retest exposed the actual upstream gate: the first matched
+caption callback had `current_time: null`, and the implementation cleared the
+resume request before any move path could run. A local provider run reproduced
+`null`, then `468.924`, issued bounded deltas toward saved `470.574`, confirmed
+`470.810`, and paused. The production change is deliberately one branch: an
+untimed anchor requests or continues playback instead of clearing restore.
 
 Transient `BUFFERING`/pause callbacks during controlled startup do not persist
 the anchor timestamp. Progress writes remain suspended until the target caption
@@ -109,7 +119,8 @@ cached locator.
 
 - Invalid/missing locator records are rejected on write and absent on read.
 - Marker absence keeps Continue unavailable rather than inventing a query.
-- Provider timing is optional and never fabricated.
+- Provider timing is optional and never fabricated; an untimed first caption
+  waits for a later timed callback.
 - Relative movement is bounded to the existing seven-day progress limit.
 - Resume attempts are callback-gated and capped at three per cold open.
 - Wrong-video callbacks still show the restore error and are not activated.

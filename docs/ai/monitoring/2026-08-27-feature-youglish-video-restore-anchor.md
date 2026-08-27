@@ -30,11 +30,12 @@ The deterministic tests use synthetic text and the existing trace stays sanitize
   confirm Continue still records one card.
 - Cold-open with US, UK and All; verify the first fetch uses the saved choice.
 - Reopen with progress: no movement before `onPlayerReady`/`PLAYING`; movement
-  remains pending until a timed caption confirms it, retries occur only after a
-  still-distant timestamp and stop after three; no anchor-progress write occurs
-  while buffering or after exhausted retries, and normal progress persistence
-  resumes only after a confirmed target.
-- Simulate missing timing: correct video opens at the stable match with no move.
+  remains pending across an untimed first caption until a later timed caption can
+  anchor it, retries occur only after a still-distant timestamp and stop after
+  three; no anchor-progress write occurs while buffering or after exhausted
+  retries, and normal progress persistence resumes only after a confirmed target.
+- Simulate an untimed first caption followed by a timed one: playback starts,
+  the first caption causes no move, and the later timestamp drives resume.
 - Simulate a different video ID: the trainer rejects it.
 - Confirm old empty-locator account/guest records remain absent.
 

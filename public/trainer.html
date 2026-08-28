@@ -4507,6 +4507,16 @@
         : `Examples found: ${event.totalResult} · random order · accent: ${accentLabel()}`;
     }
 
+    function confirmRepeatResolutionVideo(nextVideoId) {
+      const pending = repeatResolvePending;
+      if (!pending) return;
+      if (nextVideoId === pending.videoId) {
+        pending.videoConfirmed = true;
+        return;
+      }
+      disableRepeatCaption("Phrase repeat disabled: YouGlish reopened a different video.");
+    }
+
     function onVideoChange(event) {
       if (state.source !== "youglish") return;
       const previousVideoId = currentYouglishVideoId;
@@ -4516,13 +4526,7 @@
         showWidgetError("YouGlish could not restore the saved video.");
         return;
       }
-      if (repeatResolvePending) {
-        if (nextVideoId !== repeatResolvePending.videoId) {
-          disableRepeatCaption("Phrase repeat disabled: YouGlish reopened a different video.");
-        } else {
-          repeatResolvePending.videoConfirmed = true;
-        }
-      }
+      confirmRepeatResolutionVideo(nextVideoId);
       if (fullVideoMode) fullVideoResumeVideoVerified = true;
       recordCaptionTrace("widget.video", {
         from: captionTraceToken(captionTraceVideoTokens, previousVideoId, "video"),

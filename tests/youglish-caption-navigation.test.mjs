@@ -584,6 +584,19 @@ function observeVideo(trainer, videoId, entries) {
   for (const entry of entries) trainer.events.onCaptionChange(entry);
 }
 
+function resolveTimedRepeat(
+  trainer,
+  { sourceId = "a1", nativeId = "native-a1", time = 600, text = "first", videoId = "video-a" } = {},
+) {
+  observeVideo(trainer, videoId, [caption(sourceId, time, text)]);
+  const movementBeforeRepeat = trainer.widgetCalls.move.length;
+  trainer.controls.repeat.click();
+  const activeEvents = trainer.widgetEvents(1);
+  activeEvents.onVideoChange({ trackNumber: 0, video: videoId });
+  activeEvents.onCaptionChange(caption(nativeId, undefined, text, videoId));
+  return { activeEvents, movementBeforeRepeat, nativeId };
+}
+
 test("local caption traces capture commands and state without retaining provider text or IDs", async t => {
   const trainer = await createTrainer({ trace: true });
   t.after(trainer.close);
@@ -1884,17 +1897,12 @@ test("Repeat never derives caption length from boundary timestamps", async t => 
   const trainer = await createTrainer();
   t.after(trainer.close);
 
-  observeVideo(trainer, "video-a", [caption("a1", 600, "first")]);
-  const movementBeforeRepeat = trainer.widgetCalls.move.length;
-  trainer.controls.repeat.click();
-  const activeEvents = trainer.widgetEvents(1);
-  activeEvents.onVideoChange({ trackNumber: 0, video: "video-a" });
-  activeEvents.onCaptionChange(caption("native-a1", undefined, "first", "video-a"));
+  const { activeEvents, movementBeforeRepeat, nativeId } = resolveTimedRepeat(trainer);
   const replayBeforeCycles = trainer.widgetCalls.replay;
 
   for (let cycle = 0; cycle < 3; cycle += 1) {
-    activeEvents.onCaptionConsumed({ id: "native-a1" });
-    activeEvents.onCaptionChange(caption("native-a1", undefined, "first", "video-a"));
+    activeEvents.onCaptionConsumed({ id: nativeId });
+    activeEvents.onCaptionChange(caption(nativeId, undefined, "first", "video-a"));
   }
 
   assert.equal(trainer.widgetCalls.replay, replayBeforeCycles + 3);
@@ -1905,19 +1913,14 @@ test("Repeat keeps the same caption boundary across delayed playback cycles", as
   const trainer = await createTrainer();
   t.after(trainer.close);
 
-  observeVideo(trainer, "video-a", [caption("a1", 600, "first")]);
-  const movementBeforeRepeat = trainer.widgetCalls.move.length;
-  trainer.controls.repeat.click();
-  const activeEvents = trainer.widgetEvents(1);
-  activeEvents.onVideoChange({ trackNumber: 0, video: "video-a" });
-  activeEvents.onCaptionChange(caption("native-a1", undefined, "first", "video-a"));
+  const { activeEvents, movementBeforeRepeat, nativeId } = resolveTimedRepeat(trainer);
   const replayBeforeCycles = trainer.widgetCalls.replay;
   const callbackDelays = [3_100, 2_850, 3_250, 2_900, 3_050, 3_300, 2_800, 3_150, 2_950, 3_200];
 
   for (const delay of callbackDelays) {
     trainer.advanceTime(delay);
-    activeEvents.onCaptionConsumed({ id: "native-a1" });
-    activeEvents.onCaptionChange(caption("native-a1", undefined, "first", "video-a"));
+    activeEvents.onCaptionConsumed({ id: nativeId });
+    activeEvents.onCaptionChange(caption(nativeId, undefined, "first", "video-a"));
   }
 
   assert.equal(trainer.widgetCalls.replay, replayBeforeCycles + callbackDelays.length);

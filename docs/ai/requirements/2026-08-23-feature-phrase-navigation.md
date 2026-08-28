@@ -86,6 +86,9 @@ Verified baseline on 2026-08-23:
 - Repeat requests the same caption ID, does not change the video, and does not
   create overlapping timers or navigation loops. Turning repeat off prevents
   the next repeat action.
+- Resolving a timed or manually selected Repeat target keeps the existing
+  YouGlish widget/iframe mounted; neither the page nor the provider widget is
+  recreated.
 - The repeat control has a visually distinct pressed state, and selecting
   another caption in the same video retargets repeat without switching it off.
 - When `current_time` is missing/invalid or the widget lacks `move`, the feature

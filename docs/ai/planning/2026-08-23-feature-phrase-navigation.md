@@ -59,6 +59,11 @@ description: Break down work into actionable tasks and estimate timeline
   generation inside a stable host, and guard every callback by generation.
   Validate an unchanged URL, a replaced mount, stale-event rejection, manual
   seek retargeting, and native replay after exact caption confirmation.
+- [x] T2.7 Remove widget replacement from Repeat. Pause the existing player,
+  wait for `PAUSED`, fetch a bounded caption search in place, and accept only
+  exact callbacks following `onFetchDone`. Validate one widget instance,
+  stale-event rejection, playback restoration, manual seek, and fail-closed
+  pause timeout.
 
 ### Phase 3: Integration & Polish
 
@@ -103,6 +108,9 @@ refactor, then fresh verification evidence.
 - Repeat target resolution fails or returns another video: verify video ID and
   normalized caption text, use a bounded timeout, and disable Repeat instead of
   falling back to timing arithmetic.
+- Same-widget fetch receives callbacks from the previous result: reject all
+  repeat-resolution video/caption callbacks until the new `onFetchDone`, then
+  require the expected video and full normalized caption.
 - Navigation changes the wrong video: assert `videoId` before accepting a
   target; never use track methods for phrase controls.
 - Live widget behavior is unavailable in CI: deterministic fake-widget tests

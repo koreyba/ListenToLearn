@@ -48,11 +48,19 @@ Controller scenarios to cover with a fake widget/event harness:
   event, and repeat-off prevents the next consumed event from seeking.
 - [x] Ten repeat cycles with varying consumed-callback delays use ten native
   `replay()` calls and zero Repeat `move()` calls.
-- [x] A timed caption and a manual iframe-seek caption replace only the
-  YouGlish widget, keep the page URL unchanged, and reopen their full normalized
-  text constrained to the same video ID before looping.
-- [x] A callback retained from the closed widget generation cannot confirm the
-  replacement caption or trigger its replay loop.
+- [x] A timed caption and a manual iframe-seek caption keep the same YouGlish
+  widget instance, reopen their full normalized text, and confirm the same
+  video ID from the returned callback before looping.
+- [x] Same-widget callbacks arriving before the new `onFetchDone` cannot confirm
+  the Repeat target or trigger its replay loop.
+- [x] A stale `onFetchDone` received before pause confirmation cannot open the
+  transaction barrier for old video/caption callbacks.
+- [x] Repeat waits for `PAUSED` before fetch, resumes only previously active
+  playback, and fails closed without reload if pause is not confirmed.
+- [x] In-place fetch omits the provider-incompatible inline video constraint,
+  while a returned result from another video disables Repeat.
+- [x] Long provider captions use a centered 12-word search window while full
+  normalized caption confirmation remains mandatory.
 - [x] Provider-search punctuation is removed after a live punctuated query
   returned zero results, while full caption text remains required for target
   confirmation.
@@ -225,6 +233,22 @@ Widget-only replacement evidence on 2026-08-28:
   the iframe reported the YouGlish daily search quota was exceeded. The
   deterministic manual-seek test covers the success callback sequence; the live
   smoke claim is limited to URL stability and widget-only replacement.
+
+Same-widget Repeat evidence on 2026-08-28:
+
+- A video-constrained in-place fetch reproduced `YG.Error.TIMEOUT (3)` even
+  after a confirmed `PAUSED` state. Full long-caption searches were also
+  unreliable; a centered 12-word window completed in the existing widget.
+- Timed Repeat kept the same URL, `fr_yg-widget-0` ID, and iframe `src`, stayed
+  pressed, and completed five native replay cycles with zero Repeat `move()`
+  commands.
+- Clicking the nested YouTube seek slider while Repeat was active selected a
+  distant caption, resolved it in the same iframe and video, kept Repeat
+  pressed, and completed seven subsequent native replay cycles with zero Repeat
+  `move()` commands.
+- `npm test` rebuilt the application and passed 273/273 tests. Removing the
+  pause-before-fetch phase made the focused regression fail; restoring it made
+  the same test pass.
 
 ## Manual Testing
 

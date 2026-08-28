@@ -105,14 +105,16 @@ exception blocks that direction and reports the failure.
 ### Repeat controller
 
 When repeat is enabled, `onCaptionConsumed` checks the consumed ID against the
-current target. It seeks back to the current caption's observed start using the
-known next-caption interval when available, then the elapsed playback estimate,
-then a minimum bounded fallback. Explicit previous/next navigation retargets the
-loop to the selected caption. If a different caption arrives while a repeat seek
-is still awaiting confirmation, the controller ignores that provider race and
-keeps Repeat pinned until the selected caption confirms the seek. Missing timing,
-a failed movement, or a query/source/video reset still disables repeat. Turning
-repeat off clears the target before any future consumed event is handled.
+current target. The untimed first search result uses the widget's native
+`replay()` command. A timed target waits for the following caption callback and
+seeks from that callback's actual `current_time` back to the target's cached
+start. This keeps every cycle tied to the same media boundary instead of
+relearning a progressively shorter wall-clock interval. Explicit previous/next
+navigation and a distant manual-seek callback retarget the loop without releasing
+Repeat. A nearby callback during repeat confirmation remains a provider race and
+is ignored until the selected caption confirms the seek. Missing timing, a failed
+movement, or a query/source/video reset still disables repeat. Turning repeat off
+clears the target before any future consumed event is handled.
 
 ### UI state
 

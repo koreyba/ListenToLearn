@@ -1620,12 +1620,16 @@
     let repeatCaptionEnabled = false;
     let repeatTargetId = "";
     let repeatPending = false;
+    let repeatAwaitingBoundary = false;
+    let repeatSeekIssuedAt = null;
     let playerState = null;
     let requestedYouglishPlayback = null;
     let captionPlaybackContinuity = 0;
     let captionEntrySequence = 0;
     const CAPTION_NAVIGATION_LOCK_MS = 500;
     const CONTROLLED_CAPTION_TIMEOUT_MS = 20_000;
+    const MAX_REPEAT_CAPTION_SECONDS = 30;
+    const REPEAT_SEEK_CONFIRMATION_MS = 1_000;
     const FULL_VIDEO_RESUME_MAX_MOVE_ATTEMPTS = 3;
     const MAX_VIDEO_PROGRESS_SECONDS = 604_800;
     let lastTranslation = { source: "", context: "", translation: "" };
@@ -1789,6 +1793,10 @@
         pending: captionTraceToken(captionTraceCaptionTokens, captionNavigationPendingTargetId, "caption"),
         controlled: captionTraceToken(captionTraceCaptionTokens, controlledCaptionTargetId, "caption"),
         replayPending: captionTraceToken(captionTraceCaptionTokens, replayPendingTargetId, "caption"),
+        repeatEnabled: repeatCaptionEnabled,
+        repeatTarget: captionTraceToken(captionTraceCaptionTokens, repeatTargetId, "caption"),
+        repeatPending,
+        repeatAwaitingBoundary,
         playerState,
         speed: Number(state.speed),
         requestedPlayback: requestedYouglishPlayback,
@@ -2788,10 +2796,16 @@
       clearCaptionNavigationPending();
     }
 
+    function clearRepeatPending() {
+      repeatPending = false;
+      repeatAwaitingBoundary = false;
+      repeatSeekIssuedAt = null;
+    }
+
     function disableRepeatCaption(message = "") {
       repeatCaptionEnabled = false;
       repeatTargetId = "";
-      repeatPending = false;
+      clearRepeatPending();
       if (message) el.status.textContent = message;
     }
 
@@ -2888,7 +2902,7 @@
       clearReplayPending();
       repeatCaptionEnabled = false;
       repeatTargetId = "";
-      repeatPending = false;
+      clearRepeatPending();
       requestedYouglishPlayback = null;
       renderCaptionNavigation();
     }
@@ -3091,7 +3105,7 @@
         const reached = seekToKnownCaption(target, wasPlaying);
         if (reached && reached.pending) {
           startCaptionNavigationPending(target.id, CONTROLLED_CAPTION_TIMEOUT_MS);
-          repeatPending = false;
+          clearRepeatPending();
           return;
         }
         if (!reached) {
@@ -3101,7 +3115,7 @@
           el.status.textContent = "Could not confirm the next caption; try again.";
           return;
         }
-        repeatPending = false;
+        clearRepeatPending();
         if (repeatCaptionEnabled) repeatTargetId = reached.id;
         hideTranslation();
       } catch (error) {
@@ -3122,7 +3136,7 @@
       }
       repeatCaptionEnabled = !repeatCaptionEnabled;
       repeatTargetId = repeatCaptionEnabled ? currentCaptionEntry().id : "";
-      repeatPending = false;
+      clearRepeatPending();
       renderCaptionNavigation();
       el.status.textContent = repeatCaptionEnabled ? "Repeat current caption enabled." : "Caption repeat disabled.";
     }
@@ -3130,29 +3144,68 @@
     function repeatCurrentCaption() {
       const current = currentCaptionEntry();
       if (captionNavigationBusy || captionNavigationPendingTargetId || !repeatCaptionEnabled || !captionTimingAvailable() || !current || repeatTargetId !== current.id) return;
-      const next = captionNavigation.adjacent(
-        captionHistory,
-        captionHistoryIndex,
-        1,
-        currentYouglishVideoId,
-        activeCaptionSegmentId
-      );
-      const delta = captionNavigation.repeatSeekDelta(
-        current.startTime,
-        next && next.startTime,
-        estimatedCaptionTime(current)
-      );
-      if (delta === null || delta >= 0) return;
       try {
         repeatPending = true;
-        widget.move(delta);
-        current.observedAt = performance.now();
-        current.lastKnownTime = current.startTime;
+        repeatAwaitingBoundary = !captionNavigation.isReplayTarget(current);
+        repeatSeekIssuedAt = null;
+        if (!repeatAwaitingBoundary) {
+          if (typeof widget.replay !== "function") {
+            disableRepeatCaption("Phrase repeat disabled: replay is not supported by this player.");
+            return;
+          }
+          recordCaptionTrace("widget.command", { command: "replay", reason: "caption-repeat" });
+          widget.replay();
+        }
       } catch (error) {
         disableRepeatCaption("Phrase repeat disabled: the player rejected the seek.");
         console.error(error);
       }
       renderCaptionNavigation();
+    }
+
+    function repeatTargetEntry() {
+      return captionHistory.find(entry =>
+        entry.videoId === currentYouglishVideoId && entry.id === repeatTargetId
+      ) || null;
+    }
+
+    function repeatBoundarySeekDelta(target, boundaryTime) {
+      const targetTime = finiteCaptionTime(target && target.startTime);
+      const observedBoundary = finiteCaptionTime(boundaryTime);
+      if (targetTime === null || observedBoundary === null) return null;
+      const duration = observedBoundary - targetTime;
+      return duration >= 0.05 && duration <= MAX_REPEAT_CAPTION_SECONDS
+        ? -duration
+        : null;
+    }
+
+    function repeatMismatchIsManualSeek(target, currentTime) {
+      const targetTime = finiteCaptionTime(target && target.startTime);
+      const observedTime = finiteCaptionTime(currentTime);
+      if (targetTime === null || observedTime === null) return false;
+      if (Math.abs(observedTime - targetTime) > MAX_REPEAT_CAPTION_SECONDS) return true;
+      return repeatSeekIssuedAt !== null
+        && performance.now() - repeatSeekIssuedAt > REPEAT_SEEK_CONFIRMATION_MS;
+    }
+
+    function seekRepeatFromBoundary(target, currentTime) {
+      const delta = repeatBoundarySeekDelta(target, currentTime);
+      if (delta === null || typeof widget?.move !== "function") return false;
+      try {
+        repeatAwaitingBoundary = false;
+        repeatSeekIssuedAt = performance.now();
+        recordCaptionTrace("widget.command", {
+          command: "move",
+          reason: "caption-repeat-boundary",
+          delta: Math.round(delta * 1000) / 1000
+        });
+        widget.move(delta);
+        return true;
+      } catch (error) {
+        disableRepeatCaption("Phrase repeat disabled: the player rejected the seek.");
+        console.error(error);
+        return false;
+      }
     }
 
     async function playTatoeba() {
@@ -4166,12 +4219,30 @@
         return;
       }
       if (repeatCaptionEnabled && repeatPending && captionId !== repeatTargetId) {
-        recordCaptionTrace("widget.caption-ignored", {
+        const target = repeatTargetEntry();
+        if (repeatAwaitingBoundary && seekRepeatFromBoundary(target, currentTime)) {
+          recordCaptionTrace("widget.caption-ignored", {
+            caption: tracedCaption,
+            reason: "repeat-boundary"
+          });
+          renderCaptionNavigation();
+          return;
+        }
+        if (!repeatMismatchIsManualSeek(target, currentTime)) {
+          recordCaptionTrace("widget.caption-ignored", {
+            caption: tracedCaption,
+            reason: repeatAwaitingBoundary
+              ? "repeat-boundary-unavailable"
+              : "repeat-target-mismatch"
+          });
+          renderCaptionNavigation();
+          return;
+        }
+        recordCaptionTrace("widget.repeat-retarget", {
           caption: tracedCaption,
-          reason: "repeat-target-mismatch"
+          reason: "manual-seek"
         });
-        renderCaptionNavigation();
-        return;
+        clearRepeatPending();
       }
       const previousCaption = currentCaptionEntry();
       const previousCaptionSnapshot = previousCaption ? {
@@ -4238,8 +4309,9 @@
           clearReplayPending();
           if (restorePaused && typeof widget?.pause === "function") widget.pause();
         }
-        if (repeatCaptionEnabled && entry.id === repeatTargetId && repeatPending) {
-          repeatPending = false;
+        if (repeatCaptionEnabled && entry.id === repeatTargetId
+            && repeatPending && !repeatAwaitingBoundary) {
+          clearRepeatPending();
         }
         if (repeatCaptionEnabled && entry.id !== repeatTargetId
             && !captionNavigationBusy && !captionNavigationPendingTargetId) {

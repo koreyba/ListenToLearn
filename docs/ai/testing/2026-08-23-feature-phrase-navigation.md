@@ -153,7 +153,8 @@ Fresh Repeat follow-up evidence on 2026-08-25:
   `git diff --check`, and `npx ai-devkit@latest lint --feature
   phrase-navigation`: passed.
 
-Fresh Repeat stabilization evidence on 2026-08-27:
+Earlier Repeat stabilization attempt on 2026-08-27, superseded by the live
+provider findings below:
 
 - A ten-cycle delayed-callback test failed before the fix with a first seek of
   `-3.10` instead of the cached `-3.00` caption boundary; after preferring the
@@ -169,6 +170,30 @@ Fresh Repeat stabilization evidence on 2026-08-27:
 - `npx tsc --noEmit`, `git diff --check`, and feature lint passed. ESLint passed
   with 0 errors and 2 existing generated-file warnings in
   `worker-configuration.d.ts`.
+
+Fresh live-provider Repeat evidence on 2026-08-28:
+
+- The first search caption arrived with `current_time: null`. Its consumed event
+  produced no seek command under the old implementation, and Repeat moved on to
+  the second caption. The corrected path issued native `replay()` on every first
+  caption consumption while keeping `aria-pressed="true"`.
+- The old timed loop progressively landed later in the target caption until it
+  repeated roughly 0.3 seconds. The corrected path waits for the observed next
+  boundary; three live cycles used `-7.109`, `-7.030`, and `-7.030` second moves.
+- Clicking the live YouTube seek slider while Repeat was already on changed the
+  target from the old caption to the clicked caption without releasing Repeat.
+  Subsequent live moves stabilized at approximately `-0.69` seconds instead of
+  shrinking on every cycle.
+- Regression tests cover native replay of the untimed first caption, exact
+  boundary-driven cycles under varying callback delay, and a manual seek that
+  replaces a pending repeat target.
+- Temporarily removing native replay and subtracting 0.5 seconds from each
+  boundary move made the two focused regressions fail (`0` replay calls and a
+  `-2.5` instead of `-3.0` second move); restoring the implementation made all
+  three focused Repeat scenarios pass.
+- `npm test`: build passed; 260 tests passed, 0 failed. `npx tsc --noEmit`,
+  `git diff --check`, and feature lint passed. ESLint passed with 0 errors and
+  the same 2 generated-file warnings in `worker-configuration.d.ts`.
 
 ## Manual Testing
 

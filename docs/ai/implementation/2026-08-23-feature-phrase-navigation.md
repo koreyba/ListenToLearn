@@ -69,14 +69,14 @@ description: Technical implementation notes, patterns, and code guidelines
 - `Повтор фразы` is a native toggle with `aria-pressed` and a visibly accented
   pressed state.
 - `onCaptionConsumed` is accepted only for the active opaque caption ID. The
-  seek-back delta prefers a known next-caption interval, which is stable across
-  callback latency, then the elapsed estimate from `observedAt` and playback
-  state, then a minimum bounded fallback.
+  untimed first search caption calls `widget.replay()`. A timestamped caption
+  arms a boundary wait; the next caption callback supplies the actual media time
+  used for one relative seek back to the cached target start.
 - Explicit previous/next navigation updates the repeat target without switching
-  the toggle off. If a provider callback crosses into another caption while a
-  repeat seek is pending, the callback is ignored and Repeat stays pinned until
-  the selected caption confirms the seek. Missing timing, failed movement,
-  context reset, or overlapping navigation still disables repeat.
+  the toggle off. A distant callback is treated as a manual timeline seek and
+  becomes the new repeat target. Boundary and confirmation callbacks from the
+  old target remain pinned until its seek confirms. Missing timing, failed
+  movement, context reset, or overlapping navigation still disables repeat.
 - Repeat never schedules an unbounded timer and never changes the YouGlish video
   track.
 

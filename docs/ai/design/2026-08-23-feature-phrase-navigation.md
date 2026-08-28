@@ -77,12 +77,12 @@ The existing YouGlish calls are used as follows:
   optional numeric `event.current_time`.
 - `onCaptionConsumed(event)` triggers repeat only when its ID equals the active
   caption ID.
-- `onPlayerStateChange(event)` is used only to improve the repeat timing
-  estimate; missing state events do not enable unsafe navigation.
+- `onPlayerStateChange(event)` maintains playback state for navigation and
+  coalesces duplicate replay commands; Repeat does not infer duration from it.
 
-`current_time` is an optional capability. The controller requires a finite
-number and a callable `move`; otherwise it disables phrase controls and keeps
-the existing honest fallback text.
+`current_time` is an optional capability for Previous/Next. A finite value and
+callable `move` are required for those controls, while Repeat uses the native
+search-result boundary and `replay()` instead.
 
 ## Component Breakdown
 
@@ -105,16 +105,23 @@ exception blocks that direction and reports the failure.
 ### Repeat controller
 
 When repeat is enabled, `onCaptionConsumed` checks the consumed ID against the
-current target. The untimed first search result uses the widget's native
-`replay()` command. A timed target waits for the following caption callback and
-seeks from that callback's actual `current_time` back to the target's cached
-start. This keeps every cycle tied to the same media boundary instead of
-relearning a progressively shorter wall-clock interval. Explicit previous/next
-navigation and a distant manual-seek callback retarget the loop without releasing
-Repeat. A nearby callback during repeat confirmation remains a provider race and
-is ignored until the selected caption confirms the seek. Missing timing, a failed
-movement, or a query/source/video reset still disables repeat. Turning repeat off
-clears the target before any future consumed event is handled.
+current target. An existing search-result caption uses the widget's native
+`replay()` command. A timestamped caption or a caption reached by manual iframe
+seek is reopened by replacing the current trainer URL with temporary
+`repeatCaption`/`repeatVideo` parameters. The new widget's initial fetch uses
+`"<full caption> #<video id> :r"`; this avoids the provider timeout observed
+when `widget.fetch()` is reused during active playback. The controller keeps
+Repeat pressed, confirms that YouGlish returned the same video and normalized
+caption text, removes the temporary URL parameters, and then loops that native
+result only with `replay()`.
+
+A mismatched callback during the short native-Replay confirmation window is
+held for 750 ms. If the requested caption confirms, the callback is discarded as
+provider race noise; otherwise its first caption becomes the manual-seek target
+and is reopened through the same-page reload. Repeat never derives a caption duration from
+`current_time` and never calls `move()` to loop a caption. Search failure,
+wrong-video results, confirmation timeout, or a query/source/video reset disables
+Repeat with a visible message. Turning Repeat off clears all pending work.
 
 ### UI state
 

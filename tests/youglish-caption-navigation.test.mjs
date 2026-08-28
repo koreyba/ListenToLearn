@@ -25,6 +25,7 @@ async function createTrainer({
   playError = null,
   requireReadyAndPlayingForMove = false,
   replayError = null,
+  repeatRetargetDelayMs = null,
   trace = false,
   url = "",
 } = {}) {
@@ -34,12 +35,18 @@ async function createTrainer({
     readFile(navigationPath, "utf8"),
     readFile(videoRestorePath, "utf8"),
   ]);
-  const trainerSource = controlledTimeoutMs === null
+  let trainerSource = controlledTimeoutMs === null
     ? rawTrainerSource
     : rawTrainerSource.replace(
         "const CONTROLLED_CAPTION_TIMEOUT_MS = 20_000;",
         `const CONTROLLED_CAPTION_TIMEOUT_MS = ${controlledTimeoutMs};`,
       );
+  if (repeatRetargetDelayMs !== null) {
+    trainerSource = trainerSource.replace(
+      "const REPEAT_RETARGET_DELAY_MS = 750;",
+      `const REPEAT_RETARGET_DELAY_MS = ${repeatRetargetDelayMs};`,
+    );
+  }
   const html = trainerSource
     .replace(
       '<script src="/caption-navigation.js"></script>',
@@ -57,6 +64,7 @@ async function createTrainer({
     play: 0,
     replay: 0,
   };
+  const repeatNavigations = [];
   let widgetEvents;
   let providerPlaying = false;
   let providerReady = false;
@@ -107,6 +115,7 @@ async function createTrainer({
         value: () => nowMs,
       });
       window.YG = { Widget: FakeWidget };
+      window.__unmumbleNavigateForRepeat = url => repeatNavigations.push(url);
       window.fetch = async () => ({
         ok: true,
         type: "basic",
@@ -164,6 +173,7 @@ async function createTrainer({
     },
     providerStatus: document.getElementById("status"),
     restoreBanner: document.getElementById("fullVideoRestoreStatus"),
+    repeatNavigations,
     location: () => dom.window.location.href,
     storedProgress: videoId => {
       const raw = dom.window.localStorage.getItem("unmumble-youtube-progress-v1:anonymous");
@@ -1373,32 +1383,21 @@ test("a new caption inside a known segment range joins that segment", async t =>
 });
 
 test("Repeat follows a newly selected caption until the user turns it off", async t => {
-  const trainer = await createTrainer();
+  const trainer = await createTrainer({
+    url: "https://listen-to-learn.test/trainer?phrase=test&repeatMode=1&repeatCaption=second&repeatVideo=video-a",
+  });
   t.after(trainer.close);
 
-  observeVideo(trainer, "video-a", [
-    caption("a1", undefined, "first"),
-    caption("a2", 603, "second"),
-  ]);
-  trainer.controls.previous.click();
-  trainer.events.onCaptionChange(caption("a1", undefined, "first"));
-  trainer.controls.repeat.click();
+  trainer.events.onVideoChange({ trackNumber: 0, video: "video-a" });
+  trainer.events.onCaptionChange(caption("a2", undefined, "second", "video-a"));
   assert.equal(trainer.controls.repeat.getAttribute("aria-pressed"), "true");
 
-  trainer.controls.next.click();
-  trainer.events.onCaptionChange(caption("a2", 603, "second"));
-  assert.equal(trainer.controls.repeat.getAttribute("aria-pressed"), "true");
-
-  const movementBeforeConsumed = trainer.widgetCalls.move.length;
-  trainer.events.onCaptionConsumed({ id: "a2" });
-  trainer.events.onCaptionChange(caption("a3", 607, "third"));
-  assert.equal(trainer.widgetCalls.move.length, movementBeforeConsumed + 1);
-
+  const replayBeforeOff = trainer.widgetCalls.replay;
   trainer.controls.repeat.click();
   assert.equal(trainer.controls.repeat.getAttribute("aria-pressed"), "false");
 
   trainer.events.onCaptionConsumed({ id: "a2" });
-  assert.equal(trainer.widgetCalls.move.length, movementBeforeConsumed + 1);
+  assert.equal(trainer.widgetCalls.replay, replayBeforeOff);
 });
 
 test("out-of-order caption callbacks are navigated in timestamp order", async t => {
@@ -1695,24 +1694,18 @@ test("switching video cancels controlled Next without pausing the new video", as
   assert.equal(trainer.controls.next.disabled, true);
 });
 
-test("duplicate caption-consumed callbacks trigger only one Repeat seek", async t => {
+test("duplicate caption-consumed callbacks trigger only one native Repeat replay", async t => {
   const trainer = await createTrainer();
   t.after(trainer.close);
 
-  observeVideo(trainer, "video-a", [
-    caption("a1", 600, "first"),
-    caption("a2", 603, "second"),
-  ]);
-  trainer.controls.previous.click();
-  trainer.events.onCaptionChange(caption("a1", 600, "first"));
+  observeVideo(trainer, "video-a", [caption("a1", undefined, "first")]);
   trainer.controls.repeat.click();
-  const movementBeforeConsumed = trainer.widgetCalls.move.length;
+  const replayBeforeConsumed = trainer.widgetCalls.replay;
 
   trainer.events.onCaptionConsumed({ id: "a1" });
   trainer.events.onCaptionConsumed({ id: "a1" });
-  trainer.events.onCaptionChange(caption("a2", 603, "second"));
 
-  assert.equal(trainer.widgetCalls.move.length, movementBeforeConsumed + 1);
+  assert.equal(trainer.widgetCalls.replay, replayBeforeConsumed + 1);
 });
 
 test("Repeat uses native replay for the first untimed search caption", async t => {
@@ -1736,139 +1729,145 @@ test("Repeat uses native replay for the first untimed search caption", async t =
   assert.equal(trainer.widgetCalls.replay, replayBeforeRepeat + 2);
 });
 
-test("Repeat seeks from observed caption boundaries without shrinking each cycle", async t => {
+test("Repeat resolves a timed caption as a native result before looping", async t => {
   const trainer = await createTrainer();
   t.after(trainer.close);
 
-  observeVideo(trainer, "video-a", [
-    caption("a1", 600, "first"),
-    caption("a2", 603, "second"),
-  ]);
-  trainer.events.onCaptionChange(caption("a1", 600, "first"));
-  trainer.events.onPlayerStateChange({ state: 1 });
-  trainer.controls.repeat.click();
+  observeVideo(trainer, "video-a", [caption("a1", 600, "first")]);
   const movementBeforeRepeat = trainer.widgetCalls.move.length;
 
-  trainer.events.onCaptionConsumed({ id: "a1" });
+  trainer.controls.repeat.click();
+
+  assert.equal(trainer.repeatNavigations.length, 1);
+  const repeatUrl = new URL(trainer.repeatNavigations[0]);
+  assert.equal(repeatUrl.searchParams.get("repeatCaption"), "first");
+  assert.equal(repeatUrl.searchParams.get("repeatVideo"), "video-a");
+  assert.equal(repeatUrl.searchParams.get("repeatMode"), "1");
   assert.equal(trainer.widgetCalls.move.length, movementBeforeRepeat);
-  trainer.events.onCaptionChange(caption("a2", 603, "second"));
-  trainer.events.onCaptionChange(caption("a1", 600.22, "first"));
-
-  trainer.advanceTime(2_780);
-  trainer.events.onCaptionConsumed({ id: "a1" });
-  trainer.events.onCaptionChange(caption("a2", 603.01, "second"));
-  trainer.events.onCaptionChange(caption("a1", 600.43, "first"));
-
-  trainer.advanceTime(2_570);
-  trainer.events.onCaptionConsumed({ id: "a1" });
-  trainer.events.onCaptionChange(caption("a2", 602.99, "second"));
-
-  assertDeltas(
-    trainer.widgetCalls.move.slice(movementBeforeRepeat),
-    [-3, -3.01, -2.99],
-  );
   assert.equal(trainer.controls.repeat.getAttribute("aria-pressed"), "true");
 });
 
-test("manual seek replaces a pending Repeat target without releasing Repeat", async t => {
+test("manual seek with Repeat enabled resolves the clicked caption natively", async t => {
   const trainer = await createTrainer();
   t.after(trainer.close);
 
-  observeVideo(trainer, "video-a", [
-    caption("a1", 600, "first"),
-    caption("a2", 603, "second"),
-  ]);
-  trainer.events.onCaptionChange(caption("a1", 600, "first"));
-  trainer.events.onPlayerStateChange({ state: 1 });
+  observeVideo(trainer, "video-a", [caption("a1", undefined, "first")]);
   trainer.controls.repeat.click();
+  const movementBeforeSeek = trainer.widgetCalls.move.length;
 
+  trainer.events.onCaptionChange(caption("b1", 1800, "manual target", "video-a"));
+
+  assert.equal(trainer.repeatNavigations.length, 1);
+  const repeatUrl = new URL(trainer.repeatNavigations[0]);
+  assert.equal(repeatUrl.searchParams.get("repeatCaption"), "manual target");
+  assert.equal(repeatUrl.searchParams.get("repeatVideo"), "video-a");
+  assert.equal(repeatUrl.searchParams.get("repeatMode"), "1");
+  assert.equal(trainer.widgetCalls.move.length, movementBeforeSeek);
+  assert.equal(trainer.controls.repeat.getAttribute("aria-pressed"), "true");
+});
+
+test("manual seek during replay confirmation resolves after the replay callback window", async t => {
+  const trainer = await createTrainer({ repeatRetargetDelayMs: 5 });
+  t.after(trainer.close);
+
+  observeVideo(trainer, "video-a", [caption("a1", undefined, "first")]);
+  trainer.controls.repeat.click();
   trainer.events.onCaptionConsumed({ id: "a1" });
-  trainer.events.onCaptionChange(caption("a2", 603, "second"));
-  const movementBeforeManualSeek = trainer.widgetCalls.move.length;
 
-  trainer.events.onCaptionChange(caption("b1", 1800, "manual target"));
-  trainer.advanceTime(4_000);
+  trainer.events.onCaptionChange(caption("b1", 1800, "manual target", "video-a"));
+  assert.equal(trainer.repeatNavigations.length, 0);
+
+  await new Promise(resolve => setTimeout(resolve, 15));
+
+  assert.equal(trainer.repeatNavigations.length, 1);
+  const repeatUrl = new URL(trainer.repeatNavigations[0]);
+  assert.equal(repeatUrl.searchParams.get("repeatCaption"), "manual target");
+  assert.equal(repeatUrl.searchParams.get("repeatVideo"), "video-a");
+  assert.equal(trainer.controls.repeat.getAttribute("aria-pressed"), "true");
+});
+
+test("repeat reload bootstraps the exact caption and loops it with native replay", async t => {
+  const trainer = await createTrainer({
+    url: "https://listen-to-learn.test/trainer?phrase=test&repeatMode=1&repeatCaption=manual%20target&repeatVideo=video-a",
+  });
+  t.after(trainer.close);
+
+  assert.deepEqual(trainer.widgetCalls.fetch.at(-1), [
+    "manual target #video-a :r",
+    "english",
+    "us",
+  ]);
+  assert.equal(trainer.controls.repeat.getAttribute("aria-pressed"), "true");
+
+  trainer.events.onVideoChange({ trackNumber: 0, video: "video-a" });
+  trainer.events.onCaptionChange(caption("b1", undefined, "manual target", "video-a"));
+  const replayBeforeConsumed = trainer.widgetCalls.replay;
   trainer.events.onCaptionConsumed({ id: "b1" });
-  trainer.events.onCaptionChange(caption("b2", 1804, "manual target next"));
 
-  assertDeltas(trainer.widgetCalls.move.slice(movementBeforeManualSeek), [-4]);
-  assert.equal(trainer.controls.repeat.getAttribute("aria-pressed"), "true");
+  assert.equal(trainer.widgetCalls.replay, replayBeforeConsumed + 1);
+  assert.equal(trainer.widgetCalls.move.length, 0);
 });
 
-test("Repeat can seek again after the repeated caption is observed", async t => {
-  const trainer = await createTrainer();
+test("Repeat never derives caption length from boundary timestamps", async t => {
+  const trainer = await createTrainer({
+    url: "https://listen-to-learn.test/trainer?phrase=test&repeatMode=1&repeatCaption=first&repeatVideo=video-a",
+  });
   t.after(trainer.close);
 
-  observeVideo(trainer, "video-a", [
-    caption("a1", 600, "first"),
-    caption("a2", 603, "second"),
-  ]);
-  trainer.controls.previous.click();
-  trainer.events.onCaptionChange(caption("a1", 600, "first"));
-  trainer.controls.repeat.click();
   const movementBeforeRepeat = trainer.widgetCalls.move.length;
+  trainer.events.onVideoChange({ trackNumber: 0, video: "video-a" });
+  trainer.events.onCaptionChange(caption("a1", undefined, "first", "video-a"));
+  const replayBeforeCycles = trainer.widgetCalls.replay;
 
-  trainer.events.onCaptionConsumed({ id: "a1" });
-  trainer.events.onCaptionChange(caption("a2", 603, "second"));
-  trainer.events.onCaptionChange(caption("a1", 600, "first"));
-  trainer.events.onCaptionConsumed({ id: "a1" });
-  trainer.events.onCaptionChange(caption("a2", 603, "second"));
+  for (let cycle = 0; cycle < 3; cycle += 1) {
+    trainer.events.onCaptionConsumed({ id: "a1" });
+    trainer.events.onCaptionChange(caption("a1", undefined, "first", "video-a"));
+  }
 
-  assert.equal(trainer.widgetCalls.move.length, movementBeforeRepeat + 2);
+  assert.equal(trainer.widgetCalls.replay, replayBeforeCycles + 3);
+  assert.equal(trainer.widgetCalls.move.length, movementBeforeRepeat);
 });
 
 test("Repeat keeps the same caption boundary across delayed playback cycles", async t => {
-  const trainer = await createTrainer();
+  const trainer = await createTrainer({
+    url: "https://listen-to-learn.test/trainer?phrase=test&repeatMode=1&repeatCaption=first&repeatVideo=video-a",
+  });
   t.after(trainer.close);
 
-  observeVideo(trainer, "video-a", [
-    caption("a1", 600, "first"),
-    caption("a2", 603, "second"),
-  ]);
-  trainer.controls.previous.click();
-  trainer.events.onCaptionChange(caption("a1", 600, "first"));
-  trainer.events.onPlayerStateChange({ state: 1 });
-  trainer.controls.repeat.click();
   const movementBeforeRepeat = trainer.widgetCalls.move.length;
+  trainer.events.onVideoChange({ trackNumber: 0, video: "video-a" });
+  trainer.events.onCaptionChange(caption("a1", undefined, "first", "video-a"));
+  const replayBeforeCycles = trainer.widgetCalls.replay;
   const callbackDelays = [3_100, 2_850, 3_250, 2_900, 3_050, 3_300, 2_800, 3_150, 2_950, 3_200];
 
   for (const delay of callbackDelays) {
     trainer.advanceTime(delay);
     trainer.events.onCaptionConsumed({ id: "a1" });
-    trainer.events.onCaptionChange(caption("a2", 603, "second"));
-    trainer.events.onCaptionChange(caption("a1", 600.2, "first"));
+    trainer.events.onCaptionChange(caption("a1", undefined, "first", "video-a"));
   }
 
-  assertDeltas(
-    trainer.widgetCalls.move.slice(movementBeforeRepeat),
-    callbackDelays.map(() => -3),
-  );
+  assert.equal(trainer.widgetCalls.replay, replayBeforeCycles + callbackDelays.length);
+  assert.equal(trainer.widgetCalls.move.length, movementBeforeRepeat);
 });
 
-test("Repeat stays pinned when another caption callback races with its pending seek", async t => {
-  const trainer = await createTrainer();
+test("Repeat ignores a stale caption when native replay confirms in time", async t => {
+  const trainer = await createTrainer({ repeatRetargetDelayMs: 5 });
   t.after(trainer.close);
 
-  observeVideo(trainer, "video-a", [
-    caption("a1", 600, "first"),
-    caption("a2", 603, "second"),
-  ]);
-  trainer.controls.previous.click();
-  trainer.events.onCaptionChange(caption("a1", 600, "first"));
+  observeVideo(trainer, "video-a", [caption("a1", undefined, "first")]);
   trainer.controls.repeat.click();
+  const fetchCountBeforeRace = trainer.widgetCalls.fetch.length;
+  const replayBeforeRace = trainer.widgetCalls.replay;
   trainer.events.onCaptionConsumed({ id: "a1" });
 
-  trainer.events.onCaptionChange(caption("a2", 603, "second"));
+  trainer.events.onCaptionChange(caption("a2", 603, "stale", "video-a"));
+  trainer.events.onCaptionChange(caption("a1", undefined, "first", "video-a"));
+  await new Promise(resolve => setTimeout(resolve, 15));
 
+  assert.equal(trainer.widgetCalls.fetch.length, fetchCountBeforeRace);
   assert.equal(trainer.controls.repeat.getAttribute("aria-pressed"), "true");
-  const movementAfterMismatch = trainer.widgetCalls.move.length;
-  trainer.events.onCaptionConsumed({ id: "a2" });
-  assert.equal(trainer.widgetCalls.move.length, movementAfterMismatch);
-
-  trainer.events.onCaptionChange(caption("a1", 600, "first"));
   trainer.events.onCaptionConsumed({ id: "a1" });
-  trainer.events.onCaptionChange(caption("a2", 603, "second"));
-  assert.equal(trainer.widgetCalls.move.length, movementAfterMismatch + 1);
+  assert.equal(trainer.widgetCalls.replay, replayBeforeRace + 2);
 });
 
 test("a caption inside an inactive segment range reactivates that cached segment", async t => {

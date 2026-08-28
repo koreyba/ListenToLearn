@@ -854,7 +854,7 @@ test("caption timeline keeps opaque IDs ordered by timing and computes relative 
   assert.equal(navigation.adjacent(moved.history, moved.index, -1, "video-1").id, "opaque-b");
   assert.equal(navigation.adjacent(moved.history, moved.index, -1, "video-2"), null);
   assert.equal(navigation.finiteTime("not-a-time"), null);
-  assert.equal(navigation.repeatSeekDelta(10, 12, 13), -2);
+  assert.equal(navigation.repeatSeekDelta(10, 12, 13), -3);
   assert.equal(navigation.repeatSeekDelta(10, 12, null), -2);
   assert.equal(navigation.repeatSeekDelta(10, null, 10.2), -0.5);
 });

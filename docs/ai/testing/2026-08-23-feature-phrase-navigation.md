@@ -46,13 +46,15 @@ Controller scenarios to cover with a fake widget/event harness:
 - [ ] A source/video reset or newer command leaves controls consistent.
 - [x] Repeat follows a newly selected adjacent caption, handles its consumed
   event, and repeat-off prevents the next consumed event from seeking.
-- [x] Ten repeat cycles with varying consumed-callback delays retain the same
-  cached caption boundary instead of accumulating seek drift.
-- [x] A provider callback for the next caption during a pending repeat seek
-  leaves Repeat pressed and pinned; the selected caption can confirm the seek
-  and continue the loop.
-- [x] Missing timing or movement failure disables repeat rather than continuing
-  an unsafe loop.
+- [x] Ten repeat cycles with varying consumed-callback delays use ten native
+  `replay()` calls and zero Repeat `move()` calls.
+- [x] A timed caption and a manual iframe-seek caption are reopened with their
+  full normalized text constrained to the same video ID before looping.
+- [x] A provider callback during native Replay confirmation is discarded when
+  the target confirms promptly, or becomes the new manual-seek target after the
+  bounded confirmation window.
+- [x] Missing text/video, zero search results, wrong-video results, fetch error,
+  or confirmation timeout disables repeat rather than approximating a loop.
 
 ## Integration Tests
 
@@ -171,29 +173,39 @@ provider findings below:
   with 0 errors and 2 existing generated-file warnings in
   `worker-configuration.d.ts`.
 
-Fresh live-provider Repeat evidence on 2026-08-28:
+Superseded boundary-seek evidence and replacement feasibility on 2026-08-28:
 
 - The first search caption arrived with `current_time: null`. Its consumed event
   produced no seek command under the old implementation, and Repeat moved on to
   the second caption. The corrected path issued native `replay()` on every first
   caption consumption while keeping `aria-pressed="true"`.
-- The old timed loop progressively landed later in the target caption until it
-  repeated roughly 0.3 seconds. The corrected path waits for the observed next
-  boundary; three live cycles used `-7.109`, `-7.030`, and `-7.030` second moves.
+- The timed loop progressively landed later in the target caption until it
+  repeated roughly 0.3 seconds. Waiting for the observed next boundary removed
+  drift but did not recover the clicked caption's beginning.
 - Clicking the live YouTube seek slider while Repeat was already on changed the
-  target from the old caption to the clicked caption without releasing Repeat.
-  Subsequent live moves stabilized at approximately `-0.69` seconds instead of
-  shrinking on every cycle.
-- Regression tests cover native replay of the untimed first caption, exact
-  boundary-driven cycles under varying callback delay, and a manual seek that
-  replaces a pending repeat target.
-- Temporarily removing native replay and subtracting 0.5 seconds from each
-  boundary move made the two focused regressions fail (`0` replay calls and a
-  `-2.5` instead of `-3.0` second move); restoring the implementation made all
-  three focused Repeat scenarios pass.
-- `npm test`: build passed; 260 tests passed, 0 failed. `npx tsc --noEmit`,
-  `git diff --check`, and feature lint passed. ESLint passed with 0 errors and
-  the same 2 generated-file warnings in `worker-configuration.d.ts`.
+  target from the old caption to the clicked caption, but the observed
+  approximately `-0.69` second move repeated only the tail from the click to the
+  next boundary. This invalidated boundary arithmetic as a complete fix.
+- A focused live feasibility check searched the full clicked-caption text with
+  `#s0TRYW_AnRU`, returned the same YouTube video at the target result, and native
+  `replay()` restored the full target caption. The replacement implementation
+  therefore resolves timed/manual captions through a constrained search and
+  removes all Repeat `move()` calls.
+- Reusing `widget.fetch()` during active playback timed out with provider error
+  `YG.Error.TIMEOUT (3)`. The same exact query succeeded as the initial fetch on
+  a reloaded trainer page, so the implementation uses temporary same-page repeat
+  parameters and clears them after video/text confirmation.
+- Deterministic contracts now cover first/timed/manual captions, ten delayed
+  native-replay cycles, manual seek during Replay confirmation, and stale
+  callback cancellation.
+- Live post-implementation acceptance enabled Repeat on a timed caption, clicked
+  the nested YouTube seek slider while Repeat remained active, reopened the
+  clicked caption in `s0TRYW_AnRU`, and completed ten stable full-caption cycles:
+  10 `replay()` commands, 0 Repeat `move()` commands, pressed state retained.
+- Final local verification: `npm test` built successfully and passed 265/265
+  tests; `npx tsc --noEmit`, `npm run lint`, `npm ls --depth=0`,
+  `git diff --check`, repository AI lint, and feature AI lint all passed. ESLint
+  reported only the two pre-existing generated declaration warnings.
 
 ## Manual Testing
 

@@ -21,7 +21,7 @@ description: Technical implementation notes, patterns, and code guidelines
 
 - `public/caption-navigation.js`: small browser-safe pure helper module for
   finite timing validation, idempotent timeline upserts, cached-neighbor lookup,
-  and repeat/relative seek delta calculations.
+  and relative Previous/Next seek calculations.
 - `public/trainer.html`: existing trainer controller, YouGlish event wiring,
   controls, asynchronous navigation state, and provider fallback UI.
 - `wrangler.preview.jsonc` and `wrangler.production.jsonc`: explicit built
@@ -69,16 +69,23 @@ description: Technical implementation notes, patterns, and code guidelines
 - `Повтор фразы` is a native toggle with `aria-pressed` and a visibly accented
   pressed state.
 - `onCaptionConsumed` is accepted only for the active opaque caption ID. The
-  untimed first search caption calls `widget.replay()`. A timestamped caption
-  arms a boundary wait; the next caption callback supplies the actual media time
-  used for one relative seek back to the cached target start.
-- Explicit previous/next navigation updates the repeat target without switching
-  the toggle off. A distant callback is treated as a manual timeline seek and
-  becomes the new repeat target. Boundary and confirmation callbacks from the
-  old target remain pinned until its seek confirms. Missing timing, failed
-  movement, context reset, or overlapping navigation still disables repeat.
-- Repeat never schedules an unbounded timer and never changes the YouGlish video
-  track.
+  native search caption calls `widget.replay()`.
+- A timestamped or manually selected caption is resolved through a same-page
+  `location.replace()` carrying temporary `repeatCaption`/`repeatVideo`
+  parameters. On reload, the new widget's initial fetch uses
+  `"<caption> #<video id> :r"`. Repeat remains pressed while the controller
+  verifies the same video and normalized first-caption text, then removes the
+  temporary parameters and makes the native search result the repeat target.
+- Reusing `widget.fetch()` inside an actively playing widget is deliberately not
+  used: the live provider returned `YG.Error.TIMEOUT (3)`, while initial fetch on
+  the reloaded page consistently opened the same caption and video.
+- A 750 ms confirmation guard separates a stale post-Replay callback from a
+  manual iframe seek. Only the first mismatched caption is retained; a timely
+  target callback cancels it, otherwise it is resolved through the same exact
+  video-constrained fetch.
+- Repeat has bounded resolution timers, never derives a media duration, and
+  never uses `widget.move()` for looping. Search rejection, zero results,
+  wrong-video results, timeout, and context reset fail closed with visible status.
 
 ### Deployment target isolation
 
@@ -93,7 +100,8 @@ description: Technical implementation notes, patterns, and code guidelines
 
 - The helper script is loaded before the existing inline trainer controller.
 - YouGlish remains an embedded cross-origin widget; the implementation uses
-  only `move`, caption events, player state, and existing track controls.
+  native initial fetch/replay, `move` for Previous/Next, caption events, player
+  state, and existing track controls.
 - Tatoeba keeps its existing audio-track controls; timed caption-navigation and
   phrase-repeat controls are hidden because the source has no timed chunks.
 - No server route, database schema, binding, secret, or auth behavior changed.

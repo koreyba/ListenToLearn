@@ -133,7 +133,7 @@
     const elapsed = estimated !== null && estimated > current
       ? Math.max(0.5, estimated - current)
       : null;
-    return -(knownDuration || elapsed || 0.5);
+    return -(elapsed || knownDuration || 0.5);
   }
 
   global.UnmumbleCaptionNavigation = Object.freeze({

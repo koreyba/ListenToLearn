@@ -48,6 +48,12 @@ description: Break down work into actionable tasks and estimate timeline
   boundary over callback timing and keeping the target pinned when a provider
   race emits another caption during a pending seek. Validate ten delayed
   playback cycles and a mismatched provider callback.
+- [x] T2.5 Replace boundary arithmetic after the live manual-seek failure.
+  Reopen a timestamped or manually selected caption as a video-constrained
+  native search result through a same-page reload, validate the returned
+  video/text, and loop only with `replay()`. Validate the first phrase, timed
+  phrases, manual seek, delayed cycles, and the short Replay-confirmation race
+  without Repeat `move()` calls.
 
 ### Phase 3: Integration & Polish
 
@@ -89,8 +95,9 @@ refactor, then fresh verification evidence.
   controls with an honest message.
 - `move()` can throw or land across a boundary: one in-flight guard, cached
   target update, and a fail-closed direction after a movement error.
-- Repeat estimate drifts: prefer observed neighboring start times, retarget only
-  to accepted captions in the same video, and disable on timing/movement failure.
+- Repeat target resolution fails or returns another video: verify video ID and
+  normalized caption text, use a bounded timeout, and disable Repeat instead of
+  falling back to timing arithmetic.
 - Navigation changes the wrong video: assert `videoId` before accepting a
   target; never use track methods for phrase controls.
 - Live widget behavior is unavailable in CI: deterministic fake-widget tests

@@ -50,10 +50,15 @@ description: Break down work into actionable tasks and estimate timeline
   playback cycles and a mismatched provider callback.
 - [x] T2.5 Replace boundary arithmetic after the live manual-seek failure.
   Reopen a timestamped or manually selected caption as a video-constrained
-  native search result through a same-page reload, validate the returned
+  native search result through a fresh widget, validate the returned
   video/text, and loop only with `replay()`. Validate the first phrase, timed
   phrases, manual seek, delayed cycles, and the short Replay-confirmation race
   without Repeat `move()` calls.
+- [x] T2.6 Replace the temporary page reload transport with widget-only
+  lifecycle management. Close the current widget, create a uniquely identified
+  generation inside a stable host, and guard every callback by generation.
+  Validate an unchanged URL, a replaced mount, stale-event rejection, manual
+  seek retargeting, and native replay after exact caption confirmation.
 
 ### Phase 3: Integration & Polish
 

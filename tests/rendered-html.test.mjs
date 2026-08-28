@@ -293,7 +293,10 @@ test("Full Video Mode keeps learning controls and removes result-only controls",
   assert.match(trainer, /MAX_OBSERVED_CAPTIONS = 200/);
   assert.match(trainer, /result\.history\.slice\(-MAX_OBSERVED_CAPTIONS\)/);
   assert.match(trainer, /#\$\{fullVideoOrigin\.videoId\}/);
-  assert.match(trainer, /autoStart:\s*fullVideoMode \? 0 : 1/);
+  assert.match(
+    trainer,
+    /function createYouglishWidget\(\{ replaceCurrent = false, autoStart = fullVideoMode \? 0 : 1 \} = \{\}\)/,
+  );
   assert.match(trainer, /window\.addEventListener\("popstate"/);
   assert.match(trainer, /id="repeatCaptionBtn"/);
   assert.match(trainer, /id="translateSelectionBtn"/);
@@ -715,13 +718,16 @@ test("saved example button names the remove action", async () => {
   assert.doesNotMatch(trainer, /setButtonLabel\(el\.saveExampleBtn, saved \? "Saved"/);
 });
 
-test("YouGlish widget uses a nonzero dependency-only mask to hide its built-in chrome", async () => {
+test("YouGlish widget can be replaced inside a stable host with guarded callbacks", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),
     "utf8",
   );
 
-  assert.match(trainer, /new YG\.Widget\("yg-widget", \{\s*components: 128,/);
+  assert.match(trainer, /id="youglishWidgetHost"[\s\S]*?id="yg-widget-0"/);
+  assert.match(trainer, /new YG\.Widget\(youglishWidgetMountId, \{\s*components: 128,/);
+  assert.match(trainer, /widget\.close\(\);[\s\S]*?host\.replaceChildren\(mount\);/);
+  assert.match(trainer, /if \(generation !== youglishWidgetGeneration\) return;/);
   assert.doesNotMatch(trainer, /components: 0/);
   assert.doesNotMatch(trainer, /components: 68/);
 });

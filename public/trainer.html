@@ -206,12 +206,13 @@
     }
 
     .youglish-player,
-    #yg-widget {
+    #youglishWidgetHost {
       width: 100%;
       min-height: 260px;
     }
 
-    #yg-widget > iframe {
+    #youglishWidgetHost > div,
+    #youglishWidgetHost iframe {
       display: block;
       width: 100%;
       min-height: 260px;
@@ -1143,8 +1144,8 @@
 
     @media (max-width: 560px) {
       .app { padding-left: 8px; padding-right: 8px; }
-      .widget-frame, #yg-widget { min-height: 205px; }
-      #yg-widget > iframe { min-height: 205px; }
+      .widget-frame, #youglishWidgetHost { min-height: 205px; }
+      #youglishWidgetHost iframe { min-height: 205px; }
       .tatoeba-player { min-height: 205px; padding: 18px; }
       .player-controls { gap: 3px; padding: 4px; }
       .player-controls .button-label { display: none; }
@@ -1380,7 +1381,9 @@
         <div id="mediaFrameSlot" class="media-frame-slot">
           <div id="widgetFrame" class="widget-frame">
           <div id="youglishPlayer" class="youglish-player">
-            <div id="yg-widget" aria-label="YouGlish player"></div>
+            <div id="youglishWidgetHost" aria-label="YouGlish player">
+              <div id="yg-widget-0"></div>
+            </div>
           </div>
           <output id="fullVideoRestoreStatus" class="video-restore-banner" aria-live="polite" hidden>Restoring video…</output>
           <div id="tatoebaPlayer" class="tatoeba-player" hidden aria-label="Tatoeba audio player">
@@ -1476,17 +1479,6 @@
     "use strict";
 
     const initialViewerParams = new URLSearchParams(window.location.search);
-    let repeatBootstrapRequest = initialViewerParams.get("repeatMode") === "1"
-      ? {
-          captionText: (initialViewerParams.get("repeatCaption") || "").trim().replace(/\s+/g, " ").slice(0, 1000),
-          videoId: (initialViewerParams.get("repeatVideo") || "").trim().slice(0, 64)
-        }
-      : null;
-    if (repeatBootstrapRequest
-        && (!repeatBootstrapRequest.captionText
-          || !/^[A-Za-z0-9_-]+$/.test(repeatBootstrapRequest.videoId))) {
-      repeatBootstrapRequest = null;
-    }
     let YOUTUBE_PROGRESS_STORAGE_KEY = "unmumble-youtube-progress-v1:anonymous";
     let LEGACY_YOUTUBE_PROGRESS_STORAGE_KEYS = [
       "listen-to-learn-youtube-progress-v1:anonymous",
@@ -1590,6 +1582,8 @@
     let widget = null;
     let widgetReady = false;
     let youglishPlayerReady = false;
+    let youglishWidgetGeneration = 0;
+    let youglishWidgetMountId = "yg-widget-0";
     let blindRevealed = false;
     let currentQueryOverride = null;
     let currentCaptionRaw = "";
@@ -3209,15 +3203,15 @@
         === repeatCaptionText(expected).toLocaleLowerCase();
     }
 
-    function clearRepeatRequestParams() {
-      const url = new URL(window.location.href);
-      url.searchParams.delete("repeatMode");
-      url.searchParams.delete("repeatCaption");
-      url.searchParams.delete("repeatVideo");
-      window.history.replaceState(window.history.state, "", url);
+    function repeatCaptionSearchText(value) {
+      return repeatCaptionText(value)
+        .normalize("NFKC")
+        .replace(/[^\p{L}\p{N}'’]+/gu, " ")
+        .replace(/\s+/g, " ")
+        .trim();
     }
 
-    function startRepeatBootstrap(request) {
+    function startRepeatResolution(request) {
       repeatCaptionEnabled = true;
       repeatTargetId = "";
       clearRepeatPending();
@@ -3231,17 +3225,16 @@
         repeatResolveTimer = null;
         if (!repeatResolvePending) return;
         disableRepeatCaption("Phrase repeat disabled: YouGlish could not reopen this caption exactly.");
-        clearRepeatRequestParams();
         renderCaptionNavigation();
       }, REPEAT_RESOLVE_TIMEOUT_MS);
-      const fetched = fetchYouglish(
-        `${request.captionText} #${request.videoId} :r`,
+      const searchText = repeatCaptionSearchText(request.captionText);
+      const fetched = Boolean(searchText) && fetchYouglish(
+        `${searchText} #${request.videoId} :r`,
         request.captionText,
         "current video"
       );
       if (!fetched) {
         disableRepeatCaption("Phrase repeat disabled: YouGlish rejected the caption search.");
-        clearRepeatRequestParams();
         renderCaptionNavigation();
         return false;
       }
@@ -3276,27 +3269,17 @@
         return false;
       }
 
-      const url = new URL(window.location.href);
-      if (fullVideoMode) {
-        url.searchParams.set("phrase", fullVideoOrigin.originalQuery);
-        [
-          "fullVideo", "video", "query", "restoreQuery", "caption",
-          "resumeCaptionId", "resumeCaption", "resumeTime", "restoreAnchorTime",
-          "language", "accent"
-        ].forEach(name => url.searchParams.delete(name));
-      }
-      url.searchParams.set("repeatMode", "1");
-      url.searchParams.set("repeatCaption", captionText);
-      url.searchParams.set("repeatVideo", videoId);
-      recordCaptionTrace("ui.repeat-reload", {
+      recordCaptionTrace("ui.repeat-widget-reload", {
         video: captionTraceToken(captionTraceVideoTokens, videoId, "video")
       });
       el.status.textContent = "Opening the exact caption for repeat…";
       renderCaptionNavigation();
-      const testNavigate = window.__unmumbleNavigateForRepeat;
-      if (typeof testNavigate === "function") testNavigate(url.toString());
-      else window.location.replace(url.toString());
-      return true;
+      if (!recreateYouglishWidget()) {
+        disableRepeatCaption("Phrase repeat disabled: the player could not reopen this caption.");
+        renderCaptionNavigation();
+        return false;
+      }
+      return startRepeatResolution({ captionText, videoId });
     }
 
     async function playTatoeba() {
@@ -3471,14 +3454,6 @@
       hideTranslation();
       hideNoResults();
       renderExampleTools();
-
-      if (repeatBootstrapRequest) {
-        const request = repeatBootstrapRequest;
-        repeatBootstrapRequest = null;
-        state.source = "youglish";
-        startRepeatBootstrap(request);
-        return;
-      }
 
       if (fullVideoMode) {
         fetchYouglish(
@@ -4419,7 +4394,6 @@
           repeatTargetId = entry.id;
           clearRepeatPending();
           clearRepeatResolvePending();
-          clearRepeatRequestParams();
           el.status.textContent = "Repeat current caption enabled.";
         } else if (repeatCaptionEnabled) {
           if (entry.id === repeatTargetId && repeatPending) {
@@ -4502,7 +4476,6 @@
       if (Number(event.totalResult) === 0) {
         if (repeatResolvePending) {
           disableRepeatCaption("Phrase repeat disabled: YouGlish could not find this caption in the current video.");
-          clearRepeatRequestParams();
           renderCaptionNavigation();
           return;
         }
@@ -4546,7 +4519,6 @@
       if (repeatResolvePending) {
         if (nextVideoId !== repeatResolvePending.videoId) {
           disableRepeatCaption("Phrase repeat disabled: YouGlish reopened a different video.");
-          clearRepeatRequestParams();
         } else {
           repeatResolvePending.videoConfirmed = true;
         }
@@ -4620,42 +4592,81 @@
       const code = event && event.code != null ? ` Code: ${event.code}.` : "";
       if (repeatResolvePending) {
         disableRepeatCaption(`Phrase repeat disabled: YouGlish could not reopen this caption.${code}`);
-        clearRepeatRequestParams();
         renderCaptionNavigation();
         return;
       }
       showWidgetError(`YouGlish player error.${code}`);
     }
 
+    function activeWidgetEvent(generation, handler) {
+      return event => {
+        if (generation !== youglishWidgetGeneration) return;
+        handler(event);
+      };
+    }
+
+    function createYouglishWidget({ replaceCurrent = false, autoStart = fullVideoMode ? 0 : 1 } = {}) {
+      const host = document.getElementById("youglishWidgetHost");
+      if (!host || !window.YG || typeof window.YG.Widget !== "function") return false;
+      const generation = youglishWidgetGeneration + 1;
+      if (replaceCurrent) {
+        if (!widget || typeof widget.close !== "function") return false;
+        widget.close();
+        const mount = document.createElement("div");
+        youglishWidgetMountId = `yg-widget-${generation}`;
+        mount.id = youglishWidgetMountId;
+        host.replaceChildren(mount);
+      }
+
+      const providerTheme = getComputedStyle(document.documentElement);
+      const providerColor = (name) => providerTheme.getPropertyValue(name).trim();
+      youglishWidgetGeneration = generation;
+      widgetReady = false;
+      youglishPlayerReady = false;
+      // Dictionary support requires Caption, so 128 is a nonzero mask with no
+      // visible widget chrome. Zero is treated as the default full component set.
+      widget = new YG.Widget(youglishWidgetMountId, {
+        components: 128,
+        autoStart,
+        backgroundColor: providerColor("--color-media-canvas"),
+        textColor: providerColor("--color-provider-text"),
+        captionColor: providerColor("--color-provider-caption"),
+        markerColor: providerColor("--color-provider-marker"),
+        queryColor: providerColor("--color-provider-caption"),
+        events: {
+          onFetchDone: activeWidgetEvent(generation, onFetchDone),
+          onVideoChange: activeWidgetEvent(generation, onVideoChange),
+          onCaptionChange: activeWidgetEvent(generation, onCaptionChange),
+          onCaptionConsumed: activeWidgetEvent(generation, onCaptionConsumed),
+          onPlayerReady: activeWidgetEvent(generation, onPlayerReady),
+          onPlayerStateChange: activeWidgetEvent(generation, onPlayerStateChange),
+          onSpeedChange: activeWidgetEvent(generation, onSpeedChange),
+          onError: activeWidgetEvent(generation, onError)
+        }
+      });
+      widgetReady = true;
+      return true;
+    }
+
+    function recreateYouglishWidget() {
+      try {
+        resetCaptionHistory();
+        currentYouglishVideoId = "";
+        currentYouglishRestoreQuery = "";
+        resetCurrentYouglishRestoreAnchor();
+        playerState = null;
+        requestedYouglishPlayback = null;
+        youglishHasFetched = false;
+        return createYouglishWidget({ replaceCurrent: true, autoStart: 1 });
+      } catch (error) {
+        console.error(error);
+        return false;
+      }
+    }
+
     window.onYouglishAPIReady = function onYouglishAPIReady() {
       try {
-        const providerTheme = getComputedStyle(document.documentElement);
-        const providerColor = (name) => providerTheme.getPropertyValue(name).trim();
-        // Dictionary support requires Caption, so 128 is a nonzero mask with no
-        // visible widget chrome. Zero is treated as the default full component set.
-        widget = new YG.Widget("yg-widget", {
-          components: 128,
-          autoStart: fullVideoMode ? 0 : 1,
-          backgroundColor: providerColor("--color-media-canvas"),
-          textColor: providerColor("--color-provider-text"),
-          captionColor: providerColor("--color-provider-caption"),
-          markerColor: providerColor("--color-provider-marker"),
-          queryColor: providerColor("--color-provider-caption"),
-          events: {
-            onFetchDone,
-            onVideoChange,
-            onCaptionChange,
-            onCaptionConsumed,
-            onPlayerReady,
-            onPlayerStateChange,
-            onSpeedChange,
-            onError
-          }
-        });
-
-        // Some widget versions accept fetch immediately after creation.
-        // onPlayerReady confirms readiness again and loads the current phrase.
-        widgetReady = true;
+        if (!createYouglishWidget()) throw new Error("Widget could not be created.");
         if (state.source === "youglish") {
           el.status.textContent = "YouGlish API loaded.";
           fetchPhrase(currentQueryOverride || VIEWER_PHRASE, Boolean(currentQueryOverride));

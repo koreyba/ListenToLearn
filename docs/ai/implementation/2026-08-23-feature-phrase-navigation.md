@@ -70,15 +70,22 @@ description: Technical implementation notes, patterns, and code guidelines
   pressed state.
 - `onCaptionConsumed` is accepted only for the active opaque caption ID. The
   native search caption calls `widget.replay()`.
-- A timestamped or manually selected caption is resolved through a same-page
-  `location.replace()` carrying temporary `repeatCaption`/`repeatVideo`
-  parameters. On reload, the new widget's initial fetch uses
-  `"<caption> #<video id> :r"`. Repeat remains pressed while the controller
-  verifies the same video and normalized first-caption text, then removes the
-  temporary parameters and makes the native search result the repeat target.
+- A timestamped or manually selected caption is resolved by calling
+  `widget.close()`, replacing only the widget mount inside
+  `youglishWidgetHost`, and constructing a fresh `YG.Widget`. The outer page,
+  URL, history, and other controls remain intact. The new widget's initial fetch
+  uses `"<caption> #<video id> :r"`. Repeat remains pressed while the
+  controller verifies the same video and normalized first-caption text, then
+  makes the native search result the repeat target.
+- `repeatCaptionSearchText` removes provider-search punctuation while retaining
+  Unicode letters, digits, and apostrophes. The expected value remains the full
+  original caption; only the search query is relaxed.
+- Each widget instance has a monotonically increasing generation and guarded
+  event handlers. Late callbacks from a closed iframe are ignored instead of
+  being routed into the replacement's repeat state.
 - Reusing `widget.fetch()` inside an actively playing widget is deliberately not
   used: the live provider returned `YG.Error.TIMEOUT (3)`, while initial fetch on
-  the reloaded page consistently opened the same caption and video.
+  a fresh widget consistently opened the same caption and video.
 - A 750 ms confirmation guard separates a stale post-Replay callback from a
   manual iframe seek. Only the first mismatched caption is retained; a timely
   target callback cancels it, otherwise it is resolved through the same exact

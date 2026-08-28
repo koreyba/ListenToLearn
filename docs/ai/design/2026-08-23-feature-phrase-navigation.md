@@ -18,6 +18,7 @@ its relative `move()` request.
 flowchart LR
   UI[Previous / Next / Repeat controls] --> Controller[Caption controller]
   Controller -->|move(delta)| Widget[YouGlish Widget API]
+  Controller -->|close + create fresh generation| Widget
   Widget -->|onCaptionChange caption id current_time| Controller
   Widget -->|onCaptionConsumed id| Repeat[Repeat guard]
   Controller --> History[(Per-video in-memory caption timeline)]
@@ -107,19 +108,28 @@ exception blocks that direction and reports the failure.
 When repeat is enabled, `onCaptionConsumed` checks the consumed ID against the
 current target. An existing search-result caption uses the widget's native
 `replay()` command. A timestamped caption or a caption reached by manual iframe
-seek is reopened by replacing the current trainer URL with temporary
-`repeatCaption`/`repeatVideo` parameters. The new widget's initial fetch uses
+seek is reopened by calling the current widget's documented `close()` method,
+replacing only its mount inside a stable host, and constructing a fresh
+`YG.Widget` generation. The page URL, history, and surrounding trainer DOM stay
+unchanged. The fresh widget's initial fetch uses
 `"<full caption> #<video id> :r"`; this avoids the provider timeout observed
 when `widget.fetch()` is reused during active playback. The controller keeps
 Repeat pressed, confirms that YouGlish returned the same video and normalized
-caption text, removes the temporary URL parameters, and then loops that native
-result only with `replay()`.
+caption text, and then loops that native result only with `replay()`.
+Provider search punctuation is removed before fetch because the live API
+returned zero results for an otherwise exact punctuated caption. Confirmation
+still compares the complete normalized provider caption, so search tolerance
+does not weaken target identity.
+
+Each widget generation receives guarded event callbacks. Events from a closed
+generation are ignored, so a late caption or consumed callback cannot resolve
+or drive the replacement widget.
 
 A mismatched callback during the short native-Replay confirmation window is
 held for 750 ms. If the requested caption confirms, the callback is discarded as
 provider race noise; otherwise its first caption becomes the manual-seek target
-and is reopened through the same-page reload. Repeat never derives a caption duration from
-`current_time` and never calls `move()` to loop a caption. Search failure,
+and is reopened through widget-only replacement. Repeat never derives a caption
+duration from `current_time` and never calls `move()` to loop a caption. Search failure,
 wrong-video results, confirmation timeout, or a query/source/video reset disables
 Repeat with a visible message. Turning Repeat off clears all pending work.
 

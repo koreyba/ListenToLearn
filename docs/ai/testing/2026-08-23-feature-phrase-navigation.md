@@ -48,8 +48,14 @@ Controller scenarios to cover with a fake widget/event harness:
   event, and repeat-off prevents the next consumed event from seeking.
 - [x] Ten repeat cycles with varying consumed-callback delays use ten native
   `replay()` calls and zero Repeat `move()` calls.
-- [x] A timed caption and a manual iframe-seek caption are reopened with their
-  full normalized text constrained to the same video ID before looping.
+- [x] A timed caption and a manual iframe-seek caption replace only the
+  YouGlish widget, keep the page URL unchanged, and reopen their full normalized
+  text constrained to the same video ID before looping.
+- [x] A callback retained from the closed widget generation cannot confirm the
+  replacement caption or trigger its replay loop.
+- [x] Provider-search punctuation is removed after a live punctuated query
+  returned zero results, while full caption text remains required for target
+  confirmation.
 - [x] A provider callback during native Replay confirmation is discarded when
   the target confirms promptly, or becomes the new manual-seek target after the
   bounded confirmation window.
@@ -193,19 +199,32 @@ Superseded boundary-seek evidence and replacement feasibility on 2026-08-28:
   removes all Repeat `move()` calls.
 - Reusing `widget.fetch()` during active playback timed out with provider error
   `YG.Error.TIMEOUT (3)`. The same exact query succeeded as the initial fetch on
-  a reloaded trainer page, so the implementation uses temporary same-page repeat
-  parameters and clears them after video/text confirmation.
+  a fresh widget. The final implementation calls the documented `close()`,
+  replaces only the widget mount, and keeps the trainer URL and outer DOM intact.
 - Deterministic contracts now cover first/timed/manual captions, ten delayed
   native-replay cycles, manual seek during Replay confirmation, and stale
   callback cancellation.
-- Live post-implementation acceptance enabled Repeat on a timed caption, clicked
-  the nested YouTube seek slider while Repeat remained active, reopened the
-  clicked caption in `s0TRYW_AnRU`, and completed ten stable full-caption cycles:
-  10 `replay()` commands, 0 Repeat `move()` commands, pressed state retained.
-- Final local verification: `npm test` built successfully and passed 265/265
+- Live post-implementation acceptance enabled Repeat on a timed caption and
+  completed ten stable full-caption cycles before the later manual seek: 10
+  `replay()` commands, 0 Repeat `move()` commands, pressed state retained.
+- Final local verification: `npm test` built successfully and passed 267/267
   tests; `npx tsc --noEmit`, `npm run lint`, `npm ls --depth=0`,
   `git diff --check`, repository AI lint, and feature AI lint all passed. ESLint
   reported only the two pre-existing generated declaration warnings.
+
+Widget-only replacement evidence on 2026-08-28:
+
+- A live timed Repeat kept the trainer URL byte-for-byte unchanged and replaced
+  only the provider mount (`fr_yg-widget-0` to `fr_yg-widget-3`). The resolved
+  native result retained `aria-pressed="true"` and completed ten replay cycles.
+- A live click on the nested YouTube seek slider while Repeat was active again
+  kept the outer URL unchanged and replaced only the iframe
+  (`fr_yg-widget-3` to `fr_yg-widget-4`) with the clicked caption constrained to
+  the same video ID.
+- The second replacement could not complete its provider confirmation because
+  the iframe reported the YouGlish daily search quota was exceeded. The
+  deterministic manual-seek test covers the success callback sequence; the live
+  smoke claim is limited to URL stability and widget-only replacement.
 
 ## Manual Testing
 

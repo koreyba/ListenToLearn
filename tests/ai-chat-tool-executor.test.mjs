@@ -189,6 +189,17 @@ function replaceAttempt(fixture, ordinal) {
   };
 }
 
+test("canonical trace JSON is stable across object insertion order", () => {
+  assert.equal(
+    canonicalTraceJson({ zebra: 1, alpha: { two: 2, one: 1 } }),
+    canonicalTraceJson({ alpha: { one: 1, two: 2 }, zebra: 1 }),
+  );
+  assert.equal(
+    canonicalTraceJson({ zebra: 1, alpha: { two: 2, one: 1 } }),
+    '{"alpha":{"one":1,"two":2},"zebra":1}',
+  );
+});
+
 async function executeAdd(executor, planner, providerToolCallId, input) {
   return executor.execute({
     providerToolCallId,

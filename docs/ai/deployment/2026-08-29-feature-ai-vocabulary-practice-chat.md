@@ -42,7 +42,7 @@ rollout.
 
 ## Release Gates
 
-- [x] Full repository suite and production build pass 439/439 locally.
+- [x] Full repository suite and production build pass 440/440 locally.
 - [x] Typecheck and lifecycle lint pass on the current snapshot.
 - [x] Full lint passes with zero errors and two generated-file warnings.
 - [ ] Final review passes on the exact release diff.

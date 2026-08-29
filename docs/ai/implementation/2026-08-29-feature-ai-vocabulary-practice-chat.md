@@ -139,7 +139,7 @@ loads only messages before that turn and can replay committed receipts.
 
 ## Validation Evidence
 
-Fresh on 2026-08-29, `npm test` passed the full repository suite 439/439 and included
+Fresh on 2026-08-29, `npm test` passed the full repository suite 440/440 and included
 the production build. The review-focused targeted suite passed 90/90 and typecheck
 passed before that final gate. Lifecycle feature lint passes for the reconciled
 docs. Full lint passes with zero errors and two warnings in generated

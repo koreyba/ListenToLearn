@@ -194,7 +194,7 @@ responses or operational logs.
 
 ## Validation Status
 
-On 2026-08-29, the latest full repository gate passed 439/439 and included the
+On 2026-08-29, the latest full repository gate passed 440/440 and included the
 production build; typecheck also passed. Full lint exits successfully with zero
 errors and two warnings in generated `worker-configuration.d.ts`. Lifecycle lint
 passes for these documents. Final review closure and authenticated live-provider

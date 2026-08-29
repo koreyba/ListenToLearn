@@ -9,7 +9,7 @@ description: Delivery status for the chat-only vocabulary-agent revision
 ## Current Status
 
 The review-fixed chat-only revision is present in the current diff. The latest full
-repository gate passes 439/439 with the production build, and typecheck passes.
+repository gate passes 440/440 with the production build, and typecheck passes.
 Full lint passes with zero errors and two warnings in generated
 `worker-configuration.d.ts`. Requirements and lifecycle docs describe the
 implemented contracts. Final review closure and authenticated live-provider smoke
@@ -58,7 +58,7 @@ remain open; preview migrations 0017/0018 have not been applied.
   call three onward without D1 queries; instrumented cold full-turn envelopes are
   45 statements for two worst-case new-entry writes and 47 with one ambiguous
   committed-write recovery, below the Free-plan 50-query limit.
-- [x] **P10 · Repository verification** — latest full suite/build passes 439/439;
+- [x] **P10 · Repository verification** — latest full suite/build passes 440/440;
   typecheck, full lint, lifecycle feature lint, and docs diff checks pass.
 
 ## Remaining Gates

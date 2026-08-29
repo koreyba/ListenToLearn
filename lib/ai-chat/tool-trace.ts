@@ -120,7 +120,7 @@ function canonicalize(value: unknown): unknown {
     return Object.fromEntries(
       Object.keys(record)
         .filter((key) => record[key] !== undefined)
-        .sort()
+        .sort((left, right) => left.localeCompare(right, "en"))
         .map((key) => [key, canonicalize(record[key])]),
     );
   }

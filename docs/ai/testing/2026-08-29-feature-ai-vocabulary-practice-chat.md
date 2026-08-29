@@ -10,7 +10,7 @@ description: Verified agent-tool contracts and remaining end-to-end gates
 
 Command run on 2026-08-29: `npm test`.
 
-Result: full repository suite and production build passed 439/439. The preceding
+Result: full repository suite and production build passed 440/440. The preceding
 review-focused suite passed 90/90 and typecheck passed.
 
 ### Verified by that suite
@@ -73,7 +73,7 @@ review-focused suite passed 90/90 and typecheck passed.
 
 - [x] Typecheck passes with `npx tsc --noEmit --incremental false --pretty false`.
 - [x] Lifecycle feature lint passes on all lifecycle documents and the worktree.
-- [x] Full repository tests and the production build stage pass: 439/439 tests.
+- [x] Full repository tests and the production build stage pass: 440/440 tests.
 - [x] Full lint exits successfully with zero errors and two warnings in generated
   `worker-configuration.d.ts`.
 - [ ] Final human security/privacy/accessibility/responsive/intended-diff review.

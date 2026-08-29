@@ -253,7 +253,8 @@ test("trace schema models attempts, invocations, and mutation receipts separatel
 
   assertRequiredColumns(attempts, [
     "id", "user_id", "chat_id", "user_message_id", "assistant_message_id",
-    "attempt_number", "status", "lease_expires_at", "created_at", "updated_at",
+    "attempt_number", "status", "lease_expires_at", "configured_provider",
+    "configured_model", "created_at", "updated_at",
   ]);
   assertRequiredColumns(receipts, [
     "id", "user_id", "chat_id", "user_message_id", "committed_by_attempt_id",
@@ -519,6 +520,56 @@ test("tool trace executor exposes durable attempt, invocation, and receipt opera
   );
 });
 
+test("latest completed tool result is owner-scoped and excludes failed assistant turns", async () => {
+  const fixture = createTraceRepositoryFixture();
+  const executor = toolTraceModule.createAiChatToolExecutor(
+    fixture.trace,
+    fixture.context,
+  );
+  const result = {
+    ok: true,
+    category: "learned",
+    entries: [],
+    hasMore: true,
+    nextCursor: "opaque-cursor",
+  };
+  assert.deepEqual(await executor.execute({
+    providerToolCallId: "list-page-1",
+    toolName: "list_vocabulary",
+    args: { category: "learned" },
+    run: async () => result,
+  }), result);
+
+  assert.equal(await fixture.trace.readLatestCompletedToolResult(
+    "user-1",
+    "chat-1",
+    "list_vocabulary",
+  ), null);
+  fixture.sqlite.exec(`
+    UPDATE ai_chat_messages
+    SET status = 'complete', content = 'Listed vocabulary.'
+    WHERE id = 'assistant-message-1';
+    UPDATE ai_chat_assistant_attempts
+    SET status = 'complete', completed_at = '2026-08-29T10:00:31Z'
+    WHERE id = 'attempt-1';
+  `);
+  assert.deepEqual(await fixture.trace.readLatestCompletedToolResult(
+    "user-1",
+    "chat-1",
+    "list_vocabulary",
+  ), result);
+  assert.equal(await fixture.trace.readLatestCompletedToolResult(
+    "foreign-user",
+    "chat-1",
+    "list_vocabulary",
+  ), null);
+  assert.equal(await fixture.trace.readLatestCompletedToolResult(
+    "user-1",
+    "chat-1",
+    "find_vocabulary",
+  ), null);
+});
+
 test("an expired pending lease cannot begin a tool invocation", async () => {
   const fixture = createTraceRepositoryFixture();
   fixture.setNow("2026-08-29T10:01:00Z");
@@ -529,7 +580,7 @@ test("an expired pending lease cannot begin a tool invocation", async () => {
 
   const result = await executor.execute({
     providerToolCallId: "expired-before-call",
-    toolName: "get_recent_vocabulary",
+    toolName: "list_vocabulary",
     args: { limit: 5 },
     run: async () => ({ ok: true, entries: [] }),
   });
@@ -549,7 +600,7 @@ test("a tool result cannot finish after its attempt lease expires", async () => 
 
   const result = await executor.execute({
     providerToolCallId: "expired-before-finish",
-    toolName: "get_recent_vocabulary",
+    toolName: "list_vocabulary",
     args: { limit: 5 },
     run: async () => {
       fixture.setNow("2026-08-29T10:01:00Z");

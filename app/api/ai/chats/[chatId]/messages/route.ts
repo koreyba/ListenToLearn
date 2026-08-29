@@ -8,8 +8,13 @@ import {
 } from "@/lib/ai-chat/api-contracts";
 import { readBoundedText } from "@/lib/ai-chat/contracts";
 import { aiChatRouteErrorResponse } from "@/lib/ai-chat/http";
+import { recordAiChatOperationalEvent } from "@/lib/ai-chat/observability";
+import { enforceAiChatGenerationRateLimit } from "@/lib/ai-chat/rate-limit";
 import { createAiChatRepository } from "@/lib/ai-chat/repository";
-import { getAiChatServerConfig } from "@/lib/ai-chat/server-config";
+import {
+  getAiChatRateLimitBindings,
+  getAiChatServerConfig,
+} from "@/lib/ai-chat/server-config";
 import { prepareAiChatGeneration } from "@/lib/ai-chat/service";
 import { createAiChatToolTraceRepository } from "@/lib/ai-chat/tool-trace";
 import { createVocabularyMutationPlanner } from "@/lib/vocabulary/mutations";
@@ -26,6 +31,17 @@ export async function POST(request: Request, context: ChatRouteContext) {
   if (!chatId.ok) return aiChatErrorResponse({ code: "not_found", status: 404 });
   const payload = await readAiMutationPayload(request, readGenerateMessagePayload);
   if (!payload.ok) return aiChatErrorResponse(payload.error);
+  const rateLimit = await enforceAiChatGenerationRateLimit({
+    userId: user.subject,
+    ...getAiChatRateLimitBindings(),
+  });
+  if (!rateLimit.ok) {
+    recordAiChatOperationalEvent({
+      event: "ai_chat_generation_rejected",
+      errorCode: rateLimit.error.code,
+    });
+    return aiChatErrorResponse(rateLimit.error);
+  }
 
   try {
     const db = getD1();

@@ -141,6 +141,13 @@
       "when": 1788027604335,
       "tag": "0019_chat_turn_single_flight",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1788032018664,
+      "tag": "0020_easy_mentallo",
+      "breakpoints": true
     }
   ]
 }

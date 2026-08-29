@@ -1,7 +1,6 @@
 import {
   AI_CHAT_LIMITS,
   isMeaningMode,
-  normalizeMeaning,
   type AiChatMeaningMode,
   type AiChatTargetInput,
 } from "./contracts.ts";
@@ -9,6 +8,12 @@ import {
   VOCABULARY_LEGACY_MEANING_ID,
   type VocabularyMeaning,
 } from "../vocabulary/contracts.ts";
+import {
+  createVocabularyPracticeReader,
+  VocabularyPracticeReaderError,
+  type VocabularyPracticeItem,
+  type VocabularyPracticeTargetDraft,
+} from "../vocabulary/practice-reader.ts";
 
 export const AI_CHAT_LEGACY_MEANING_ID = VOCABULARY_LEGACY_MEANING_ID;
 export const AI_CHAT_PENDING_LEASE_MS = AI_CHAT_LIMITS.upstreamTimeoutMs + 10_000;
@@ -35,18 +40,7 @@ export class AiChatRepositoryError extends Error {
 
 export type AiChatMeaning = VocabularyMeaning;
 
-export type AiChatPracticeItem = {
-  id: string;
-  phraseId: string | null;
-  text: string;
-  meaningMode: AiChatMeaningMode;
-  selectedMeaningId: string | null;
-  selectedMeaningSnapshot: string;
-  selectedMeaning: AiChatMeaning | null;
-  knownMeanings: AiChatMeaning[];
-  createdAt: string;
-  updatedAt: string;
-};
+export type AiChatPracticeItem = VocabularyPracticeItem;
 
 export type AiChatMessage = {
   id: string;
@@ -89,8 +83,15 @@ export type AiChatAssistantAttempt = {
   attemptNumber: number;
   status: "pending" | "complete" | "failed" | "expired";
   leaseExpiresAt: string;
+  configuredProvenance: AiChatConfiguredProvenance;
+  errorCode: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type AiChatConfiguredProvenance = {
+  provider: string;
+  model: string;
 };
 
 export type AiChatTurn = {
@@ -103,19 +104,7 @@ export type AiChatTurn = {
 type RepositoryOptions = {
   createId?: (kind: "chat" | "target" | "message" | "attempt") => string;
   now?: () => string;
-};
-
-type PhraseRow = {
-  id: string;
-  text: string;
-  translation: string;
-  context: string;
-};
-
-type MeaningRow = {
-  id: string;
-  translation: string;
-  context: string;
+  practiceReader?: ReturnType<typeof createVocabularyPracticeReader>;
 };
 
 type ChatRow = {
@@ -126,22 +115,6 @@ type ChatRow = {
   message_count: number;
   created_at: string;
   updated_at: string;
-};
-
-type PracticeItemRow = {
-  item_id: string;
-  phrase_id: string | null;
-  text_snapshot: string;
-  meaning_mode: AiChatMeaningMode;
-  selected_meaning_id: string | null;
-  selected_meaning_snapshot: string;
-  item_created_at: string;
-  item_updated_at: string;
-  legacy_translation: string | null;
-  legacy_context: string | null;
-  meaning_id: string | null;
-  meaning_translation: string | null;
-  meaning_context: string | null;
 };
 
 type MessageRow = {
@@ -165,17 +138,14 @@ type AttemptRow = {
   attempt_number: number;
   status: "pending" | "complete" | "failed" | "expired";
   lease_expires_at: string;
+  configured_provider: string;
+  configured_model: string;
+  error_code: string | null;
   created_at: string;
   updated_at: string;
 };
 
-type TargetDraft = {
-  phraseId: string | null;
-  text: string;
-  meaningMode: AiChatMeaningMode;
-  selectedMeaningId: string | null;
-  selectedMeaningSnapshot: string;
-};
+type TargetDraft = VocabularyPracticeTargetDraft;
 
 type CreatedTargetDraft = TargetDraft & { id: string };
 
@@ -248,6 +218,17 @@ function attemptLeaseExpiresAt(timestamp: string) {
     : timestamp;
 }
 
+function cleanConfiguredProvenance(
+  value: AiChatConfiguredProvenance | undefined,
+): AiChatConfiguredProvenance {
+  const provider = cleanSingleLine(value?.provider || "");
+  const model = cleanSingleLine(value?.model || "");
+  return {
+    provider: provider && provider.length <= 80 ? provider : "unknown",
+    model: model && model.length <= 240 ? model : "unknown",
+  };
+}
+
 function defaultCreateId(kind: "chat" | "target" | "message" | "attempt") {
   return `${kind}-${crypto.randomUUID()}`;
 }
@@ -288,6 +269,11 @@ function mapAttempt(row: AttemptRow): AiChatAssistantAttempt {
     attemptNumber: Number(row.attempt_number),
     status: row.status,
     leaseExpiresAt: row.lease_expires_at,
+    configuredProvenance: {
+      provider: row.configured_provider,
+      model: row.configured_model,
+    },
+    errorCode: row.error_code,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -305,15 +291,9 @@ export function createAiChatRepository(
 ) {
   const createId = options.createId || defaultCreateId;
   const now = options.now || (() => new Date().toISOString());
-
-  async function visiblePhrase(userId: string, phraseId: string) {
-    return db.prepare(`
-      SELECT id, text, translation, context
-      FROM phrases
-      WHERE id = ? AND (source_type = 'preset' OR owner_id = ?)
-      LIMIT 1
-    `).bind(phraseId, userId).first<PhraseRow>();
-  }
+  const practiceReader = options.practiceReader || createVocabularyPracticeReader(db, {
+    meaningsPerTarget: AI_CHAT_LIMITS.meaningsPerTarget,
+  });
 
   async function ownedChat(userId: string, chatId: string) {
     return db.prepare(`
@@ -360,47 +340,18 @@ export function createAiChatRepository(
       };
     }
 
-    const phrase = await visiblePhrase(userId, input.phraseId);
-    if (!phrase) repositoryError("invalid_target", "Saved target is not visible.");
-    if (meaningMode !== "selected") {
-      return {
-        phraseId: phrase.id,
-        text: phrase.text,
+    try {
+      return await practiceReader.resolveSavedTarget(userId, {
+        phraseId: input.phraseId,
         meaningMode,
-        selectedMeaningId: null,
-        selectedMeaningSnapshot: "",
-      };
-    }
-
-    if (input.selectedMeaningId === AI_CHAT_LEGACY_MEANING_ID) {
-      if (!phrase.translation.trim()) {
-        repositoryError("invalid_target", "This target has no legacy meaning to select.");
+        selectedMeaningId: input.selectedMeaningId,
+      });
+    } catch (error) {
+      if (error instanceof VocabularyPracticeReaderError) {
+        repositoryError(error.code, error.message);
       }
-      return {
-        phraseId: phrase.id,
-        text: phrase.text,
-        meaningMode: "selected",
-        selectedMeaningId: null,
-        selectedMeaningSnapshot: phrase.translation,
-      };
+      throw error;
     }
-
-    const selectedMeaning = await db.prepare(`
-      SELECT id, translation, context
-      FROM phrase_meanings
-      WHERE id = ? AND user_id = ? AND phrase_id = ?
-      LIMIT 1
-    `).bind(input.selectedMeaningId || "", userId, phrase.id).first<MeaningRow>();
-    if (!selectedMeaning) {
-      repositoryError("invalid_target", "Selected meaning is not owned for this target.");
-    }
-    return {
-      phraseId: phrase.id,
-      text: phrase.text,
-      meaningMode: "selected",
-      selectedMeaningId: selectedMeaning.id,
-      selectedMeaningSnapshot: selectedMeaning.translation,
-    };
   }
 
   async function resolveTargets(userId: string, targets: readonly AiChatTargetInput[]) {
@@ -558,136 +509,9 @@ export function createAiChatRepository(
     );
   }
 
-  async function readCurrentPracticeItems(
-    userId: string,
-    chatId: string,
-  ): Promise<AiChatPracticeItem[]> {
-    const result = await db.prepare(`
-      WITH owned_items AS (
-        SELECT items.*, items.rowid AS item_rowid
-        FROM ai_chat_practice_items AS items
-        JOIN ai_chats AS chats ON chats.id = items.chat_id
-        WHERE items.chat_id = ? AND chats.user_id = ?
-      ),
-      ranked_meanings AS (
-        SELECT
-          meanings.id,
-          meanings.phrase_id,
-          meanings.translation,
-          meanings.context,
-          ROW_NUMBER() OVER (
-            PARTITION BY meanings.phrase_id
-            ORDER BY meanings.created_at, meanings.id
-          ) AS meaning_rank
-        FROM phrase_meanings AS meanings
-        WHERE meanings.user_id = ?
-          AND EXISTS (
-            SELECT 1
-            FROM owned_items
-            WHERE owned_items.phrase_id = meanings.phrase_id
-          )
-      )
-      SELECT
-        items.id AS item_id,
-        items.phrase_id,
-        items.text_snapshot,
-        items.meaning_mode,
-        items.selected_meaning_id,
-        items.selected_meaning_snapshot,
-        items.created_at AS item_created_at,
-        items.updated_at AS item_updated_at,
-        phrases.translation AS legacy_translation,
-        phrases.context AS legacy_context,
-        meanings.id AS meaning_id,
-        meanings.translation AS meaning_translation,
-        meanings.context AS meaning_context
-      FROM owned_items AS items
-      LEFT JOIN phrases ON phrases.id = items.phrase_id
-      LEFT JOIN ranked_meanings AS meanings
-        ON meanings.phrase_id = items.phrase_id
-        AND (
-          (
-            items.meaning_mode = 'selected'
-            AND meanings.id = items.selected_meaning_id
-          )
-          OR (
-            items.meaning_mode <> 'selected'
-            AND meanings.meaning_rank
-              + CASE WHEN TRIM(COALESCE(phrases.translation, '')) <> '' THEN 1 ELSE 0 END
-              <= ?
-          )
-        )
-      ORDER BY items.created_at, items.item_rowid, meanings.meaning_rank
-    `).bind(chatId, userId, userId, AI_CHAT_LIMITS.meaningsPerTarget).all<PracticeItemRow>();
-
-    const targets: AiChatPracticeItem[] = [];
-    const byId = new Map<string, AiChatPracticeItem>();
-    for (const row of result.results) {
-      let target = byId.get(row.item_id);
-      if (!target) {
-        const legacySnapshot = normalizeMeaning(row.selected_meaning_snapshot);
-        const selectedMeaningIsLegacy = row.meaning_mode === "selected"
-          && row.selected_meaning_id === null
-          && Boolean(legacySnapshot)
-          && legacySnapshot === normalizeMeaning(row.legacy_translation || "");
-        const selectedMeaning: AiChatMeaning | null = row.meaning_mode === "selected"
-          ? {
-              id: selectedMeaningIsLegacy ? AI_CHAT_LEGACY_MEANING_ID : row.selected_meaning_id,
-              source: selectedMeaningIsLegacy ? "legacy" : "personal",
-              translation: row.selected_meaning_snapshot,
-              context: selectedMeaningIsLegacy ? row.legacy_context || "" : "",
-            }
-          : null;
-        target = {
-          id: row.item_id,
-          phraseId: row.phrase_id,
-          text: row.text_snapshot,
-          meaningMode: row.meaning_mode,
-          selectedMeaningId: row.selected_meaning_id,
-          selectedMeaningSnapshot: row.selected_meaning_snapshot,
-          selectedMeaning,
-          knownMeanings: [],
-          createdAt: row.item_created_at,
-          updatedAt: row.item_updated_at,
-        };
-        if (row.meaning_mode !== "selected" && row.legacy_translation?.trim()) {
-          target.knownMeanings.push({
-            id: AI_CHAT_LEGACY_MEANING_ID,
-            source: "legacy",
-            translation: row.legacy_translation,
-            context: row.legacy_context || "",
-          });
-        }
-        targets.push(target);
-        byId.set(row.item_id, target);
-      }
-      if (
-        row.meaning_mode === "selected"
-        && row.selected_meaning_id
-        && row.meaning_id === row.selected_meaning_id
-        && target.selectedMeaning
-      ) {
-        target.selectedMeaning.context = row.meaning_context || "";
-      }
-      if (
-        row.meaning_mode !== "selected"
-        && row.meaning_id
-        && row.meaning_translation !== null
-      ) {
-        target.knownMeanings.push({
-          id: row.meaning_id,
-          source: "personal",
-          translation: row.meaning_translation,
-          context: row.meaning_context || "",
-        });
-      }
-    }
-    return targets;
-  }
-
   async function getCurrentPracticeItems(userId: string, chatId: string) {
     await requireOwnedChat(userId, chatId);
-    return readCurrentPracticeItems(userId, chatId);
+    return practiceReader.readCurrentItems(userId, chatId);
   }
 
   async function listMessages(userId: string, chatId: string) {
@@ -732,12 +556,15 @@ export function createAiChatRepository(
     return result.results.map(mapMessage);
   }
 
-  async function recoverStalePendingTurns(userId: string, chatId: string) {
-    const timestamp = now();
+  function stalePendingTurnRecoveryStatements(
+    userId: string,
+    chatId: string,
+    timestamp: string,
+  ) {
     const reference = Date.parse(timestamp);
-    if (!Number.isFinite(reference)) return;
+    if (!Number.isFinite(reference)) return [];
     const staleBefore = new Date(reference - AI_CHAT_PENDING_LEASE_MS).toISOString();
-    const results = await db.batch([
+    return [
       db.prepare(`
         UPDATE ai_chat_assistant_attempts
         SET status = 'expired', error_code = 'provider_timeout',
@@ -757,13 +584,28 @@ export function createAiChatRepository(
               FROM ai_chat_assistant_attempts AS attempts
               WHERE attempts.assistant_message_id = ai_chat_messages.id
                 AND attempts.status = 'expired'
-                AND attempts.completed_at = ?
+                AND attempts.error_code = 'provider_timeout'
             )
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM ai_chat_assistant_attempts AS active
+            WHERE active.assistant_message_id = ai_chat_messages.id
+              AND active.status = 'pending'
           )
           AND EXISTS (
             SELECT 1 FROM ai_chats WHERE ai_chats.id = ? AND ai_chats.user_id = ?
           )
-      `).bind(timestamp, chatId, staleBefore, timestamp, chatId, userId),
+      `).bind(timestamp, chatId, staleBefore, chatId, userId),
+    ];
+  }
+
+  async function recoverStalePendingTurns(userId: string, chatId: string) {
+    const timestamp = now();
+    const recoveryStatements = stalePendingTurnRecoveryStatements(userId, chatId, timestamp);
+    if (recoveryStatements.length === 0) return;
+    const results = await db.batch([
+      ...recoveryStatements,
       db.prepare(`
         UPDATE ai_chats
         SET updated_at = ?
@@ -791,7 +633,7 @@ export function createAiChatRepository(
     const row = await ownedChat(userId, chatId);
     if (!row) return null;
     const [targets, messages] = await Promise.all([
-      readCurrentPracticeItems(userId, chatId),
+      practiceReader.readCurrentItems(userId, chatId),
       listMessages(userId, chatId),
     ]);
     return { ...mapChat(row), targets, messages };
@@ -928,7 +770,7 @@ export function createAiChatRepository(
       db.prepare("UPDATE ai_chats SET updated_at = ? WHERE id = ? AND user_id = ?")
         .bind(timestamp, chatId, userId),
     ]);
-    return readCurrentPracticeItems(userId, chatId);
+    return practiceReader.readCurrentItems(userId, chatId);
   }
 
   async function getCanonicalHistory(
@@ -1018,6 +860,9 @@ export function createAiChatRepository(
         attempts.attempt_number,
         attempts.status,
         attempts.lease_expires_at,
+        attempts.configured_provider,
+        attempts.configured_model,
+        attempts.error_code,
         attempts.created_at,
         attempts.updated_at
       FROM ai_chat_assistant_attempts AS attempts
@@ -1034,7 +879,11 @@ export function createAiChatRepository(
   async function reuseTurn(
     userId: string,
     chatId: string,
-    input: { clientMessageId: string; content: string },
+    input: {
+      clientMessageId: string;
+      content: string;
+      configuredProvenance?: AiChatConfiguredProvenance;
+    },
     turn: {
       user: AiChatMessage;
       assistant: AiChatMessage;
@@ -1059,6 +908,7 @@ export function createAiChatRepository(
     const attemptId = createId("attempt");
     const attemptNumber = (turn.attempt?.attemptNumber || 0) + 1;
     const leaseExpiresAt = attemptLeaseExpiresAt(timestamp);
+    const configuredProvenance = cleanConfiguredProvenance(input.configuredProvenance);
     let results: D1Result<unknown>[];
     try {
       results = await db.batch([
@@ -1088,9 +938,10 @@ export function createAiChatRepository(
         db.prepare(`
           INSERT INTO ai_chat_assistant_attempts (
             id, user_id, chat_id, user_message_id, assistant_message_id,
-            attempt_number, status, lease_expires_at, created_at, updated_at
+            attempt_number, status, lease_expires_at, configured_provider,
+            configured_model, created_at, updated_at
           )
-          SELECT ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?
+          SELECT ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?
           WHERE EXISTS (
             SELECT 1
             FROM ai_chat_messages AS messages
@@ -1107,6 +958,8 @@ export function createAiChatRepository(
           turn.assistant.id,
           attemptNumber,
           leaseExpiresAt,
+          configuredProvenance.provider,
+          configuredProvenance.model,
           timestamp,
           timestamp,
           turn.assistant.id,
@@ -1141,7 +994,12 @@ export function createAiChatRepository(
   async function beginTurn(
     userId: string,
     chatId: string,
-    input: { clientMessageId: string; content: string; practiceContext: unknown },
+    input: {
+      clientMessageId: string;
+      content: string;
+      practiceContext: unknown;
+      configuredProvenance?: AiChatConfiguredProvenance;
+    },
   ): Promise<AiChatTurn> {
     await requireOwnedChat(userId, chatId);
     const existing = await findTurn(userId, chatId, input.clientMessageId);
@@ -1153,38 +1011,11 @@ export function createAiChatRepository(
     const assistantMessageId = createId("message");
     const attemptId = createId("attempt");
     const leaseExpiresAt = attemptLeaseExpiresAt(timestamp);
-    const expired = await db.prepare(`
-      UPDATE ai_chat_assistant_attempts
-      SET status = 'expired', error_code = 'provider_timeout',
-          updated_at = ?, completed_at = ?
-      WHERE user_id = ? AND chat_id = ? AND status = 'pending'
-        AND lease_expires_at <= ?
-    `).bind(timestamp, timestamp, userId, chatId, timestamp).run();
-    if (Number(expired.meta?.changes || 0) > 0) {
-      await db.prepare(`
-        UPDATE ai_chat_messages
-        SET status = 'failed', error_code = 'provider_timeout', updated_at = ?
-        WHERE chat_id = ? AND role = 'assistant' AND status = 'pending'
-          AND EXISTS (
-            SELECT 1
-            FROM ai_chat_assistant_attempts AS attempts
-            WHERE attempts.assistant_message_id = ai_chat_messages.id
-              AND attempts.user_id = ?
-              AND attempts.chat_id = ?
-              AND attempts.status = 'expired'
-              AND attempts.error_code = 'provider_timeout'
-              AND attempts.completed_at = ?
-          )
-          AND NOT EXISTS (
-            SELECT 1
-            FROM ai_chat_assistant_attempts AS active
-            WHERE active.assistant_message_id = ai_chat_messages.id
-              AND active.status = 'pending'
-          )
-      `).bind(timestamp, chatId, userId, chatId, timestamp).run();
-    }
+    const configuredProvenance = cleanConfiguredProvenance(input.configuredProvenance);
+    const recoveryStatements = stalePendingTurnRecoveryStatements(userId, chatId, timestamp);
     try {
       await db.batch([
+        ...recoveryStatements,
         db.prepare(`
           INSERT INTO ai_chat_messages (
             id, chat_id, role, sequence, content, status, practice_context_json,
@@ -1225,8 +1056,9 @@ export function createAiChatRepository(
         db.prepare(`
           INSERT INTO ai_chat_assistant_attempts (
             id, user_id, chat_id, user_message_id, assistant_message_id,
-            attempt_number, status, lease_expires_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 1, 'pending', ?, ?, ?)
+            attempt_number, status, lease_expires_at, configured_provider,
+            configured_model, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, 1, 'pending', ?, ?, ?, ?, ?)
         `).bind(
           attemptId,
           userId,
@@ -1234,6 +1066,8 @@ export function createAiChatRepository(
           userMessageId,
           assistantMessageId,
           leaseExpiresAt,
+          configuredProvenance.provider,
+          configuredProvenance.model,
           timestamp,
           timestamp,
         ),
@@ -1283,7 +1117,6 @@ export function createAiChatRepository(
       usage?: unknown;
     },
   ) {
-    await requireOwnedChat(userId, chatId);
     const existing = await findTurn(userId, chatId, clientMessageId);
     if (!existing) repositoryError("not_found", "Turn not found.");
     const timestamp = now();
@@ -1418,7 +1251,6 @@ export function createAiChatRepository(
     errorCode: string,
     attemptId: string,
   ) {
-    await requireOwnedChat(userId, chatId);
     const existing = await findTurn(userId, chatId, clientMessageId);
     if (!existing) repositoryError("not_found", "Turn not found.");
     const timestamp = now();
@@ -1430,74 +1262,116 @@ export function createAiChatRepository(
     ) {
       return { state: "existing", ...existing } satisfies AiChatTurn;
     }
-    await db.batch([
-      db.prepare(`
-        UPDATE ai_chat_messages
-        SET content = '', status = 'failed', provider = NULL, model = NULL,
-            usage_json = NULL, error_code = ?, updated_at = ?
-        WHERE chat_id = ? AND client_message_id = ? AND role = 'assistant'
-          AND status = 'pending'
-          AND EXISTS (
-            SELECT 1
-            FROM ai_chat_assistant_attempts AS attempts
-            WHERE attempts.id = ?
-              AND attempts.user_id = ?
-              AND attempts.chat_id = ?
-              AND attempts.user_message_id = ?
-              AND attempts.assistant_message_id = ai_chat_messages.id
-              AND attempts.status = 'pending'
-              AND attempts.lease_expires_at > ?
-          )
-          AND EXISTS (
-            SELECT 1 FROM ai_chats WHERE ai_chats.id = ? AND ai_chats.user_id = ?
-          )
-      `).bind(
+    let results: D1Result<unknown>[];
+    try {
+      results = await db.batch([
+        db.prepare(`
+          UPDATE ai_chat_messages
+          SET content = '', status = 'failed', provider = NULL, model = NULL,
+              usage_json = NULL, error_code = ?, updated_at = ?
+          WHERE chat_id = ? AND client_message_id = ? AND role = 'assistant'
+            AND status = 'pending'
+            AND EXISTS (
+              SELECT 1
+              FROM ai_chat_assistant_attempts AS attempts
+              WHERE attempts.id = ?
+                AND attempts.user_id = ?
+                AND attempts.chat_id = ?
+                AND attempts.user_message_id = ?
+                AND attempts.assistant_message_id = ai_chat_messages.id
+                AND attempts.status = 'pending'
+                AND attempts.lease_expires_at > ?
+            )
+            AND EXISTS (
+              SELECT 1 FROM ai_chats WHERE ai_chats.id = ? AND ai_chats.user_id = ?
+            )
+        `).bind(
+          errorCode,
+          timestamp,
+          chatId,
+          clientMessageId,
+          attemptId,
+          userId,
+          chatId,
+          existing.user.id,
+          timestamp,
+          chatId,
+          userId,
+        ),
+        db.prepare(`
+          UPDATE ai_chat_assistant_attempts
+          SET status = 'failed', provider = NULL, model = NULL, usage_json = NULL,
+              error_code = ?, updated_at = ?, completed_at = ?
+          WHERE id = ? AND user_id = ? AND chat_id = ? AND status = 'pending'
+            AND lease_expires_at > ?
+            AND EXISTS (
+              SELECT 1
+              FROM ai_chat_messages
+              WHERE id = ai_chat_assistant_attempts.assistant_message_id
+                AND status = 'failed' AND updated_at = ?
+            )
+        `).bind(
+          errorCode,
+          timestamp,
+          timestamp,
+          attemptId,
+          userId,
+          chatId,
+          timestamp,
+          timestamp,
+        ),
+        db.prepare(`
+          UPDATE ai_chats SET updated_at = ?
+          WHERE id = ? AND user_id = ?
+            AND EXISTS (
+              SELECT 1 FROM ai_chat_assistant_attempts
+              WHERE id = ? AND status = 'failed' AND updated_at = ?
+            )
+        `).bind(timestamp, chatId, userId, attemptId, timestamp),
+      ]);
+    } catch (error) {
+      const recovered = await findTurn(userId, chatId, clientMessageId);
+      if (
+        recovered?.assistant.status === "failed"
+        && recovered.assistant.errorCode === errorCode
+        && recovered.attempt?.id === attemptId
+        && recovered.attempt.status === "failed"
+        && recovered.attempt.errorCode === errorCode
+      ) {
+        return { state: "existing", ...recovered } satisfies AiChatTurn;
+      }
+      throw error;
+    }
+    if (
+      Number(results[0]?.meta.changes || 0) !== 1
+      || Number(results[1]?.meta.changes || 0) !== 1
+    ) {
+      const failed = await findTurn(userId, chatId, clientMessageId);
+      if (!failed) repositoryError("conflict", "Turn failure could not be persisted.");
+      return { state: "existing", ...failed } satisfies AiChatTurn;
+    }
+    return {
+      state: "existing",
+      user: existing.user,
+      assistant: {
+        ...existing.assistant,
+        content: "",
+        status: "failed",
+        provider: null,
+        model: null,
+        usage: null,
         errorCode,
-        timestamp,
-        chatId,
-        clientMessageId,
-        attemptId,
-        userId,
-        chatId,
-        existing.user.id,
-        timestamp,
-        chatId,
-        userId,
-      ),
-      db.prepare(`
-        UPDATE ai_chat_assistant_attempts
-        SET status = 'failed', provider = NULL, model = NULL, usage_json = NULL,
-            error_code = ?, updated_at = ?, completed_at = ?
-        WHERE id = ? AND user_id = ? AND chat_id = ? AND status = 'pending'
-          AND lease_expires_at > ?
-          AND EXISTS (
-            SELECT 1
-            FROM ai_chat_messages
-            WHERE id = ai_chat_assistant_attempts.assistant_message_id
-              AND status = 'failed' AND updated_at = ?
-          )
-      `).bind(
-        errorCode,
-        timestamp,
-        timestamp,
-        attemptId,
-        userId,
-        chatId,
-        timestamp,
-        timestamp,
-      ),
-      db.prepare(`
-        UPDATE ai_chats SET updated_at = ?
-        WHERE id = ? AND user_id = ?
-          AND EXISTS (
-            SELECT 1 FROM ai_chat_assistant_attempts
-            WHERE id = ? AND status = 'failed' AND updated_at = ?
-          )
-      `).bind(timestamp, chatId, userId, attemptId, timestamp),
-    ]);
-    const failed = await findTurn(userId, chatId, clientMessageId);
-    if (!failed) repositoryError("conflict", "Turn failure could not be persisted.");
-    return { state: "existing", ...failed } satisfies AiChatTurn;
+        updatedAt: timestamp,
+      },
+      attempt: existing.attempt
+        ? {
+            ...existing.attempt,
+            status: "failed",
+            errorCode,
+            updatedAt: timestamp,
+          }
+        : null,
+    } satisfies AiChatTurn;
   }
 
   return {

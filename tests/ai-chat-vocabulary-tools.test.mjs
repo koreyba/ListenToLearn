@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const toolsModule = await import("../lib/ai-chat/vocabulary-tools.ts").catch(() => ({}));
@@ -27,6 +28,14 @@ function createHarness(currentUserMessage) {
   const savedEntry = entry();
   const repositoryResults = [savedEntry];
   const repository = {
+    async listPage(userId, options) {
+      calls.push({ method: "page", userId, options });
+      return {
+        entries: repositoryResults,
+        hasMore: false,
+        nextCursor: null,
+      };
+    },
     async listRecent(userId, limit) {
       calls.push({ method: "recent", userId, limit });
       return repositoryResults;
@@ -38,6 +47,17 @@ function createHarness(currentUserMessage) {
     async getEntry(userId, phraseId) {
       calls.push({ method: "getEntry", userId, phraseId });
       return phraseId === savedEntry.phraseId ? savedEntry : null;
+    },
+    async getCategoryTarget(userId, phraseId) {
+      calls.push({ method: "getCategoryTarget", userId, phraseId });
+      return phraseId === savedEntry.phraseId
+        ? {
+            phraseId: savedEntry.phraseId,
+            text: savedEntry.text,
+            storedStatus: savedEntry.status,
+            category: "learning",
+          }
+        : null;
     },
     async getEntryForMeaning(userId, meaningId) {
       calls.push({ method: "getEntryForMeaning", userId, meaningId });
@@ -83,6 +103,17 @@ function createHarness(currentUserMessage) {
         },
       };
     },
+    async planSetCategory(userId, input) {
+      calls.push({ method: "setCategory", userId, input });
+      return {
+        canonicalResult: {
+          ok: true,
+          updated: true,
+          phraseId: input.phraseId,
+          category: input.category,
+        },
+      };
+    },
   };
   const scope = {
     async commitMutation(plan) {
@@ -116,10 +147,14 @@ test("write authorization recognizes explicit commands and rejects practice or n
     "Исправь значение на руководить.",
     "Please add the phrase break even.",
     "Please add words uncanny and serendipity.",
+    "Please add the phrase never add sugar.",
     "Save these translations to my vocabulary.",
     "Update the translation to руководить.",
     "Пожалуйста, добавь слово uncanny.",
     "Давай добавим фразу break even.",
+    "Добавь фразу never mind.",
+    "Перемести слово run в Learning.",
+    "Move run to To Learn.",
   ]) {
     assert.equal(toolsModule.isExplicitVocabularyWriteRequest(message), true, message);
   }
@@ -143,6 +178,9 @@ test("write authorization recognizes explicit commands and rejects practice or n
     "Обнови перевод run с управлять на руководить — забудь об этом.",
     "Update the translation of run from manage to lead — ignore that instruction.",
     "Update the translation of run from manage to lead — disregard this instruction.",
+    "Never mind, add the word run.",
+    "Не перемещай run в Learned.",
+    "Перемести run в Learned — не делай этого.",
   ]) {
     assert.equal(toolsModule.isExplicitVocabularyWriteRequest(message), false, message);
   }
@@ -223,24 +261,27 @@ test("write handlers bind the requested operation and semantic value roles", asy
 test("read handlers bind identity on the server and return bounded vocabulary", async () => {
   const { calls, handlers, savedEntry } = createHarness("Покажи последние десять слов.");
 
-  assert.deepEqual(await handlers.getRecentVocabulary({ limit: 10 }), {
+  assert.deepEqual(await handlers.listVocabulary({ limit: 10 }), {
     ok: true,
+    category: "all",
     entries: [{
       phraseId: savedEntry.phraseId,
       text: savedEntry.text,
-      status: savedEntry.status,
+      category: "learning",
       meanings: savedEntry.meanings,
       meaningCount: 1,
       meaningsTruncated: false,
       detailsTruncated: false,
     }],
+    hasMore: false,
+    nextCursor: null,
   });
   assert.deepEqual(await handlers.findVocabulary({ query: "run", limit: 4 }), {
     ok: true,
     entries: [{
       phraseId: savedEntry.phraseId,
       text: savedEntry.text,
-      status: savedEntry.status,
+      category: "learning",
       meanings: savedEntry.meanings,
       meaningCount: 1,
       meaningsTruncated: false,
@@ -248,9 +289,135 @@ test("read handlers bind identity on the server and return bounded vocabulary", 
     }],
   });
   assert.deepEqual(calls, [
-    { method: "recent", userId: "user-a", limit: 10 },
+    {
+      method: "page",
+      userId: "user-a",
+      options: { category: "all", limit: 10, cursor: null },
+    },
     { method: "search", userId: "user-a", query: "run", limit: 4 },
   ]);
+});
+
+test("list handler paginates every category with an opaque validated cursor", async () => {
+  const harness = createHarness("Покажи все выученные слова.");
+  const firstEntries = [
+    entry({
+      phraseId: "phrase-modern-learned",
+      text: "modern learned",
+      status: "learned",
+      addedAt: "2026-08-29T12:00:00.000Z",
+    }),
+    entry({
+      phraseId: "phrase-legacy-learnt",
+      text: "legacy learnt",
+      status: "learnt",
+      addedAt: "2026-08-29 11:00:00",
+    }),
+  ];
+  const secondEntries = [entry({
+    phraseId: "phrase-last-learned",
+    text: "last learned",
+    status: "learned",
+    addedAt: "2026-08-29T10:00:00.000Z",
+  })];
+  harness.repository.listPage = async (userId, options) => {
+    harness.calls.push({ method: "page", userId, options });
+    return options.cursor
+      ? { entries: secondEntries, hasMore: false, nextCursor: null }
+      : {
+          entries: firstEntries,
+          hasMore: true,
+          nextCursor: {
+            addedAt: firstEntries.at(-1).addedAt,
+            phraseId: firstEntries.at(-1).phraseId,
+          },
+        };
+  };
+
+  const first = await harness.handlers.listVocabulary({
+    category: "learned",
+    limit: 2,
+  });
+  assert.equal(first.ok, true);
+  assert.equal(first.category, "learned");
+  assert.deepEqual(first.entries.map(({ category }) => category), ["learned", "learned"]);
+  assert.equal(first.hasMore, true);
+  assert.equal(typeof first.nextCursor, "string");
+  assert.match(first.nextCursor, /^[A-Za-z0-9_-]+$/u);
+
+  const second = await harness.handlers.listVocabulary({
+    category: "learned",
+    limit: 2,
+    cursor: first.nextCursor,
+  });
+  assert.equal(second.ok, true);
+  assert.deepEqual(second.entries.map(({ phraseId }) => phraseId), ["phrase-last-learned"]);
+  assert.equal(second.hasMore, false);
+  assert.equal(second.nextCursor, null);
+  assert.deepEqual(harness.calls, [
+    {
+      method: "page",
+      userId: "user-a",
+      options: { category: "learned", limit: 2, cursor: null },
+    },
+    {
+      method: "page",
+      userId: "user-a",
+      options: {
+        category: "learned",
+        limit: 2,
+        cursor: {
+          addedAt: "2026-08-29 11:00:00",
+          phraseId: "phrase-legacy-learnt",
+        },
+      },
+    },
+  ]);
+});
+
+test("list cursors preserve every supported historical D1 timestamp boundary", () => {
+  for (const addedAt of [
+    "2026-08-29 10:00:00",
+    "2026-08-29T10:00:00Z",
+    "2026-08-29T10:00:00.000Z",
+  ]) {
+    const encoded = toolsModule.encodeAiVocabularyListCursor({
+      category: "all",
+      addedAt,
+      phraseId: "phrase-run",
+    });
+    assert.deepEqual(toolsModule.readAiVocabularyListCursor(encoded, "all"), {
+      category: "all",
+      addedAt,
+      phraseId: "phrase-run",
+    });
+  }
+});
+
+test("list handler rejects malformed or category-mismatched cursors before D1", async () => {
+  const malformed = createHarness("Покажи дальше.");
+  assert.deepEqual(await malformed.handlers.listVocabulary({
+    category: "all",
+    cursor: "not+a+base64url+cursor",
+  }), { ok: false, error: "invalid_input" });
+  assert.deepEqual(malformed.calls, []);
+
+  const first = createHarness("Покажи learning слова.");
+  const page = await first.handlers.listVocabulary({ category: "learning" });
+  assert.equal(page.ok, true);
+  // The default harness has no next page, so create a canonical cursor directly
+  // through the exported codec to test category binding independently.
+  const cursor = toolsModule.encodeAiVocabularyListCursor({
+    category: "learning",
+    addedAt: "2026-08-29T10:00:00.000Z",
+    phraseId: "phrase-run",
+  });
+  const mismatch = createHarness("Покажи выученные слова дальше.");
+  assert.deepEqual(await mismatch.handlers.listVocabulary({
+    category: "learned",
+    cursor,
+  }), { ok: false, error: "invalid_input" });
+  assert.deepEqual(mismatch.calls, []);
 });
 
 test("tool reads scope legacy custom meanings while preset legacy stays immutable", async () => {
@@ -269,7 +436,7 @@ test("tool reads scope legacy custom meanings while preset legacy stays immutabl
   const preset = entry();
   harness.repositoryResults.splice(0, harness.repositoryResults.length, custom, preset);
 
-  const result = await harness.handlers.getRecentVocabulary({ limit: 5 });
+  const result = await harness.handlers.listVocabulary({ limit: 5 });
   assert.equal(result.ok, true);
   assert.equal(result.entries[0].meanings[0].id, "legacy:phrase-custom");
   assert.equal(result.entries[1].meanings[0].id, "legacy");
@@ -396,6 +563,121 @@ test("write handlers require an explicit command and literal values from that tu
   }]);
 });
 
+test("write handlers preserve literal case and compatibility characters", async () => {
+  const caseSensitive = createHarness("Добавь слово Polish.");
+  assert.deepEqual(await caseSensitive.handlers.addVocabularyEntry({
+    text: "polish",
+  }, caseSensitive.scope), { ok: false, error: "explicit_values_required" });
+  assert.deepEqual(caseSensitive.calls, []);
+
+  const compatibilityMismatch = createHarness("Добавь слово Polish.");
+  assert.deepEqual(await compatibilityMismatch.handlers.addVocabularyEntry({
+    text: "Ｐｏｌｉｓｈ",
+  }, compatibilityMismatch.scope), { ok: false, error: "explicit_values_required" });
+  assert.deepEqual(compatibilityMismatch.calls, []);
+
+  const exact = createHarness("Добавь слово Polish.");
+  assert.equal((await exact.handlers.addVocabularyEntry({
+    text: "Polish",
+  }, exact.scope)).ok, true);
+  assert.equal(exact.calls.at(-1).input.text, "Polish");
+
+  const fullWidthExact = createHarness("Добавь слово Ｐｏｌｉｓｈ.");
+  assert.equal((await fullWidthExact.handlers.addVocabularyEntry({
+    text: "Ｐｏｌｉｓｈ",
+  }, fullWidthExact.scope)).ok, true);
+  assert.equal(fullWidthExact.calls.at(-1).input.text, "Ｐｏｌｉｓｈ");
+});
+
+test("quoted entry commands preserve meaningful terminal punctuation", async () => {
+  const altered = createHarness('Добавь фразу "wow!".');
+  assert.deepEqual(await altered.handlers.addVocabularyEntry({
+    text: "wow",
+  }, altered.scope), { ok: false, error: "explicit_values_required" });
+  assert.deepEqual(altered.calls, []);
+
+  const exact = createHarness('Добавь фразу "wow!".');
+  assert.equal((await exact.handlers.addVocabularyEntry({
+    text: "wow!",
+  }, exact.scope)).ok, true);
+  assert.equal(exact.calls.at(-1).input.text, "wow!");
+});
+
+test("category changes require one literal current-turn command and canonical destination", async () => {
+  for (const [message, category] of [
+    ["Перемести слово run в Learning.", "learning"],
+    ["Пометь фразу run как Learned.", "learned"],
+    ["Move run to To Learn.", "to_learn"],
+    ["Измени категорию слова run на Learned.", "learned"],
+    ["Change the category of run to Learning.", "learning"],
+    ["Set run's category to To Learn.", "to_learn"],
+  ]) {
+    const harness = createHarness(message);
+    assert.deepEqual(await harness.handlers.setVocabularyCategory({
+      phraseId: "phrase-run",
+      category,
+    }, harness.scope), {
+      ok: true,
+      updated: true,
+      phraseId: "phrase-run",
+      category,
+    });
+    assert.deepEqual(harness.calls, [{
+      method: "getCategoryTarget",
+      userId: "user-a",
+      phraseId: "phrase-run",
+    }, {
+      method: "setCategory",
+      userId: "user-a",
+      input: {
+        phraseId: "phrase-run",
+        expectedStoredStatus: "learning_now",
+        category,
+      },
+    }]);
+  }
+
+  for (const message of [
+    "Давай потренируем run в Learning.",
+    "run находится в Learning.",
+    "Не перемещай run в Learned.",
+    "Перемести run в Learned — не делай этого.",
+  ]) {
+    const harness = createHarness(message);
+    assert.deepEqual(await harness.handlers.setVocabularyCategory({
+      phraseId: "phrase-run",
+      category: "learned",
+    }, harness.scope), { ok: false, error: "explicit_user_command_required" });
+    assert.deepEqual(harness.calls, []);
+  }
+
+  const wrongDestination = createHarness("Перемести run в Learning.");
+  assert.deepEqual(await wrongDestination.handlers.setVocabularyCategory({
+    phraseId: "phrase-run",
+    category: "learned",
+  }, wrongDestination.scope), { ok: false, error: "explicit_values_required" });
+  assert.deepEqual(wrongDestination.calls, []);
+
+  const wrongEntry = createHarness("Перемести другое в Learning.");
+  assert.deepEqual(await wrongEntry.handlers.setVocabularyCategory({
+    phraseId: "phrase-run",
+    category: "learning",
+  }, wrongEntry.scope), { ok: false, error: "explicit_values_required" });
+  assert.deepEqual(wrongEntry.calls, [{
+    method: "getCategoryTarget",
+    userId: "user-a",
+    phraseId: "phrase-run",
+  }]);
+});
+
+test("write handlers allow revocation words when they are the literal phrase", async () => {
+  const harness = createHarness("Добавь фразу never mind.");
+  assert.equal((await harness.handlers.addVocabularyEntry({
+    text: "never mind",
+  }, harness.scope)).ok, true);
+  assert.equal(harness.calls.at(-1).input.text, "never mind");
+});
+
 test("meaning writes are owner-bound and require the saved value to be explicit", async () => {
   const harness = createHarness(
     "Добавь к run значение управлять в контексте run a company.",
@@ -515,7 +797,7 @@ test("read tool output is bounded before it is returned to the provider", async 
     ...Array.from({ length: 10 }, () => maximumEntry),
   );
 
-  const result = await harness.handlers.getRecentVocabulary({ limit: 20 });
+  const result = await harness.handlers.listVocabulary({ limit: 20 });
   assert.equal(result.ok, true);
   assert.ok(JSON.stringify(result).length <= 7_800);
   assert.ok(result.entries[0].meanings.length <= 6);
@@ -574,12 +856,26 @@ test("AI SDK tool set exposes read and guarded write capabilities", () => {
     "add_vocabulary_entry",
     "add_vocabulary_meaning",
     "find_vocabulary",
-    "get_recent_vocabulary",
+    "list_vocabulary",
+    "set_vocabulary_category",
     "update_vocabulary_meaning",
   ]);
+  assert.deepEqual([...toolsModule.AI_VOCABULARY_TOOL_NAMES].sort(), Object.keys(tools).sort());
   assert.equal(
     tools.find_vocabulary.inputSchema.jsonSchema.properties.query.maxLength,
     48,
+  );
+});
+
+test("every vocabulary tool is constructed through one traced budget wrapper", async () => {
+  const source = await readFile(
+    new URL("../lib/ai-chat/tools/vocabulary/registry.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /function defineTracedVocabularyTool/u);
+  assert.equal(
+    (source.match(/\btool(?:\s*<[\s\S]*?>)?\s*\(\s*\{/gu) || []).length,
+    1,
   );
 });
 
@@ -604,7 +900,8 @@ test("AI SDK tool adapters forward provider call identity, name, and arguments t
     });
   };
   const readTools = freshTools();
-  const entryAndMeaningTools = freshTools();
+  const entryTools = freshTools();
+  const meaningTools = freshTools();
   const updateTools = freshTools();
   const options = (toolCallId) => ({
     toolCallId,
@@ -612,13 +909,13 @@ test("AI SDK tool adapters forward provider call identity, name, and arguments t
     abortSignal: new AbortController().signal,
   });
 
-  await readTools.get_recent_vocabulary.execute({ limit: 5 }, options("provider-read"));
+  await readTools.list_vocabulary.execute({ limit: 5 }, options("provider-read"));
   await readTools.find_vocabulary.execute({ query: "run", limit: 3 }, options("provider-search"));
-  await entryAndMeaningTools.add_vocabulary_entry.execute({
+  await entryTools.add_vocabulary_entry.execute({
     text: "serendipity",
     translation: "счастливая случайность",
   }, options("provider-add-entry"));
-  await entryAndMeaningTools.add_vocabulary_meaning.execute({
+  await meaningTools.add_vocabulary_meaning.execute({
     phraseId: "phrase-run",
     translation: "управлять",
   }, options("provider-add-meaning"));
@@ -630,7 +927,7 @@ test("AI SDK tool adapters forward provider call identity, name, and arguments t
   assert.deepEqual(invocations, [
     {
       providerToolCallId: "provider-read",
-      toolName: "get_recent_vocabulary",
+      toolName: "list_vocabulary",
       args: { limit: 5 },
     },
     {
@@ -656,13 +953,43 @@ test("AI SDK tool adapters forward provider call identity, name, and arguments t
   ]);
 });
 
+test("category adapter sends the canonical write through the trace executor", async () => {
+  const harness = createHarness("Перемести слово run в Learned.");
+  const invocations = [];
+  const tools = toolsModule.createAiVocabularyTools(harness.handlers, {
+    async execute(input) {
+      invocations.push({
+        providerToolCallId: input.providerToolCallId,
+        toolName: input.toolName,
+        args: input.args,
+      });
+      return input.run(harness.scope);
+    },
+  });
+  const result = await tools.set_vocabulary_category.execute({
+    phraseId: "phrase-run",
+    category: "learned",
+  }, {
+    toolCallId: "provider-set-category",
+    messages: [],
+    abortSignal: new AbortController().signal,
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(invocations, [{
+    providerToolCallId: "provider-set-category",
+    toolName: "set_vocabulary_category",
+    args: { phraseId: "phrase-run", category: "learned" },
+  }]);
+});
+
 test("one model turn has a hard total tool-call budget", async () => {
   assert.equal(toolsModule.AI_VOCABULARY_MAX_TOOL_CALLS_PER_TURN, 2);
   const { handlers, calls } = createHarness("Покажи последние слова.");
   for (let index = 0; index < 2; index += 1) {
-    assert.equal((await handlers.getRecentVocabulary({ limit: 5 })).ok, true);
+    assert.equal((await handlers.listVocabulary({ limit: 5 })).ok, true);
   }
-  assert.deepEqual(await handlers.getRecentVocabulary({ limit: 5 }), {
+  assert.deepEqual(await handlers.listVocabulary({ limit: 5 }), {
     ok: false,
     error: "tool_budget_exceeded",
   });
@@ -685,14 +1012,40 @@ test("over-budget provider calls are rejected before consuming D1 trace queries"
   });
 
   for (let index = 0; index < 2; index += 1) {
-    assert.equal((await tools.get_recent_vocabulary.execute(
+    assert.equal((await tools.list_vocabulary.execute(
       { limit: 5 },
       options(`within-budget-${index}`),
     )).ok, true);
   }
-  assert.deepEqual(await tools.get_recent_vocabulary.execute(
+  assert.deepEqual(await tools.list_vocabulary.execute(
     { limit: 5 },
     options("over-budget"),
   ), { ok: false, error: "tool_budget_exceeded" });
   assert.equal(tracedCalls, 2);
+});
+
+test("a failed mutation opens a per-turn circuit before another provider tool call", async () => {
+  const harness = createHarness("Добавь слово uncanny.");
+  let tracedCalls = 0;
+  const tools = toolsModule.createAiVocabularyTools(harness.handlers, {
+    async execute() {
+      tracedCalls += 1;
+      return { ok: false, error: "operation_failed" };
+    },
+  });
+  const options = (toolCallId) => ({
+    toolCallId,
+    messages: [],
+    abortSignal: new AbortController().signal,
+  });
+
+  assert.deepEqual(await tools.add_vocabulary_entry.execute(
+    { text: "uncanny" },
+    options("failed-mutation"),
+  ), { ok: false, error: "operation_failed" });
+  assert.deepEqual(await tools.list_vocabulary.execute(
+    { limit: 5 },
+    options("blocked-after-failure"),
+  ), { ok: false, error: "tool_budget_exceeded" });
+  assert.equal(tracedCalls, 1);
 });

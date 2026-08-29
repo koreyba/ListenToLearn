@@ -34,23 +34,32 @@ reverse translation, or answer checks.
   history after reload.
 - As a learner, a new chat immediately shows my actual latest five saved words or
   phrases and meanings, including an honest empty/fewer-than-five result.
-- As a learner, I can ask for the latest `N` items or search my vocabulary in chat,
-  then practise any conversational subset without configuring hidden targets.
+- As a learner, I can list all vocabulary or only `To Learn`, `Learning`, or
+  `Learned`, continue the same list across turns, search it, and practise any
+  conversational subset without configuring hidden targets.
 - As a learner, I can practise an ad-hoc word without saving it.
-- As a learner, I can explicitly command the chat to add a vocabulary entry, add a
-  personal meaning, or update one of my personal meanings.
+- As a learner, I can explicitly command the chat to add a vocabulary entry, add or
+  update a personal meaning, or move one named entry to a named learning category.
 - As a learner, mentioning, practising, or showing interest in a word never saves
   it. A write requires a direct, unambiguous command in that same user turn.
-- As a learner, AI never moves an existing item between `To Learn`, `Learning Now`,
-  and `Learned`; those states remain manual elsewhere in the application.
+- As a learner, AI never infers mastery or moves an item autonomously; it changes a
+  category only when my current message literally commands the exact entry and
+  destination.
 
 ## Functional Requirements
 
 ### Vocabulary reads
 
-- `get_recent_vocabulary` reads 1–10 active entries and defaults to five.
-- Recency is deterministic: learner-owned `phrase_progress.created_at DESC`, then
-  `phrase_id DESC`. Shared phrase timestamps do not define learner recency.
+- `list_vocabulary({ category?, limit?, cursor? })` reads pages of 1–10 entries,
+  defaults to five, and supports `all`, `to_learn`, `learning`, and `learned`.
+  `learning` maps to stored `learning_now`; `learned` accepts stored `learnt` and
+  legacy `learned`. There is no overall list-size limit: `hasMore` and opaque
+  `nextCursor` continue the same category page by page.
+- List order is deterministic and chronological across legacy timestamp encodings:
+  `julianday(phrase_progress.created_at) DESC`, then `phrase_id DESC`. The cursor
+  preserves the row's raw SQLite/ISO-seconds/ISO-milliseconds timestamp as its
+  boundary; its versioned encoding is category-bound, and malformed, non-canonical,
+  oversized, or category-mismatched cursors fail before D1.
 - `find_vocabulary` performs an owner-scoped search across phrase text, legacy
   translation, and that learner's personal saved translations. It defaults to ten
   results, caps at ten, ranks exact matches first, then uses the same recency order.
@@ -72,7 +81,8 @@ The only agent write operations are:
 
 - `add_vocabulary_entry(text, translation?, context?)`;
 - `add_vocabulary_meaning(phraseId, translation, context?)`;
-- `update_vocabulary_meaning(meaningId, translation, context?)`.
+- `update_vocabulary_meaning(meaningId, translation, context?)`;
+- `set_vocabulary_category(phraseId, category)`.
 
 Every write must be authorized from the current user message only. That message
 must contain a direct vocabulary-write command and literally contain every text,
@@ -80,22 +90,33 @@ translation, and context value being written. Meaning writes must also literally
 name the affected word or phrase. Prior turns, model suggestions, practice requests,
 and ambiguous references provide no write authority.
 
+Command syntax may be recognized case-insensitively, but persisted value matching
+is case- and compatibility-sensitive: `Polish` does not authorize `polish`, and
+full-width characters do not authorize their ASCII form. Revocation text is
+interpreted only as surrounding command language, not when it is the literal entry
+being saved (for example, `never mind`). Unquoted terminal punctuation is treated
+as command punctuation, while punctuation inside matching quotes remains part of
+the literal value (`"wow!"` cannot authorize `wow`).
+
 Updating a personal meaning additionally requires the current/old translation to
 appear literally in that same message. The update is a compare-and-swap bound to
 owner, phrase ID, meaning ID, old translation, and old context. Missing, foreign,
 or stale state returns a traced `mutation_conflict`; it never overwrites newer data.
 
-Tool inputs never accept `userId`, `chatId`, status, provider/model, roles, SQL, or
-arbitrary HTTP operations. Identity, active chat, current user message, assistant
-message, and generation-attempt identity are injected by the server.
+Tool inputs never accept `userId`, `chatId`, raw stored status, provider/model,
+roles, SQL, or arbitrary HTTP operations. Identity, active chat, current user
+message, assistant message, and generation-attempt identity are injected by the
+server.
 
-No agent tool can choose or update an active learning status. A genuinely new or
-previously unsaved `pick` entry is initialized in `to_learn` as part of adding it;
-an already active item's status is preserved exactly. Every newly supplied user
-translation is stored as an owner-scoped personal meaning; new custom entries do
-not populate the legacy translation field. Preset legacy data remains immutable.
-An explicit update of a historical owner-custom legacy meaning atomically promotes
-it to a personal meaning and clears the owner-custom legacy fields.
+`set_vocabulary_category` accepts only canonical `to_learn`, `learning`, or
+`learned`. The current message must literally name both the resolved entry text and
+destination category; practice performance, earlier turns, or model preference do
+not authorize it. The owner-scoped mutation is a compare-and-swap against the
+current stored status. Separately, a genuinely new/previously unsaved `pick` entry
+starts in `to_learn`; other writes preserve active status. Every newly supplied
+translation is stored as an owner-scoped personal meaning; preset legacy data stays
+immutable, and an authorized historical custom-legacy update promotes it to a
+personal meaning atomically.
 
 ### Conversation and retries
 
@@ -129,10 +150,26 @@ it to a personal meaning and clears the owner-custom legacy fields.
 - If D1 reports an error after actually committing a new turn or retry, readback
   recognizes the exact freshly generated user/assistant/attempt IDs and continues
   that generation. Other IDs converge to existing-turn handling.
+- `finishTurn` and `failTurn` begin with the owner-scoped `findTurn` result and do
+  not spend a separate chat-ownership query. A normal successful terminal batch
+  returns the locally constructed terminal state; exact readback is reserved for
+  an ambiguous batch response or failed postcondition.
+- Before each new turn, the service may read only the latest completed
+  `list_vocabulary` result before that user sequence. If it contains a valid
+  `hasMore` cursor, the prompt receives only `{ category, cursor }`, not prior entry
+  payloads. The cursor may be reused only when the learner asks to continue that
+  same category, enabling list traversal across turns despite the two-tool-per-turn
+  budget.
+- The prompt contract lives at
+  `lib/ai-chat/prompts/vocabulary-practice.ts`, has ID
+  `unmumble.vocabulary-practice` and version `1`, and returns that identity with the
+  system/messages payload. Safe generation events include prompt ID/version so a
+  response can be traced to the exact prompt contract without logging prompt text.
 
-The account-only `/api/ai/translate` endpoint remains a bounded server-side
-contextual-translation fallback. Selection translation is not wired into the
-current chat-only UI.
+There is no separate AI-translation provider path in this iteration. The existing
+DeepL-backed `/api/translate` remains a distinct trainer capability; a future
+chat-selection translation route must reuse the same traced AI runner instead of
+creating an unmetered provider entry point.
 
 ### Durable tool execution
 
@@ -141,12 +178,18 @@ current chat-only UI.
   SHA-256 hash, bounded result, status, safe error, and optional mutation receipt.
   A separate provider-adapter fence rejects the third and later calls as
   `tool_budget_exceeded` before any D1 trace query.
+- Provider tool calls issued in one model step are serialized before shared budget/
+  circuit checks. Any failed or thrown mutation opens a per-turn circuit. Every
+  later queued provider tool call in that turn returns `tool_budget_exceeded` before
+  the traced executor and therefore cannot issue a second tool-side D1 call after
+  the failed mutation's recovery envelope.
 - A committed write has one durable receipt keyed by
   `(userMessageId, operation, targetKey)`.
-- Entry receipt target keys deliberately use the same NFKC/whitespace cleanup and
-  ASCII-only case fold as SQLite `NOCASE`. Unicode case variants remain distinct;
-  the application does not claim Unicode-insensitive uniqueness that D1 cannot
-  enforce.
+- Write values and canonical arguments preserve the learner's NFC literal, including
+  compatibility characters. Entry receipt target keys apply only NFC/whitespace
+  cleanup plus ASCII `A-Z` folding, matching SQLite `NOCASE`; they never use NFKC
+  compatibility folding. Unicode case variants remain distinct, and the application
+  does not claim Unicode-insensitive uniqueness that D1 cannot enforce.
 - Domain statements, postcondition-guarded receipt insertion, and the tool call's
   committed result are one D1 `batch`. A failed postcondition rolls back the whole
   mutation.
@@ -158,14 +201,20 @@ current chat-only UI.
   with different canonical arguments is a conflict, not a second mutation.
 - A provider/stream failure after commit must not erase or duplicate the committed
   vocabulary write; the later attempt replays its receipt.
+- The six-tool implementation is split by responsibility under
+  `lib/ai-chat/tools/vocabulary/`: `contracts`, `policy`, `results`, `handlers`,
+  `registry`, and `pagination`. `lib/ai-chat/vocabulary-tools.ts` is a compatibility
+  facade only; every tool must still pass through the single traced/budgeted
+  registry wrapper.
 
 ## Safety Limits
 
 - Request body: 16,384 bytes; user message: 4,000 characters.
 - Vocabulary text: 240 characters; meaning/context: 1,000 each.
-- Read result count: 10; compact read JSON: 7,800 characters; provider-facing
-  meanings per entry: 6, with meaning/detail truncation metadata; prompt
-  meaning/context: 100/160 characters.
+- List/search page size: at most 10; a list has no overall entry cap and advances
+  only by its <=512-character opaque cursor. Compact result JSON is at most 7,800
+  characters; provider-facing meanings per entry are at most 6, with meaning/detail
+  truncation metadata; prompt meaning/context is 100/160 characters.
 - Practice target snapshot/prompt data: at most 12 targets and 48,000 JSON
   characters.
 - Canonical history: latest 40 complete messages within 32,000 characters.
@@ -173,12 +222,25 @@ current chat-only UI.
   30 seconds.
 - At most 2 tool calls per user turn and 5 model steps; tools are disabled for the
   final step. The hard two-call budget and pre-trace fence preserve headroom under
-  D1 Free's 50-query-per-Worker-invocation allowance. Instrumented envelopes are
-  34 statements for two maximum reads, 42 for two cold worst-case writes, 44 with
-  one ambiguous committed-write recovery, 45 for a fully rolled-back mutation, and
-  47 for rollback followed by ambiguous commit. Ambiguous recovery of maximum-size
-  chat creation uses 49 of 50 statements.
+  D1 Free's 50-query-per-Worker-invocation allowance. Current instrumented
+  generation envelopes are 35 statements for two maximum reads, 43 for two cold
+  writes, 45 with one ambiguous committed write, 36 for rollback plus the mutation
+  circuit, 38 when that rollback is followed by ambiguous terminal failure, and 41
+  for legacy-promotion rollback plus ambiguous terminal failure. Ambiguous maximum-
+  size chat creation remains the exact worst case at 49/50.
 - Tool trace arguments/results: 4,096/8,192 JSON characters.
+- Generation is limited by separate Cloudflare counters to 10 requests per
+  authenticated account per minute and an aggregate 100 requests per Cloudflare
+  location per minute. A denial, missing binding, or binding error fails closed
+  before D1 turn creation or provider work. Cloudflare documents these counters as
+  local and eventually consistent, so they are approximate edge abuse guards, not
+  a globally atomic quota or exact billing ledger.
+- Tool-enabled requests accept only the code-owned concrete OpenRouter model
+  `deepseek/deepseek-v4-flash-0731`; preset and unlisted model identifiers fail as
+  `not_configured`. The request disables provider plugins and requires
+  `data_collection: deny`, ZDR routing, and `require_parameters: true` so only
+  endpoints supporting every request parameter are eligible. Only the locally
+  registered, traced AI SDK tools are serialized to OpenRouter.
 
 All routes require the application session, owner-scoped D1 access, exact-origin
 mutations, and `no-store`. Provider credentials, prompts, private vocabulary,
@@ -186,7 +248,10 @@ messages, tool payloads/results, and upstream bodies must not appear in client
 responses or operational logs. The public provider stream is an explicit allowlist
 of lifecycle/text/finish/error/abort chunks; tool, reasoning, source, file, step,
 custom, raw, and provider metadata remain server-only. Provider HTTP 429 is exposed
-only as the stable `provider_rate_limited` code.
+only as the stable `provider_rate_limited` code. Structured operational events use
+an exact metadata allowlist for generation start/completion/failure and rate-limit
+rejection; prompts, vocabulary, messages, tool arguments/results, and credentials
+are never event fields.
 
 Ordinary authenticated requests perform only the cheap user ensure. The one-time,
 atomic legacy-owner transfer is an explicit idempotent login/session-bootstrap path,
@@ -196,8 +261,8 @@ outside AI generation, so it cannot consume the generation invocation's D1 budge
 
 - New-chat latest-five ordering and empty/partial states are deterministic and
   persist without a synthetic user message.
-- Latest-`N`, search, grounded practice, and chat reload work within the chat-only
-  UI.
+- Category listing with cross-turn cursor continuation, search, grounded practice,
+  and chat reload work within the chat-only UI.
 - Current-turn explicit-write rules, owner checks, status invariants, immutable
   attempts, ledger entries, atomic receipts, replay, conflicts, and stale-attempt
   fencing are covered by executable tests.
@@ -206,24 +271,34 @@ outside AI generation, so it cannot consume the generation invocation's D1 budge
 
 ## Non-goals and Open Decisions
 
-- No automatic progress, spaced repetition, status tool, autonomous curriculum,
-  deletion/merge/bulk tools, guest-funded AI, or resumable background run.
+- No inferred/automatic progress, autonomous category changes, spaced repetition,
+  autonomous curriculum, deletion/merge/bulk tools, guest-funded AI, or resumable
+  background run.
 - Whether “latest” should mean first activation or most recent re-activation remains
   open; the current deterministic definition is the first progress `created_at`.
 - Final direct target/meaning UI, click-to-translate, and Library/Practice launch
   affordances remain open product decisions.
-- Broader search semantics, supported intent languages, production model/fallback,
-  spend/rate policy, monitoring thresholds, retention, and deployment are open.
+- Broader search semantics, supported intent languages, future fallback models,
+  model-allowlist governance, spend ownership, monitoring thresholds, retention,
+  and deployment are open.
 
 ## Validation Status
 
-Fresh verification on 2026-08-29 passes: production build plus 466/466 repository
-tests, typecheck, Drizzle schema check, lifecycle lint, diff check, and full lint
-with zero errors (two generated-file warnings). Final current-diff review found no
-unresolved code issue. Authenticated branch-preview New Chat creation and its
-deterministic latest-vocabulary opening are confirmed. The subsequent live request
-returned the dedicated OpenRouter usage-limit response before tool execution, so
-authenticated live-provider tool smoke remains open. Preview
-already contains an older applied form of migration 0017; the corrected 0017 still
-requires an explicit preview re-baseline/acceptance decision before production,
-and preview application of 0019 is not yet claimed.
+Fresh exact-diff evidence on 2026-08-29 passes the focused backend suite 217/217 and
+full `npm test` 501/501, plus typecheck, Drizzle validation, dependency audit,
+lifecycle lint, diff check, tracked-secret check, and ignore check. Full lint has
+zero errors and three existing warnings. Independent final review found no P0/P1.
+Current provider evidence also includes the real serializer and a live direct
+OpenRouter smoke in which
+`deepseek/deepseek-v4-flash-0731` selected `list_vocabulary`; that proves model-to-
+tool selection, not authenticated application execution or D1 persistence.
+Authenticated branch-preview New Chat was previously confirmed. Read-only preview
+evidence now shows migration 0019 applied, migration 0020 as the only pending
+migration, a clean `PRAGMA foreign_key_check`, and the one-pending-attempt-per-chat
+index. Commit `c970f80` documented a zero-duplicate preflight before preview ran
+0017; because there was nothing for the corrected merge to transform, the current
+preview is explicitly accepted as behaviorally equivalent and needs neither a
+re-baseline nor a forward migration for 0017. A fresh production database will run
+the corrected 0017. Commit/push and preview rebuild, migration 0020 plus its schema
+checks, authenticated updated-preview tool smoke, operational ownership, and
+production authorization remain open. No production deployment is claimed.

@@ -215,7 +215,7 @@ test("every read and policy rejection leaves a bounded invocation record", async
   const fixture = createFixture();
   assert.deepEqual(await fixture.executor.execute({
     providerToolCallId: "read-1",
-    toolName: "get_recent_vocabulary",
+    toolName: "list_vocabulary",
     args: { limit: 5 },
     run: async () => ({ ok: true, entries: [{ text: "run" }] }),
   }), { ok: true, entries: [{ text: "run" }] });
@@ -246,7 +246,7 @@ test("an ambiguous begin-call commit is recovered and the terminal result replay
   let runs = 0;
   const invocation = {
     providerToolCallId: "read-ambiguous-begin",
-    toolName: "get_recent_vocabulary",
+    toolName: "list_vocabulary",
     args: { limit: 5 },
     run: async () => {
       runs += 1;
@@ -278,7 +278,7 @@ test("ambiguous begin-call recovery never adopts a generated-id collision", asyn
       provider_tool_call_id, tool_name, args_json, args_sha256, status, created_at
     ) VALUES (
       'tool-call-1', 'user-a', 'chat-a', 'user-message', 'attempt-1',
-      'different-provider-call', 'get_recent_vocabulary', ?, ?, 'received',
+      'different-provider-call', 'list_vocabulary', ?, ?, 'received',
       '2026-08-29T10:00:00Z'
     )
   `).run(argsJson, argsSha256);
@@ -287,7 +287,7 @@ test("ambiguous begin-call recovery never adopts a generated-id collision", asyn
 
   const result = await fixture.executor.execute({
     providerToolCallId: "intended-provider-call",
-    toolName: "get_recent_vocabulary",
+    toolName: "list_vocabulary",
     args,
     run: async () => {
       runs += 1;

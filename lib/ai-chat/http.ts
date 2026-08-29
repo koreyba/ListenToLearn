@@ -1,10 +1,13 @@
 import {
   AiChatRepositoryError,
   type AiChatDetail,
-  type AiChatMessage,
 } from "./repository.ts";
 import { aiChatErrorResponse } from "./api-contracts.ts";
 import type { AiChatErrorCode } from "./contracts.ts";
+import type {
+  AiChatPublicDetail,
+  AiChatPublicMessage,
+} from "./public-contracts.ts";
 
 export function noStoreJson(body: unknown, init: ResponseInit = {}) {
   const headers = new Headers(init.headers);
@@ -12,14 +15,8 @@ export function noStoreJson(body: unknown, init: ResponseInit = {}) {
   return Response.json(body, { ...init, headers });
 }
 
-export type PublicAiChatMessage = Omit<
-  AiChatMessage,
-  "practiceContext" | "provider" | "model" | "usage"
->;
-
-export type PublicAiChatDetail = Omit<AiChatDetail, "messages"> & {
-  messages: PublicAiChatMessage[];
-};
+export type PublicAiChatMessage = AiChatPublicMessage;
+export type PublicAiChatDetail = AiChatPublicDetail;
 
 export function toPublicAiChatDetail(chat: AiChatDetail): PublicAiChatDetail {
   return {
@@ -30,7 +27,28 @@ export function toPublicAiChatDetail(chat: AiChatDetail): PublicAiChatDetail {
     messageCount: chat.messageCount,
     createdAt: chat.createdAt,
     updatedAt: chat.updatedAt,
-    targets: chat.targets,
+    targets: chat.targets.map((target) => ({
+      id: target.id,
+      phraseId: target.phraseId,
+      text: target.text,
+      meaningMode: target.meaningMode,
+      selectedMeaningId: target.selectedMeaningId,
+      selectedMeaningSnapshot: target.selectedMeaningSnapshot,
+      selectedMeaning: target.selectedMeaning && {
+        id: target.selectedMeaning.id,
+        source: target.selectedMeaning.source,
+        translation: target.selectedMeaning.translation,
+        context: target.selectedMeaning.context,
+      },
+      knownMeanings: target.knownMeanings.map((meaning) => ({
+        id: meaning.id,
+        source: meaning.source,
+        translation: meaning.translation,
+        context: meaning.context,
+      })),
+      createdAt: target.createdAt,
+      updatedAt: target.updatedAt,
+    })),
     messages: chat.messages.map((message) => ({
       id: message.id,
       role: message.role,

@@ -1,52 +1,18 @@
 import type { UIMessage } from "ai";
 import type { AiChatMeaningMode } from "./contracts.ts";
+import type {
+  AiChatPublicDetail,
+  AiChatPublicMeaning,
+  AiChatPublicMessage,
+  AiChatPublicSummary,
+  AiChatPublicTarget,
+} from "./public-contracts.ts";
 
-export type AiChatClientMeaning = {
-  id: string | null;
-  source: "legacy" | "personal";
-  translation: string;
-  context: string;
-};
-
-export type AiChatClientTarget = {
-  id: string;
-  phraseId: string | null;
-  text: string;
-  meaningMode: AiChatMeaningMode;
-  selectedMeaningId: string | null;
-  selectedMeaningSnapshot: string;
-  selectedMeaning: AiChatClientMeaning | null;
-  knownMeanings: AiChatClientMeaning[];
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type AiChatClientMessage = {
-  id: string;
-  role: "user" | "assistant";
-  sequence: number;
-  content: string;
-  status: "complete" | "pending" | "failed";
-  clientMessageId: string;
-  errorCode: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type AiChatClientSummary = {
-  id: string;
-  title: string;
-  explanationLanguage: string;
-  targetCount: number;
-  messageCount: number;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type AiChatClientDetail = AiChatClientSummary & {
-  targets: AiChatClientTarget[];
-  messages: AiChatClientMessage[];
-};
+export type AiChatClientMeaning = AiChatPublicMeaning;
+export type AiChatClientTarget = AiChatPublicTarget;
+export type AiChatClientMessage = AiChatPublicMessage;
+export type AiChatClientSummary = AiChatPublicSummary;
+export type AiChatClientDetail = AiChatPublicDetail;
 
 export type AiChatUiMetadata = {
   status: "complete" | "pending" | "failed";

@@ -32,6 +32,12 @@ function chatSingleFlightMigrationName() {
   return matches[0];
 }
 
+function attemptProvenanceMigrationName() {
+  const matches = migrationNames().filter((name) => name.startsWith("0020_"));
+  assert.equal(matches.length, 1, "exactly one append-only 0020 migration is required");
+  return matches[0];
+}
+
 function applyMigration(db, name) {
   db.exec(readFileSync(join(migrationsDir, name), "utf8"));
 }
@@ -316,6 +322,60 @@ test("0019 repairs duplicate pending chat attempts before enforcing single-fligh
     columns: ["chat_id"],
     unique: true,
   });
+});
+
+test("0020 backfills configured attempt provenance without inventing routed models", () => {
+  const name = attemptProvenanceMigrationName();
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  for (const migration of migrationNames().filter((migration) => migration < name)) {
+    applyMigration(db, migration);
+  }
+  db.exec(`
+    INSERT INTO users (id, email, display_name, created_at, updated_at)
+    VALUES ('user-1', '', '', '2026-08-29T10:00:00Z', '2026-08-29T10:00:00Z');
+    INSERT INTO ai_chats (id, user_id, title, explanation_language, created_at, updated_at)
+    VALUES ('chat-1', 'user-1', '', 'ru', '2026-08-29T10:00:00Z', '2026-08-29T10:00:00Z');
+    INSERT INTO ai_chat_messages (
+      id, chat_id, role, sequence, content, status, practice_context_json,
+      client_message_id, created_at, updated_at
+    ) VALUES
+      ('user-1-message', 'chat-1', 'user', 1, 'Prompt', 'complete', '[]', 'turn-1',
+       '2026-08-29T10:00:00Z', '2026-08-29T10:00:00Z'),
+      ('assistant-1', 'chat-1', 'assistant', 2, 'Answer', 'complete', '[]', 'turn-1',
+       '2026-08-29T10:00:00Z', '2026-08-29T10:00:00Z'),
+      ('user-2-message', 'chat-1', 'user', 3, 'Prompt 2', 'complete', '[]', 'turn-2',
+       '2026-08-29T10:01:00Z', '2026-08-29T10:01:00Z'),
+      ('assistant-2', 'chat-1', 'assistant', 4, '', 'failed', '[]', 'turn-2',
+       '2026-08-29T10:01:00Z', '2026-08-29T10:01:00Z');
+    INSERT INTO ai_chat_assistant_attempts (
+      id, user_id, chat_id, user_message_id, assistant_message_id,
+      attempt_number, status, lease_expires_at, provider, model, usage_json,
+      error_code, created_at, updated_at, completed_at
+    ) VALUES
+      ('attempt-complete', 'user-1', 'chat-1', 'user-1-message', 'assistant-1', 1,
+       'complete', '2026-08-29T10:00:30Z', 'openrouter', 'actual/model',
+       '{"configuredModel":"@preset/configured"}', NULL,
+       '2026-08-29T10:00:00Z', '2026-08-29T10:00:10Z', '2026-08-29T10:00:10Z'),
+      ('attempt-failed', 'user-1', 'chat-1', 'user-2-message', 'assistant-2', 1,
+       'failed', '2026-08-29T10:01:30Z', NULL, NULL, NULL, 'provider_failed',
+       '2026-08-29T10:01:00Z', '2026-08-29T10:01:10Z', '2026-08-29T10:01:10Z');
+  `);
+
+  applyMigration(db, name);
+
+  assert.deepEqual(db.prepare(`
+    SELECT id, configured_provider, configured_model
+    FROM ai_chat_assistant_attempts ORDER BY id
+  `).all().map((row) => ({ ...row })), [{
+    id: "attempt-complete",
+    configured_provider: "openrouter",
+    configured_model: "@preset/configured",
+  }, {
+    id: "attempt-failed",
+    configured_provider: "unknown",
+    configured_model: "unknown",
+  }]);
 });
 
 test("0016 foreign keys cascade owned chat data and retain practice snapshots", () => {

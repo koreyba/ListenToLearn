@@ -3,6 +3,7 @@ import test from "node:test";
 import { toUIMessageStream } from "ai";
 
 const generationModule = await import("../lib/ai-chat/generation.ts").catch(() => ({}));
+const runtimeModule = await import("../lib/ai-chat/runtime.ts").catch(() => ({}));
 
 function createHarness() {
   const providerStream = new ReadableStream();
@@ -12,6 +13,8 @@ function createHarness() {
   const abortSignal = new AbortController().signal;
   const input = {
     prompt: {
+      id: "unmumble.vocabulary-practice",
+      version: "1",
       system: "server system",
       messages: [
         { role: "assistant", content: "Canonical history" },
@@ -24,9 +27,23 @@ function createHarness() {
       provenance: { provider: "openrouter", model: "configured/model" },
       timeoutMs: 20_000,
       maxOutputTokens: 800,
+      normalizeTelemetry: () => ({
+        routedProviders: [],
+        cost: null,
+        upstreamInferenceCost: null,
+      }),
+      mapFailure: (error) => {
+        if (error?.name === "TimeoutError") {
+          return { code: "provider_timeout", status: 504 };
+        }
+        if (error?.statusCode === 429) {
+          return { code: "provider_rate_limited", status: 429 };
+        }
+        return { code: "provider_failed", status: 502 };
+      },
     },
     tools: {
-      get_recent_vocabulary: { description: "read vocabulary" },
+      list_vocabulary: { description: "read vocabulary" },
     },
     abortSignal,
     repository: {
@@ -254,6 +271,7 @@ test("consumer cancellation marks the pending assistant retryable", async () => 
 test("onEnd persists the routed model and only privacy-safe aggregate telemetry", async () => {
   const harness = createHarness();
   harness.input.runtime.provenance.model = "@preset/free-unmubme-test";
+  harness.input.runtime.normalizeTelemetry = runtimeModule.extractAiChatOpenRouterTelemetry;
   generationModule.startAiChatGeneration(harness.input, harness.dependencies);
 
   await harness.calls.streamText.onEnd({
@@ -317,6 +335,8 @@ test("onEnd persists the routed model and only privacy-safe aggregate telemetry"
         outputTokens: 7,
         totalTokens: 19,
         configuredModel: "@preset/free-unmubme-test",
+        promptId: "unmumble.vocabulary-practice",
+        promptVersion: "1",
         routedProviders: ["Google", "Fireworks AI"],
         cost: 0.004,
         upstreamInferenceCost: 0.0025,
@@ -325,6 +345,48 @@ test("onEnd persists the routed model and only privacy-safe aggregate telemetry"
   ]);
   assert.equal(harness.calls.failures, undefined);
   assert.equal(JSON.stringify(harness.calls.completions).includes("upstream-private"), false);
+});
+
+test("generation delegates telemetry and failure mapping to the configured provider adapter", async () => {
+  const harness = createHarness();
+  const adapterCalls = [];
+  harness.input.runtime.normalizeTelemetry = (steps) => {
+    adapterCalls.push({ type: "telemetry", steps });
+    return {
+      routedProviders: ["Adapter route"],
+      cost: 0.012,
+      upstreamInferenceCost: 0.01,
+    };
+  };
+  harness.input.runtime.mapFailure = (error) => {
+    adapterCalls.push({ type: "failure", error });
+    return { code: "provider_rate_limited", status: 429 };
+  };
+  generationModule.startAiChatGeneration(harness.input, harness.dependencies);
+  const steps = [{ providerMetadata: { vendor: { opaque: true } } }];
+
+  await harness.calls.streamText.onEnd({
+    text: "Provider-neutral answer",
+    usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+    steps,
+    finalStep: { response: { modelId: "adapter/routed-model" } },
+  });
+  await harness.calls.streamText.onError({ error: new Error("opaque provider failure") });
+
+  assert.equal(adapterCalls[0].type, "telemetry");
+  assert.equal(adapterCalls[0].steps, steps);
+  assert.equal(adapterCalls[1].type, "failure");
+  assert.deepEqual(harness.calls.completions[0].usage, {
+    inputTokens: 2,
+    outputTokens: 3,
+    totalTokens: 5,
+    configuredModel: "configured/model",
+    promptId: "unmumble.vocabulary-practice",
+    promptVersion: "1",
+    routedProviders: ["Adapter route"],
+    cost: 0.012,
+    upstreamInferenceCost: 0.01,
+  });
 });
 
 test("onEnd marks an empty assistant response failed", async () => {

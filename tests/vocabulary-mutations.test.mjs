@@ -192,6 +192,12 @@ test("add-entry receipt keys match SQLite NOCASE instead of folding Unicode", as
   const plan = await planner.planAddEntry("user-a", { text: "ÄRGER" });
 
   assert.equal(plan.targetKey, "Ärger");
+
+  const compatibility = await planner.planAddEntry("user-a", {
+    text: "Ｐｏｌｉｓｈ",
+  });
+  assert.equal(compatibility.targetKey, "Ｐｏｌｉｓｈ");
+  assert.equal(compatibility.canonicalArgs.text, "Ｐｏｌｉｓｈ");
 });
 
 test("add-entry domain statements create one custom entry and compose atomically with a receipt", async () => {
@@ -870,4 +876,110 @@ test("scoped legacy promotion rejects stale, mismatched, and foreign targets", a
     assert.equal(sqlite.prepare("SELECT count(*) AS count FROM phrase_meanings").get().count, 0);
     sqlite.close();
   }
+});
+
+test("set-category plans canonicalize Learned and enforce owner-scoped compare-and-set", async () => {
+  const { database, planner, sqlite } = createSqliteFixture();
+  sqlite.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, translation, context, source_type, owner_id, status,
+      created_at, updated_at
+    ) VALUES
+      ('phrase-run', 'run', '', '', '', 'preset', NULL, 'pick',
+       '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z'),
+      ('phrase-private', 'private', '', '', '', 'custom', 'user-b', 'pick',
+       '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z');
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at) VALUES
+      ('user-a', 'phrase-run', 'learned',
+       '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z'),
+      ('user-a', 'phrase-private', 'to_learn',
+       '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z');
+  `);
+
+  const selfHeal = await planner.planSetCategory("user-a", {
+    phraseId: "phrase-run",
+    expectedStoredStatus: "learned",
+    category: "learned",
+  });
+  assert.deepEqual({
+    operation: selfHeal.operation,
+    targetKey: selfHeal.targetKey,
+    canonicalArgs: selfHeal.canonicalArgs,
+    canonicalResult: selfHeal.canonicalResult,
+    entityType: selfHeal.entityType,
+    entityId: selfHeal.entityId,
+  }, {
+    operation: "vocabulary.set-category/v1",
+    targetKey: "phrase-run",
+    canonicalArgs: { phraseId: "phrase-run", category: "learned" },
+    canonicalResult: {
+      ok: true,
+      updated: true,
+      phraseId: "phrase-run",
+      category: "learned",
+    },
+    entityType: "phrase",
+    entityId: "phrase-run",
+  });
+  assert.equal(await executePlan(database, selfHeal, "receipt-category-self-heal"), 1);
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT status, updated_at FROM phrase_progress
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-run'
+  `).get() }, {
+    status: "learnt",
+    updated_at: "2026-08-29T12:00:00.000Z",
+  });
+
+  const noOp = await planner.planSetCategory("user-a", {
+    phraseId: "phrase-run",
+    expectedStoredStatus: "learnt",
+    category: "learned",
+  });
+  assert.equal(await executePlan(database, noOp, "receipt-category-noop"), 1);
+  assert.equal(sqlite.prepare(`
+    SELECT updated_at FROM phrase_progress
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-run'
+  `).get().updated_at, "2026-08-29T12:00:00.000Z");
+
+  const stale = await planner.planSetCategory("user-a", {
+    phraseId: "phrase-run",
+    expectedStoredStatus: "learnt",
+    category: "to_learn",
+  });
+  sqlite.exec(`
+    UPDATE phrase_progress SET status = 'learning_now'
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-run';
+  `);
+  await assert.rejects(
+    executePlan(database, stale, "receipt-category-stale"),
+    /CHECK constraint failed/u,
+  );
+  assert.equal(sqlite.prepare(`
+    SELECT status FROM phrase_progress
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-run'
+  `).get().status, "learning_now");
+
+  const foreign = await planner.planSetCategory("user-a", {
+    phraseId: "phrase-private",
+    expectedStoredStatus: "to_learn",
+    category: "learning",
+  });
+  await assert.rejects(
+    executePlan(database, foreign, "receipt-category-foreign"),
+    /CHECK constraint failed/u,
+  );
+  assert.equal(sqlite.prepare(`
+    SELECT status FROM phrase_progress
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-private'
+  `).get().status, "to_learn");
+
+  await assert.rejects(
+    planner.planSetCategory("user-a", {
+      phraseId: "phrase-run",
+      expectedStoredStatus: "learning_now",
+      category: "pick",
+    }),
+    /category is invalid/iu,
+  );
+  sqlite.close();
 });

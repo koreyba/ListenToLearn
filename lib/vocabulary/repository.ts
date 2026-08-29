@@ -4,9 +4,16 @@ import {
   scopedLegacyMeaningId,
   VOCABULARY_LEGACY_MEANING_ID,
   VOCABULARY_LIMITS,
+  isVocabularyStoredTimestamp,
+  isVocabularyCategoryFilter,
+  vocabularyCategoryFromStatus,
+  type VocabularyCategoryTarget,
   type VocabularyEntry,
   type VocabularyMeaning,
   type VocabularyMeaningList,
+  type VocabularyCategoryFilter,
+  type VocabularyPage,
+  type VocabularyPageCursor,
   type VocabularyStatus,
 } from "./contracts.ts";
 import { createVocabularyMutationPlanner } from "./mutations.ts";
@@ -78,17 +85,47 @@ function fail(code: VocabularyRepositoryErrorCode, message: string): never {
 }
 
 function cleanSingleLine(value: string) {
-  return value.normalize("NFKC").trim().replace(/\s+/gu, " ");
+  return value.normalize("NFC").trim().replace(/\s+/gu, " ");
 }
 
 function cleanContext(value: string) {
-  return value.normalize("NFKC").trim().replace(/\r\n?/gu, "\n");
+  return value.normalize("NFC").trim().replace(/\r\n?/gu, "\n");
 }
 
 function boundedLimit(value: number, fallback: number) {
   return Number.isSafeInteger(value) && value > 0
     ? Math.min(value, VOCABULARY_LIMITS.readEntries)
     : fallback;
+}
+
+const ACTIVE_VOCABULARY_STATUSES = [
+  "to_learn",
+  "learning_now",
+  "learnt",
+  "learned",
+] as const satisfies readonly VocabularyStatus[];
+
+function statusesForCategory(
+  category: VocabularyCategoryFilter,
+): readonly VocabularyStatus[] {
+  if (category === "to_learn") return ["to_learn"];
+  if (category === "learning") return ["learning_now"];
+  if (category === "learned") return ["learnt", "learned"];
+  return ACTIVE_VOCABULARY_STATUSES;
+}
+
+function validPageCursor(value: VocabularyPageCursor | null | undefined) {
+  if (value == null) return value === null || value === undefined;
+  if (
+    typeof value.phraseId !== "string"
+    || !value.phraseId
+    || [...value.phraseId].length > 120
+    || /[\r\n\0]/u.test(value.phraseId)
+    || !isVocabularyStoredTimestamp(value.addedAt)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function escapeLike(value: string) {
@@ -334,6 +371,34 @@ export function createVocabularyRepository(
     return (await attachMeanings(userId, [row]))[0] || null;
   }
 
+  async function getCategoryTarget(
+    userId: string,
+    phraseId: string,
+  ): Promise<VocabularyCategoryTarget | null> {
+    const row = await db.prepare(`
+      SELECT phrases.id AS phrase_id, phrases.text, progress.status
+      FROM phrase_progress AS progress
+      JOIN phrases ON phrases.id = progress.phrase_id
+      WHERE progress.user_id = ?
+        AND progress.phrase_id = ?
+        AND progress.status IN ('to_learn', 'learning_now', 'learnt', 'learned')
+        AND (phrases.source_type = 'preset' OR phrases.owner_id = ?)
+      LIMIT 1
+    `).bind(userId, phraseId, userId).first<{
+      phrase_id: string;
+      text: string;
+      status: VocabularyStatus;
+    }>();
+    return row
+      ? {
+          phraseId: row.phrase_id,
+          text: row.text,
+          storedStatus: row.status,
+          category: vocabularyCategoryFromStatus(row.status),
+        }
+      : null;
+  }
+
   async function getEntryForMeaning(
     userId: string,
     meaningId: string,
@@ -394,8 +459,34 @@ export function createVocabularyRepository(
       : null;
   }
 
-  async function listRecent(userId: string, requestedLimit = 5) {
-    const limit = boundedLimit(requestedLimit, 5);
+  async function listPage(
+    userId: string,
+    input: {
+      category?: VocabularyCategoryFilter;
+      limit?: number;
+      cursor?: VocabularyPageCursor | null;
+    } = {},
+  ): Promise<VocabularyPage> {
+    const category = input.category || "all";
+    if (!isVocabularyCategoryFilter(category) || !validPageCursor(input.cursor)) {
+      fail("invalid_target", "Vocabulary page is invalid.");
+    }
+    const limit = boundedLimit(input.limit || 0, 10);
+    const statuses = statusesForCategory(category);
+    const statusPlaceholders = statuses.map(() => "?").join(", ");
+    const cursor = input.cursor || null;
+    const cursorPredicate = cursor
+      ? `AND (
+          julianday(progress.created_at) < julianday(?)
+          OR (
+            julianday(progress.created_at) = julianday(?)
+            AND phrases.id < ?
+          )
+        )`
+      : "";
+    const bindings: unknown[] = [userId, ...statuses, userId];
+    if (cursor) bindings.push(cursor.addedAt, cursor.addedAt, cursor.phraseId);
+    bindings.push(limit + 1);
     const result = await db.prepare(`
       SELECT
         phrases.id AS phrase_id,
@@ -410,12 +501,30 @@ export function createVocabularyRepository(
       FROM phrase_progress AS progress
       JOIN phrases ON phrases.id = progress.phrase_id
       WHERE progress.user_id = ?
-        AND progress.status IN ('to_learn', 'learning_now', 'learnt', 'learned')
+        AND progress.status IN (${statusPlaceholders})
         AND (phrases.source_type = 'preset' OR phrases.owner_id = ?)
-      ORDER BY progress.created_at DESC, phrases.id DESC
+        ${cursorPredicate}
+      ORDER BY julianday(progress.created_at) DESC, phrases.id DESC
       LIMIT ?
-    `).bind(userId, userId, limit).all<VocabularyEntryRow>();
-    return attachMeanings(userId, result.results);
+    `).bind(...bindings).all<VocabularyEntryRow>();
+    const pageRows = result.results.slice(0, limit);
+    const entries = await attachMeanings(userId, pageRows);
+    const hasMore = result.results.length > limit;
+    const last = pageRows.at(-1);
+    return {
+      entries,
+      hasMore,
+      nextCursor: hasMore && last
+        ? { addedAt: last.added_at, phraseId: last.phrase_id }
+        : null,
+    };
+  }
+
+  async function listRecent(userId: string, requestedLimit = 5) {
+    return (await listPage(userId, {
+      category: "all",
+      limit: boundedLimit(requestedLimit, 5),
+    })).entries;
   }
 
   async function search(userId: string, query: string, requestedLimit = 10) {
@@ -650,9 +759,11 @@ export function createVocabularyRepository(
   return {
     addEntry,
     addMeaning,
+    getCategoryTarget,
     getEntry,
     getEntryForMeaning,
     listMeanings,
+    listPage,
     listRecent,
     search,
     updateMeaning,
@@ -664,7 +775,12 @@ export {
   VOCABULARY_LEGACY_MEANING_ID,
   VOCABULARY_LIMITS,
   type VocabularyEntry,
+  type VocabularyCategory,
+  type VocabularyCategoryTarget,
+  type VocabularyCategoryFilter,
   type VocabularyMeaning,
   type VocabularyMeaningList,
+  type VocabularyPage,
+  type VocabularyPageCursor,
   type VocabularyStatus,
 } from "./contracts.ts";

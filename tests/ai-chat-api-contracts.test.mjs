@@ -90,16 +90,6 @@ test("meaning creation is explicit, bounded, and cannot carry progress state", (
   }
 });
 
-test("AI translation accepts an empty or bounded context only", () => {
-  assert.deepEqual(api.readAiTranslatePayload({ text: " bank ", context: "" }), {
-    ok: true,
-    value: { text: "bank", context: "" },
-  });
-  assert.equal(api.readAiTranslatePayload({ text: "bank" }).ok, true);
-  assert.equal(api.readAiTranslatePayload({ text: "bank", context: "x".repeat(1_001) }).ok, false);
-  assert.equal(api.readAiTranslatePayload({ text: "x".repeat(501), context: "" }).ok, false);
-});
-
 test("public API errors expose only a stable code and disable caching", async () => {
   const response = api.aiChatErrorResponse({ code: "provider_failed", status: 502 });
 

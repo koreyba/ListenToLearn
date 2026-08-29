@@ -495,6 +495,50 @@ export function createAiChatToolTraceRepository(
     ).first<ReceiptRow>();
   }
 
+  async function readLatestCompletedToolResult(
+    userId: string,
+    chatId: string,
+    toolNameValue: string,
+    options: { beforeSequence?: number } = {},
+  ) {
+    const scopedUserId = cleanIdentifier(userId, 240);
+    const scopedChatId = cleanIdentifier(chatId, 120);
+    const toolName = cleanIdentifier(toolNameValue, TRACE_LIMITS.toolNameCharacters);
+    if (!scopedUserId || !scopedChatId || !toolName) return null;
+    const beforeSequence = Number.isSafeInteger(options.beforeSequence)
+      && Number(options.beforeSequence) > 0
+      ? Number(options.beforeSequence)
+      : null;
+    const sequencePredicate = beforeSequence === null
+      ? ""
+      : "AND assistant_messages.sequence < ?";
+    const bindings: unknown[] = [
+      scopedUserId,
+      scopedChatId,
+      toolName,
+      scopedUserId,
+    ];
+    if (beforeSequence !== null) bindings.push(beforeSequence);
+    const row = await db.prepare(`
+      SELECT calls.result_json
+      FROM ai_chat_tool_calls AS calls
+      JOIN ai_chat_assistant_attempts AS attempts
+        ON attempts.id = calls.assistant_attempt_id
+      JOIN ai_chat_messages AS assistant_messages
+        ON assistant_messages.id = attempts.assistant_message_id
+      JOIN ai_chats AS chats ON chats.id = calls.chat_id
+      WHERE calls.user_id = ? AND calls.chat_id = ? AND calls.tool_name = ?
+        AND calls.status = 'succeeded' AND calls.result_json IS NOT NULL
+        AND attempts.status = 'complete'
+        AND assistant_messages.status = 'complete'
+        AND chats.user_id = ?
+        ${sequencePredicate}
+      ORDER BY calls.completed_at DESC, calls.id DESC
+      LIMIT 1
+    `).bind(...bindings).first<{ result_json: string }>();
+    return row ? parseJson(row.result_json) : null;
+  }
+
   async function replayReceipt(
     context: AiChatToolTraceContext,
     callId: string,
@@ -747,6 +791,7 @@ export function createAiChatToolTraceRepository(
     commitMutation,
     finishCall,
     readCall,
+    readLatestCompletedToolResult,
     readReceipt,
   };
 }

@@ -2,19 +2,48 @@ import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type { LanguageModel } from "ai";
 import { AI_CHAT_ERROR_CODES, AI_CHAT_LIMITS } from "./contracts.ts";
 
+export const AI_CHAT_OPENROUTER_MODELS = Object.freeze([
+  "deepseek/deepseek-v4-flash-0731",
+] as const);
+
 export type AiChatServerConfig = {
   apiKey?: string | null;
   model?: string | null;
 };
 
+function configuredModelId(value: string | null | undefined) {
+  const model = value?.normalize("NFKC").trim() || "";
+  return (AI_CHAT_OPENROUTER_MODELS as readonly string[]).includes(model)
+    ? model
+    : "unknown";
+}
+
+export function describeAiChatConfiguredProvenance(
+  config: AiChatServerConfig,
+): AiChatRuntime["provenance"] {
+  return {
+    provider: "openrouter",
+    model: configuredModelId(config.model),
+  };
+}
+
+export function isAiChatRuntimeConfigured(config: AiChatServerConfig) {
+  return Boolean(
+    config.apiKey?.trim()
+    && describeAiChatConfiguredProvenance(config).model !== "unknown",
+  );
+}
+
 export type AiChatRuntime = {
   model: LanguageModel;
   provenance: {
-    provider: "openrouter";
+    provider: string;
     model: string;
   };
   timeoutMs: number;
   maxOutputTokens: number;
+  normalizeTelemetry(steps: readonly { providerMetadata?: unknown }[]): AiChatProviderTelemetry;
+  mapFailure(error: unknown, context?: { timedOut?: boolean }): AiChatRuntimeFailure;
 };
 
 export type AiChatRuntimeResult =
@@ -30,11 +59,13 @@ type RuntimeDependencies = {
 
 const defaultDependencies: RuntimeDependencies = { createOpenRouter };
 
-export type AiChatOpenRouterTelemetry = {
+export type AiChatProviderTelemetry = {
   routedProviders: string[];
   cost: number | null;
   upstreamInferenceCost: number | null;
 };
+
+export type AiChatOpenRouterTelemetry = AiChatProviderTelemetry;
 
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -130,8 +161,9 @@ export function createAiChatRuntime(
   dependencies: RuntimeDependencies = defaultDependencies,
 ): AiChatRuntimeResult {
   const apiKey = config.apiKey?.trim();
-  const model = config.model?.trim();
-  if (!apiKey || !model) {
+  const configuredProvenance = describeAiChatConfiguredProvenance(config);
+  const model = configuredProvenance.model === "unknown" ? "" : configuredProvenance.model;
+  if (!isAiChatRuntimeConfigured(config) || !apiKey || !model) {
     return {
       ok: false,
       error: { code: AI_CHAT_ERROR_CODES.notConfigured, status: 503 },
@@ -142,10 +174,21 @@ export function createAiChatRuntime(
   return {
     ok: true,
     value: {
-      model: openrouter(model),
-      provenance: { provider: "openrouter", model },
+      // The model ID is code-allowlisted. Local vocabulary tools are supplied
+      // explicitly by the generation layer; no server-side preset is involved.
+      model: openrouter(model, {
+        plugins: [],
+        provider: {
+          data_collection: "deny",
+          zdr: true,
+          require_parameters: true,
+        },
+      }),
+      provenance: configuredProvenance,
       timeoutMs: AI_CHAT_LIMITS.upstreamTimeoutMs,
       maxOutputTokens: AI_CHAT_LIMITS.outputTokens,
+      normalizeTelemetry: extractAiChatOpenRouterTelemetry,
+      mapFailure: mapAiChatRuntimeFailure,
     },
   };
 }

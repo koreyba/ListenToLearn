@@ -8,27 +8,36 @@ description: Verified agent-tool contracts and remaining end-to-end gates
 
 ## Fresh Automated Evidence
 
-Fresh on 2026-08-29, the production build and full repository suite pass 466/466.
-Typecheck, Drizzle schema check, lifecycle lint, diff check, and full lint also pass;
-full lint reports zero errors and two warnings in generated
-`worker-configuration.d.ts`.
+Fresh exact-diff evidence on 2026-08-29 passes focused backend tests 217/217 and
+full `npm test` 501/501, plus typecheck, Drizzle validation, dependency audit,
+lifecycle lint, diff check, tracked-secret check, and ignore check. Full lint has
+zero errors and three existing warnings. Independent final review found no P0/P1.
 
 ### Covered in the current test tree
 
 - [x] New chat reads the owner-bound latest five and persists a deterministic
   complete assistant opening without a synthetic user message or model call; when
   reused in model history it is escaped inside `UNTRUSTED_VOCABULARY_OPENING`.
-- [x] Latest/search reads use active account-visible vocabulary, progress
-  `created_at DESC` plus phrase-ID tie-breaker, exact-match-first search across text,
-  legacy translation, and owner-isolated personal translations.
-- [x] Read limits default/cap correctly; provider output exposes at most six
-  meanings per entry, compacts the complete result to at most 7,800 JSON characters
-  with meaning/detail truncation metadata, and stops one turn after two calls to
-  retain D1 Free query headroom for worst-case writes.
+- [x] `list_vocabulary` pages `all`, `to_learn`, `learning`, and `learned` newest-
+  first with no overall entry cap. Versioned opaque cursors are canonical,
+  category-bound, and rejected before D1 when malformed/mismatched; `learnt` and
+  legacy `learned` map to the public `learned` category. Mixed legacy SQLite, ISO-
+  seconds, and ISO-milliseconds timestamps traverse chronologically through
+  `julianday` without duplicates while cursors retain the raw stored boundary.
+- [x] Page/search limits default/cap correctly; provider output exposes at most six
+  meanings per entry and 7,800 JSON characters with honest truncation. Two calls per
+  turn preserve D1 headroom, while the latest completed list exposes only a validated
+  `{ category, cursor }` to a later turn for continuation.
 - [x] Search rejects queries over 48 characters and escaped wildcard patterns over
   50 UTF-8 bytes, including Unicode and escape-expansion boundaries.
 - [x] Direct write-command recognition rejects practice sentences, examples,
   negation, implied/history-only intent, and values absent from the current message.
+- [x] Literal binding preserves case and compatibility characters (`Polish` is not
+  `polish`), while command parsing still recognizes its grammar; revocation text
+  inside the literal phrase (for example `never mind`) is not treated as cancellation.
+  Quoted terminal punctuation is preserved (`"wow!"` cannot authorize `wow`). Write
+  persistence/canonical args retain NFC literals, and entry receipt keys match
+  SQLite `NOCASE` with NFC plus ASCII fold, never NFKC compatibility folding.
 - [x] Entry/meaning writes bind server identity, reject foreign/inactive targets,
   normalize duplicates, preserve omitted context, keep preset legacy fields
   immutable, and store every new user translation as a personal meaning.
@@ -37,26 +46,37 @@ full lint reports zero errors and two warnings in generated
   traced `mutation_conflict`. Historical owner-custom legacy meanings promote to a
   personal meaning and clear legacy fields atomically.
 - [x] New/`pick` add becomes `to_learn`; all already active statuses remain
-  unchanged across entry duplicates and meaning writes.
+  unchanged across entry duplicates and meaning writes. `set_vocabulary_category`
+  changes only one owner-visible entry after a literal current-turn entry/category
+  command and CAS; practice, description, wrong destination, negation, revocation,
+  and autonomous mastery inference are denied.
 - [x] Manual preset phrase `PATCH` stores a generated fallback as a personal meaning,
   leaves shared preset fields unchanged, and commits meaning plus status atomically.
 - [x] Migration 0017 merges historical ASCII-`NOCASE` custom duplicates while
   preserving progress, meaning translation/context/latest-update metadata,
   examples, videos, and chat references; Unicode case variants remain distinct.
   Migration 0018 covers attempts/ledger/receipts, and 0019 repairs duplicate
-  pending attempts before enforcing one pending attempt per chat.
+  pending attempts before enforcing one pending attempt per chat. Migration 0020
+  backfills configured attempt provenance without inventing an actual routed model.
 - [x] Every within-budget read/rejection/write has a bounded ledger row; call three
   onward returns `tool_budget_exceeded` before trace persistence, changed call
   identity is rejected, and stale/foreign attempts cannot register or mutate.
+- [x] Same-step provider calls are serialized before the shared limit/circuit. Any
+  failed or thrown mutation opens the per-turn circuit; the next queued provider
+  tool returns `tool_budget_exceeded` before the traced executor and performs no
+  second tool-side D1 call.
 - [x] Domain mutation, postcondition receipt, and terminal tool-call result commit
   atomically; false postcondition rolls back, equivalent concurrency converges,
   ambiguous post-commit response resolves from the receipt, and changed arguments
   at the same `(userMessage, operation, target)` conflict.
-- [x] Instrumented cold full-turn integration counts each D1 statement inside a
-  batch: maximum reads use 34, two cold worst-case writes 42, one ambiguous commit
-  44, a fully rolled-back mutation 45, and rollback plus ambiguous commit 47.
-  Maximum 12-target create-chat ambiguous recovery uses 49/50. A third provider
-  call is rejected before trace persistence and does not increase the count.
+- [x] Instrumented cold full-turn tests count each D1 statement inside a batch:
+  maximum reads use 35, two cold writes 43, one ambiguous write 45,
+  rollback/circuit 36, rollback plus ambiguous terminal failure 38, and legacy-
+  promotion rollback plus ambiguous terminal failure 41. Maximum 12-target create-
+  chat ambiguous recovery remains the exact 49/50 worst case. Call three is
+  rejected before trace work. A Promise-all regression combines legacy full
+  rollback, a concurrent duplicate update, and ambiguous failed terminal at 41;
+  the duplicate is rejected without D1.
 - [x] A mutation-batch failure is never retried blindly. Tests distinguish receipt
   recovery, stale-attempt rejection, proven CAS `mutation_conflict`, and otherwise
   `operation_failed`, without a partial mutation.
@@ -65,14 +85,20 @@ full lint reports zero errors and two warnings in generated
   callbacks, replay receipts, and build older-turn context without later messages.
 - [x] Assistant and tool completion plus receipt insert/commit/replay require a
   pending unexpired lease; exact fresh IDs recover ambiguous committed begin/retry
-  batches and continue generation.
+  batches and continue generation. Finish/fail use owner-scoped `findTurn` without a
+  redundant ownership query and return normal successful terminal state without an
+  unconditional readback; ambiguous/failed-postcondition paths use exact readback.
+  Failed attempts retain configured provider/model provenance.
 - [x] Prompt, generation, abort/cancel/error mapping, five-step bound, compact HTTP
   transport, owner-scoped routes, and the chat-only UI source contract are covered.
   The public stream allowlist drops tool/reasoning/source/file/step/raw/provider
   metadata, and provider 429 maps to `provider_rate_limited`.
+- [x] Prompt tests import `lib/ai-chat/prompts/vocabulary-practice.ts`, assert ID
+  `unmumble.vocabulary-practice`/version `1`, learner-led/category rules, bounded
+  continuation, and prompt ID/version on allowlisted lifecycle events.
 - [x] Compatibility targets accept bounded saved/ad-hoc entries and all three
-  meaning modes through atomic whole-array `PATCH` only; contextual AI translation
-  remains authenticated, bounded, and server configured.
+  meaning modes through atomic whole-array `PATCH` only. The unused standalone AI
+  translation route/module are absent, preventing a second untraced provider path.
 - [x] Account chat creation/listing is capped at 100, detail at the latest 200
   messages, model history at 40/32,000, and public DTOs omit internal context and
   provider/model/usage data.
@@ -81,54 +107,64 @@ full lint reports zero errors and two warnings in generated
   visible total and truncation.
 - [x] Ordinary `ensureUser` is one statement; atomic idempotent legacy-owner transfer
   is covered on login/session bootstrap and excluded from AI routes.
+- [x] AI chat delegates saved-target resolution and the cross-table practice
+  projection to a read-only vocabulary module; owner/legacy/selected semantics and
+  the exact 49/50 D1 worst-case boundary remain intact.
+- [x] Runtime tests reject presets/unlisted models and drive the real OpenRouter
+  provider serializer through fake fetch: the outbound request names the concrete
+  code-owned DeepSeek model, has no preset/fallback fields, disables plugins,
+  preserves one local AI SDK tool, requires data-collection denial plus ZDR and
+  full request-parameter support, sanitizes telemetry, and maps provider failures
+  to stable public codes.
+- [x] Separate hashed-account and per-location aggregate-edge Cloudflare limits deny
+  before D1/provider work and fail closed when bindings are absent or fail.
+  Deployment configs bind 10/account/minute and approximate 100/location/minute
+  guards with distinct namespaces; tests do not claim global atomicity.
+- [x] Operational events expose only the exact safe metadata allowlist; unknown
+  events/logger failures cannot affect persistence or leak private payloads.
+- [x] Server/browser use shared explicit public DTOs and every vocabulary tool is
+  constructed through one traced budget wrapper/registry. Source-boundary tests
+  keep contracts/policy/results/handlers/registry/pagination separate and the old
+  `vocabulary-tools.ts` module as a thin facade.
+- [x] `npm audit --omit=dev` reports zero vulnerabilities with exact Next.js 16.3.3.
 
 ## Repository Verification
 
-- [x] Fresh typecheck on the final current diff.
-- [x] Fresh full repository tests and production build: 466/466.
-- [x] Fresh full lint: zero errors and two generated-file warnings.
-- [x] Fresh Drizzle schema check and tracked-secret/diff checks.
-- [x] Fresh final security/privacy/accessibility/responsive/intended-diff review.
-- [x] Lifecycle feature lint and docs diff check after this reconciliation.
+- [x] Fresh focused backend suite: 217/217, including the concurrent tool-call
+  serialization/circuit regression.
+- [x] Fresh full `npm test`: 501/501 on the exact diff.
+- [x] Fresh typecheck, Drizzle, dependency audit, tracked-secret, ignore, lifecycle,
+  and diff checks pass; full lint has zero errors and three existing warnings.
+- [x] Independent final review reports no P0/P1.
 
 ## Preview Data Evidence
 
 - [x] Read-only preview D1 preflight found no owner-custom ASCII-`NOCASE`
-  duplicates at the time it was run.
-- [x] Preview previously applied an older 0017 plus 0018, and remote readback exposed
-  the three 0018 trace tables.
-- [ ] Re-baseline preview or explicitly accept an equivalent forward migration for
-  the corrected 0017 meaning-metadata behavior.
-- [ ] Apply and verify migration 0019 in preview; no current application claim is
-  made.
+  duplicates before 0017 deployment, as documented in commit `c970f80`.
+- [x] Preview's older applied 0017 is explicitly accepted as behaviorally equivalent
+  to corrected 0017 because the preflight proved there were no duplicates to merge;
+  no preview re-baseline or forward migration is needed. Fresh production will run
+  corrected 0017.
+- [x] Read-only preview evidence confirms 0019 applied, the
+  `idx_ai_chat_assistant_attempts_one_pending_chat` index present, and
+  `PRAGMA foreign_key_check` clean.
+- [ ] Apply and verify migration 0020, currently the only pending preview migration.
 
 ## Manual Authenticated Smoke
 
 - [x] Branch-preview New Chat creation visibly shows all available latest entries
   and saved translations without a provider call (two entries existed in the
   inspected account).
-- [ ] An empty account shows the honest empty opening, and reload preserves both
-  empty and populated openings.
-- [ ] “Покажи последние десять” and a text search return the real bounded D1 data,
-  after which conversational subset practice uses saved meanings.
-- [ ] Examples, context change, reverse-translation exercise, and answer feedback
-  remain learner-directed in the chat-only interface.
-- [ ] An explicit add-entry command commits once and reports the receipt-backed
-  result; a practice request, negation, and ambiguous “save it” do not write.
-- [ ] Explicit add-meaning/update-personal-meaning persists after reload; an owned
-  historical custom legacy meaning promotes to personal, while preset-legacy and
-  foreign meaning updates are denied.
-- [ ] Before/after D1 inspection confirms active statuses never change through
-  agent tools; only a genuinely new/`pick` add starts in `to_learn`.
-- [ ] Interrupting after a committed write and retrying replays the receipt without
-  another logical mutation; stale output cannot finish the new attempt.
-- [ ] A bounded live response with tool use works through the configured local or
-  preview provider, and logs/network data expose no key, hidden prompt, private
-  vocabulary, tool arguments, or results.
+- [x] A live direct OpenRouter request to concrete DeepSeek returned a tool call to
+  `list_vocabulary`. This proves model/tool-schema compatibility, not authenticated
+  route execution, ledger persistence, cursor continuation, or D1 ownership.
 - [x] A real published follow-up maps the observed OpenRouter usage-limit response
   to the dedicated safe UI error without exposing provider internals.
-- [ ] Desktop and narrow viewport retain usable chat list, timeline, composer,
-  loading/error, send, and retry states.
+- [ ] After commit/push, preview rebuild, and migration 0020, run one bounded
+  authenticated updated-preview smoke covering: empty/populated opening and reload;
+  category pagination plus cross-turn continuation; search/practice; explicit add/
+  meaning/update/category writes and denial cases; retry/replay; usable desktop/
+  narrow chat; and absence of private data in logs/network output.
 
 Automated tests use local D1 and controlled model/tool adapters. They never read,
 print, snapshot, or call a real provider credential.

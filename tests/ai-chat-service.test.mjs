@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 const serviceModule = await import("../lib/ai-chat/service.ts").catch(() => ({}));
+const paginationModule = await import("../lib/ai-chat/tools/vocabulary/pagination.ts").catch(() => ({}));
 
 function createHarness(overrides = {}) {
   const calls = {};
   const stream = new ReadableStream();
-  const vocabularyTools = { get_recent_vocabulary: { description: "read" } };
+  const vocabularyTools = { list_vocabulary: { description: "read" } };
   const currentTargets = overrides.currentTargets || [{
     text: "run",
     meaningMode: "all_saved",
@@ -69,6 +70,7 @@ function createHarness(overrides = {}) {
     },
   };
   const vocabularyRepository = {
+    async listPage() { return { entries: [], hasMore: false, nextCursor: null }; },
     async listRecent() { return []; },
     async search() { return []; },
     async addEntry() { throw new Error("not used by service harness"); },
@@ -76,7 +78,12 @@ function createHarness(overrides = {}) {
     async updateMeaning() { throw new Error("not used by service harness"); },
   };
   const vocabularyMutationPlanner = {};
-  const toolTraceRepository = {};
+  const toolTraceRepository = {
+    async readLatestCompletedToolResult(userId, chatId, toolName, options) {
+      calls.latestToolResult = { userId, chatId, toolName, options };
+      return overrides.latestToolResult ?? null;
+    },
+  };
   const runtime = {
     model: {},
     provenance: { provider: "openrouter", model: "configured/model" },
@@ -84,13 +91,22 @@ function createHarness(overrides = {}) {
     maxOutputTokens: 800,
   };
   const dependencies = {
+    recordOperationalEvent(event) {
+      calls.operationalEvents ||= [];
+      calls.operationalEvents.push(event);
+    },
     createRuntime(config) {
       calls.runtimeConfig = config;
       return overrides.runtimeResult || { ok: true, value: runtime };
     },
     buildPrompt(input) {
       calls.promptInput = input;
-      return { system: "system", messages: [{ role: "user", content: input.currentUserMessage }] };
+      return {
+        id: "unmumble.vocabulary-practice",
+        version: "1",
+        system: "system",
+        messages: [{ role: "user", content: input.currentUserMessage }],
+      };
     },
     createVocabularyTools(input) {
       calls.vocabularyToolsInput = input;
@@ -118,7 +134,10 @@ const request = {
   userId: "user-a",
   chatId: "chat-a",
   message: { clientMessageId: "turn-a", content: "Give me one sentence." },
-  serverConfig: { apiKey: "server-only", model: "configured/model" },
+  serverConfig: {
+    apiKey: "server-only",
+    model: "deepseek/deepseek-v4-flash-0731",
+  },
   abortSignal: new AbortController().signal,
 };
 
@@ -142,12 +161,23 @@ test("turn preparation uses stored targets and canonical history only", async ()
     meaningMode: "all_saved",
     knownMeanings: [{ translation: "бежать", context: "run every day" }],
   }]);
+  assert.deepEqual(harness.calls.begin.input.configuredProvenance, {
+    provider: "openrouter",
+    model: "deepseek/deepseek-v4-flash-0731",
+  });
   assert.deepEqual(harness.calls.history.options, { beforeSequence: 3 });
   assert.deepEqual(harness.calls.promptInput, {
     explanationLanguage: "ru",
     targets: harness.calls.begin.input.practiceContext,
     history: [{ role: "assistant", content: "Canonical earlier answer" }],
     currentUserMessage: "Give me one sentence.",
+    vocabularyContinuation: null,
+  });
+  assert.deepEqual(harness.calls.latestToolResult, {
+    userId: "user-a",
+    chatId: "chat-a",
+    toolName: "list_vocabulary",
+    options: { beforeSequence: 3 },
   });
   assert.deepEqual(harness.calls.runtimeConfig, request.serverConfig);
   assert.equal(harness.calls.generation.pendingAssistant.id, "assistant-row");
@@ -162,12 +192,22 @@ test("turn preparation uses stored targets and canonical history only", async ()
     harness.calls.vocabularyToolsInput.repository,
     harness.vocabularyRepository,
   );
+  assert.deepEqual(harness.calls.operationalEvents, [{
+    event: "ai_chat_generation_started",
+    attemptId: "attempt-row",
+    provider: "openrouter",
+    configuredModel: "configured/model",
+    promptId: "unmumble.vocabulary-practice",
+    promptVersion: "1",
+  }]);
 
   await harness.calls.generation.repository.completePendingAssistant({
     assistantId: "assistant-row",
     text: "I run every morning.",
     provider: "openrouter",
     model: "configured/model",
+    promptId: "unmumble.vocabulary-practice",
+    promptVersion: "1",
     usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
   });
   assert.deepEqual(harness.calls.finish, {
@@ -182,6 +222,45 @@ test("turn preparation uses stored targets and canonical history only", async ()
       usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
     },
   });
+  assert.deepEqual(harness.calls.operationalEvents.at(-1), {
+    event: "ai_chat_generation_completed",
+    attemptId: "attempt-row",
+    provider: "openrouter",
+    model: "configured/model",
+    promptId: "unmumble.vocabulary-practice",
+    promptVersion: "1",
+  });
+});
+
+test("turn preparation restores only a validated completed vocabulary-list continuation", async () => {
+  const cursor = paginationModule.encodeAiVocabularyListCursor({
+    category: "learned",
+    addedAt: "2026-08-29T10:00:00.000Z",
+    phraseId: "phrase-run",
+  });
+  const harness = createHarness({
+    latestToolResult: {
+      ok: true,
+      category: "learned",
+      entries: [{ private: "must not enter prompt" }],
+      hasMore: true,
+      nextCursor: cursor,
+    },
+  });
+  const result = await serviceModule.prepareAiChatGeneration({
+    ...request,
+    chatRepository: harness.repository,
+    vocabularyRepository: harness.vocabularyRepository,
+    vocabularyMutationPlanner: harness.vocabularyMutationPlanner,
+    toolTraceRepository: harness.toolTraceRepository,
+  }, harness.dependencies);
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(harness.calls.promptInput.vocabularyContinuation, {
+    category: "learned",
+    cursor,
+  });
+  assert.equal(JSON.stringify(harness.calls.promptInput).includes("must not enter"), false);
 });
 
 test("deterministic vocabulary openings are marked as untrusted before model use", async () => {
@@ -262,6 +341,11 @@ test("missing provider configuration retains the user turn as retryable failure"
     errorCode: "not_configured",
     attemptId: "attempt-row",
   });
+  assert.deepEqual(harness.calls.operationalEvents, [{
+    event: "ai_chat_generation_failed",
+    attemptId: "attempt-row",
+    errorCode: "not_configured",
+  }]);
   assert.equal(harness.calls.generation, undefined);
 });
 

@@ -6,10 +6,8 @@ import {
   type ToolSet,
 } from "ai";
 import { AI_CHAT_ERROR_CODES, type AiChatErrorCode } from "./contracts.ts";
-import type { AiChatPrompt } from "./prompt.ts";
+import type { AiChatPrompt } from "./prompts/vocabulary-practice.ts";
 import {
-  extractAiChatOpenRouterTelemetry,
-  mapAiChatRuntimeFailure,
   normalizeAiChatAssistantText,
   type AiChatRuntime,
 } from "./runtime.ts";
@@ -23,6 +21,8 @@ export type AiChatGenerationUsage = {
   outputTokens: number | null;
   totalTokens: number | null;
   configuredModel: string;
+  promptId: string;
+  promptVersion: string;
   routedProviders: string[];
   cost: number | null;
   upstreamInferenceCost: number | null;
@@ -238,7 +238,7 @@ export function startAiChatGeneration(
         return;
       }
       const configuredModel = normalizeModelId(input.runtime.provenance.model, "unknown");
-      const telemetry = extractAiChatOpenRouterTelemetry(steps || []);
+      const telemetry = input.runtime.normalizeTelemetry(steps || []);
       await finalizeOnce(
         () => input.repository.completePendingAssistant({
           assistantId: input.pendingAssistant.id,
@@ -250,13 +250,15 @@ export function startAiChatGeneration(
             outputTokens: normalizeTokenCount(usage.outputTokens),
             totalTokens: normalizeTokenCount(usage.totalTokens),
             configuredModel,
+            promptId: input.prompt.id,
+            promptVersion: input.prompt.version,
             ...telemetry,
           },
         }),
       );
     },
     onError: async ({ error }) => {
-      await failPendingAssistant(mapAiChatRuntimeFailure(error).code);
+      await failPendingAssistant(input.runtime.mapFailure(error).code);
     },
     onAbort: async () => {
       await failPendingAssistant(AI_CHAT_ERROR_CODES.providerTimeout);
@@ -266,7 +268,7 @@ export function startAiChatGeneration(
   const uiStream = dependencies.toUIMessageStream({
     stream: publicAiChatProviderStream(result.stream),
     generateMessageId: () => input.pendingAssistant.id,
-    onError: (error) => mapAiChatRuntimeFailure(error).code,
+    onError: (error) => input.runtime.mapFailure(error).code,
     sendReasoning: false,
     sendSources: false,
   });

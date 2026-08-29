@@ -3,7 +3,7 @@ import {
   isMeaningMode,
   type AiChatMeaningMode,
 } from "./contracts.ts";
-import type { AiChatPromptMeaning, AiChatPromptTarget } from "./prompt.ts";
+import type { AiChatPromptMeaning, AiChatPromptTarget } from "./prompts/vocabulary-practice.ts";
 
 type PracticeMeaningSource = {
   translation: string;

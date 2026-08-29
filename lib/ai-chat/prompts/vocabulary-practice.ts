@@ -1,4 +1,8 @@
-import { AI_CHAT_LIMITS, type AiChatMeaningMode } from "./contracts.ts";
+import { AI_CHAT_LIMITS, type AiChatMeaningMode } from "../contracts.ts";
+import type { AiVocabularyListContinuation } from "../tools/vocabulary/pagination.ts";
+
+export const AI_CHAT_PROMPT_ID = "unmumble.vocabulary-practice";
+export const AI_CHAT_PROMPT_VERSION = "1";
 
 export type AiChatModelMessage = {
   role: "user" | "assistant";
@@ -31,9 +35,12 @@ export type AiChatPromptInput = {
   targets: readonly AiChatPromptTarget[];
   history: readonly AiChatModelMessage[];
   currentUserMessage: string;
+  vocabularyContinuation?: AiVocabularyListContinuation | null;
 };
 
 export type AiChatPrompt = {
+  id: typeof AI_CHAT_PROMPT_ID;
+  version: typeof AI_CHAT_PROMPT_VERSION;
   system: string;
   messages: AiChatModelMessage[];
 };
@@ -57,8 +64,26 @@ const DICTIONARY_TOOL_CONTRACT = [
   "For a meaning write, the affected vocabulary word or phrase must also appear literally in the current user message.",
   "If a write tool denies the operation, ask the learner to name the exact value in a direct save or update command.",
   "Do not claim that a write succeeded unless its tool result has ok: true.",
-  "Never change vocabulary learning status. The learner manages To Learn, Learning Now, and Learned manually.",
+  "Never change a vocabulary category autonomously or infer that practice performance authorizes a category change.",
+  "A category change is allowed only through its write tool when the current user message explicitly commands the exact word or phrase and destination category.",
+  "Use list_vocabulary to read To Learn, Learning, Learned, or all categories. Follow nextCursor while hasMore is true; never claim the full list was read before pagination finishes.",
 ].join("\n");
+
+const VOCABULARY_CONTINUATION_START = "<<<BEGIN_VOCABULARY_LIST_CONTINUATION>>>";
+const VOCABULARY_CONTINUATION_END = "<<<END_VOCABULARY_LIST_CONTINUATION>>>";
+
+function vocabularyContinuationContract(
+  continuation: AiVocabularyListContinuation | null | undefined,
+) {
+  if (!continuation) return "No prior vocabulary-list continuation is available.";
+  return [
+    "A continuation cursor from the latest completed vocabulary listing is available below.",
+    "Use it only when the learner asks to continue that same listing/category. Start a new listing without a cursor for any other request.",
+    VOCABULARY_CONTINUATION_START,
+    JSON.stringify(continuation),
+    VOCABULARY_CONTINUATION_END,
+  ].join("\n");
+}
 
 const VOCABULARY_OPENING_START = "<<<BEGIN_UNTRUSTED_VOCABULARY_OPENING>>>";
 const VOCABULARY_OPENING_END = "<<<END_UNTRUSTED_VOCABULARY_OPENING>>>";
@@ -203,9 +228,12 @@ function boundedHistory(history: readonly AiChatModelMessage[]) {
 export function buildAiChatPrompt(input: AiChatPromptInput): AiChatPrompt {
   const targetData = boundedTargetData(input.targets);
   return {
+    id: AI_CHAT_PROMPT_ID,
+    version: AI_CHAT_PROMPT_VERSION,
     system: [
       LEARNER_LED_CONTRACT,
       DICTIONARY_TOOL_CONTRACT,
+      vocabularyContinuationContract(input.vocabularyContinuation),
       `Explanation language: ${explanationLanguageLabel(input.explanationLanguage)}.`,
       `Use ${explanationLanguageName(input.explanationLanguage)} for explanations, feedback, and exercise instructions. Keep English examples and learner answers in English unless the learner asks otherwise.`,
       TARGET_HANDLING_CONTRACT,

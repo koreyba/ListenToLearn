@@ -8,7 +8,6 @@ test("AI chat exposes conservative paid-request safety limits", () => {
     bodyBytes: 16_384,
     targetCount: 12,
     targetTextCharacters: 240,
-    translationTextCharacters: 500,
     meaningsPerTarget: 12,
     meaningCharacters: 1_000,
     contextCharacters: 1_000,

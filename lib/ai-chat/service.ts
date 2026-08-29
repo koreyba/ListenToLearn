@@ -1,7 +1,7 @@
 import {
   buildAiChatPrompt,
   protectVocabularyOpeningForModel,
-} from "./prompt.ts";
+} from "./prompts/vocabulary-practice.ts";
 import {
   createAiChatPracticeContext,
   readAiChatPracticeContext,
@@ -12,15 +12,20 @@ import {
 } from "./repository.ts";
 import {
   createAiChatRuntime,
-  mapAiChatRuntimeFailure,
+  describeAiChatConfiguredProvenance,
   type AiChatServerConfig,
 } from "./runtime.ts";
 import { startAiChatGeneration } from "./generation.ts";
 import type { AiChatErrorCode } from "./contracts.ts";
 import {
+  recordAiChatOperationalEvent,
+  type AiChatOperationalEvent,
+} from "./observability.ts";
+import {
   createAiVocabularyToolHandlers,
   createAiVocabularyTools,
 } from "./vocabulary-tools.ts";
+import { readAiVocabularyListContinuation } from "./tools/vocabulary/pagination.ts";
 import {
   createAiChatToolExecutor,
   createAiChatToolTraceRepository,
@@ -41,15 +46,16 @@ export type AiChatServiceRepository = Pick<
 
 export type AiChatServiceVocabularyRepository = Pick<
   ReturnType<typeof createVocabularyRepository>,
+  | "getCategoryTarget"
   | "getEntry"
   | "getEntryForMeaning"
-  | "listRecent"
+  | "listPage"
   | "search"
 >;
 
 export type AiChatServiceMutationPlanner = Pick<
   ReturnType<typeof createVocabularyMutationPlanner>,
-  "planAddEntry" | "planAddMeaning" | "planUpdateMeaning"
+  "planAddEntry" | "planAddMeaning" | "planSetCategory" | "planUpdateMeaning"
 >;
 
 export type AiChatServiceToolTraceRepository = ReturnType<
@@ -79,6 +85,7 @@ type AiChatGenerationDependencies = {
     mutationPlanner: AiChatServiceMutationPlanner;
     executor: ReturnType<typeof createAiChatToolExecutor>;
   }): ToolSet;
+  recordOperationalEvent?(event: AiChatOperationalEvent): unknown;
 };
 
 const defaultDependencies: AiChatGenerationDependencies = {
@@ -112,6 +119,13 @@ export async function prepareAiChatGeneration(
   | { ok: true; stream: ReturnType<typeof startAiChatGeneration> }
   | { ok: false; error: { code: AiChatErrorCode; status: number } }
 > {
+  const recordOperationalEvent = (event: AiChatOperationalEvent) => {
+    try {
+      (dependencies.recordOperationalEvent || recordAiChatOperationalEvent)(event);
+    } catch {
+      // Observability must never change generation or persistence behavior.
+    }
+  };
   let pendingTurn = false;
   let attemptId: string | null = null;
   try {
@@ -124,6 +138,7 @@ export async function prepareAiChatGeneration(
       clientMessageId: input.message.clientMessageId,
       content: input.message.content,
       practiceContext: currentPracticeContext,
+      configuredProvenance: describeAiChatConfiguredProvenance(input.serverConfig),
     });
     if (turn.state === "existing") {
       return { ok: false, error: { code: "conflict", status: 409 } };
@@ -152,6 +167,11 @@ export async function prepareAiChatGeneration(
         "internal_error",
         currentAttemptId,
       );
+      recordOperationalEvent({
+        event: "ai_chat_generation_failed",
+        attemptId: currentAttemptId,
+        errorCode: "internal_error",
+      });
       pendingTurn = false;
       return { ok: false, error: { code: "internal_error", status: 500 } };
     }
@@ -165,13 +185,26 @@ export async function prepareAiChatGeneration(
         runtime.error.code,
         currentAttemptId,
       );
+      recordOperationalEvent({
+        event: "ai_chat_generation_failed",
+        attemptId: currentAttemptId,
+        errorCode: runtime.error.code,
+      });
       pendingTurn = false;
       return runtime;
     }
 
-    const history = await input.chatRepository.getCanonicalHistory(input.userId, input.chatId, {
-      beforeSequence: turn.user.sequence,
-    });
+    const [history, latestVocabularyListResult] = await Promise.all([
+      input.chatRepository.getCanonicalHistory(input.userId, input.chatId, {
+        beforeSequence: turn.user.sequence,
+      }),
+      input.toolTraceRepository.readLatestCompletedToolResult(
+        input.userId,
+        input.chatId,
+        "list_vocabulary",
+        { beforeSequence: turn.user.sequence },
+      ).catch(() => null),
+    ]);
     const prompt = dependencies.buildPrompt({
       explanationLanguage: chat.explanationLanguage,
       targets: practiceContext,
@@ -182,6 +215,9 @@ export async function prepareAiChatGeneration(
           : content,
       })),
       currentUserMessage: turn.user.content,
+      vocabularyContinuation: readAiVocabularyListContinuation(
+        latestVocabularyListResult,
+      ),
     });
     const tools = dependencies.createVocabularyTools({
       userId: input.userId,
@@ -198,6 +234,14 @@ export async function prepareAiChatGeneration(
     });
 
     try {
+      recordOperationalEvent({
+        event: "ai_chat_generation_started",
+        attemptId: currentAttemptId,
+        provider: runtime.value.provenance.provider,
+        configuredModel: runtime.value.provenance.model,
+        promptId: prompt.id,
+        promptVersion: prompt.version,
+      });
       const stream = dependencies.startGeneration({
         prompt,
         tools,
@@ -221,6 +265,14 @@ export async function prepareAiChatGeneration(
                 usage: completion.usage,
               },
             );
+            recordOperationalEvent({
+              event: "ai_chat_generation_completed",
+              attemptId: currentAttemptId,
+              provider: completion.provider,
+              model: completion.model,
+              promptId: prompt.id,
+              promptVersion: prompt.version,
+            });
           },
           failPendingAssistant: async (failure) => {
             if (failure.assistantId !== turn.assistant.id) {
@@ -233,13 +285,20 @@ export async function prepareAiChatGeneration(
               failure.errorCode,
               currentAttemptId,
             );
+            recordOperationalEvent({
+              event: "ai_chat_generation_failed",
+              attemptId: currentAttemptId,
+              errorCode: failure.errorCode,
+              promptId: prompt.id,
+              promptVersion: prompt.version,
+            });
           },
         },
       });
       pendingTurn = false;
       return { ok: true, stream };
     } catch (error) {
-      const failure = mapAiChatRuntimeFailure(error);
+      const failure = runtime.value.mapFailure(error);
       await input.chatRepository.failTurn(
         input.userId,
         input.chatId,
@@ -247,6 +306,13 @@ export async function prepareAiChatGeneration(
         failure.code,
         currentAttemptId,
       );
+      recordOperationalEvent({
+        event: "ai_chat_generation_failed",
+        attemptId: currentAttemptId,
+        errorCode: failure.code,
+        promptId: prompt.id,
+        promptVersion: prompt.version,
+      });
       pendingTurn = false;
       return { ok: false, error: failure };
     }
@@ -264,6 +330,11 @@ export async function prepareAiChatGeneration(
       } catch {
         // The original stable error remains authoritative when persistence is unavailable.
       }
+      recordOperationalEvent({
+        event: "ai_chat_generation_failed",
+        attemptId,
+        errorCode: failure.code,
+      });
     }
     return { ok: false, error: failure };
   }

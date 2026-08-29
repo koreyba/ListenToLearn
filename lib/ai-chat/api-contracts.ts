@@ -92,21 +92,6 @@ export function readCreateMeaningPayload(
   };
 }
 
-export function readAiTranslatePayload(
-  payload: ObjectValue,
-): AiChatValidationResult<{ text: string; context: string }> {
-  if (!hasExactKeys(payload, ["text", "context"])) return invalidRequest();
-  const text = readBoundedText(payload.text, AI_CHAT_LIMITS.translationTextCharacters, {
-    singleLine: true,
-  });
-  const context = payload.context === undefined
-    || (typeof payload.context === "string" && !payload.context.trim())
-    ? { ok: true as const, value: "" }
-    : readBoundedText(payload.context, AI_CHAT_LIMITS.contextCharacters);
-  if (!text.ok || !context.ok) return invalidRequest();
-  return { ok: true, value: { text: text.value, context: context.value } };
-}
-
 export function aiChatErrorResponse(error: { code: AiChatErrorCode; status: number }) {
   return Response.json(
     { error: { code: error.code } },

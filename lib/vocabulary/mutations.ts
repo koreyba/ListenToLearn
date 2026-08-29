@@ -2,12 +2,17 @@ import {
   normalizeVocabularyMeaning,
   normalizeVocabularyTarget,
   readScopedLegacyMeaningId,
+  vocabularyStatusForCategory,
+  VOCABULARY_CATEGORIES,
   VOCABULARY_LIMITS,
+  type VocabularyCategory,
+  type VocabularyStatus,
 } from "./contracts.ts";
 
 export const VOCABULARY_MUTATION_OPERATIONS = Object.freeze({
   addEntry: "vocabulary.add-entry/v1",
   addMeaning: "vocabulary.add-meaning/v1",
+  setCategory: "vocabulary.set-category/v1",
   updateMeaning: "vocabulary.update-meaning/v1",
 } as const);
 
@@ -54,6 +59,17 @@ export type UpdateVocabularyMeaningMutationArgs = {
   context?: string;
 };
 
+export type SetVocabularyCategoryMutationInput = {
+  phraseId: string;
+  expectedStoredStatus: VocabularyStatus;
+  category: VocabularyCategory;
+};
+
+export type SetVocabularyCategoryMutationArgs = {
+  phraseId: string;
+  category: VocabularyCategory;
+};
+
 export type AddVocabularyEntryMutationResult = {
   ok: true;
   saved: true;
@@ -72,6 +88,13 @@ export type UpdateVocabularyMeaningMutationResult = {
   updated: true;
   meaningId: string;
   translation: string;
+};
+
+export type SetVocabularyCategoryMutationResult = {
+  ok: true;
+  updated: true;
+  phraseId: string;
+  category: VocabularyCategory;
 };
 
 export class VocabularyMutationPlanError extends Error {
@@ -97,6 +120,12 @@ type VisiblePhraseRow = {
 };
 
 const ACTIVE_STATUS_SQL = "'to_learn', 'learning_now', 'learnt', 'learned'";
+const ACTIVE_STATUSES = new Set<VocabularyStatus>([
+  "to_learn",
+  "learning_now",
+  "learnt",
+  "learned",
+]);
 
 function defaultCreateId(kind: "meaning" | "phrase") {
   return `${kind}-${crypto.randomUUID()}`;
@@ -114,7 +143,7 @@ function assertUserId(userId: string) {
 
 function cleanSingleLine(value: unknown, maximum: number, label: string) {
   if (typeof value !== "string") invalid(`${label} is invalid.`);
-  const cleaned = value.normalize("NFKC").trim().replace(/\s+/gu, " ");
+  const cleaned = value.normalize("NFC").trim().replace(/\s+/gu, " ");
   if (!cleaned || [...cleaned].length > maximum) {
     invalid(`${label} is invalid.`);
   }
@@ -129,7 +158,7 @@ function cleanOptionalSingleLine(value: unknown, maximum: number, label: string)
 function cleanOptionalContext(value: unknown) {
   if (value === undefined) return undefined;
   if (typeof value !== "string") invalid("Vocabulary context is invalid.");
-  const cleaned = value.normalize("NFKC").trim().replace(/\r\n?/gu, "\n");
+  const cleaned = value.normalize("NFC").trim().replace(/\r\n?/gu, "\n");
   if ([...cleaned].length > VOCABULARY_LIMITS.contextCharacters) {
     invalid("Vocabulary context is invalid.");
   }
@@ -813,9 +842,92 @@ export function createVocabularyMutationPlanner(
     };
   }
 
+  async function planSetCategory(
+    userId: string,
+    input: SetVocabularyCategoryMutationInput,
+  ): Promise<VocabularyMutationPlan<
+    typeof VOCABULARY_MUTATION_OPERATIONS.setCategory,
+    SetVocabularyCategoryMutationArgs,
+    SetVocabularyCategoryMutationResult
+  >> {
+    assertUserId(userId);
+    const phraseId = cleanSingleLine(input.phraseId, 120, "Phrase identity");
+    if (!ACTIVE_STATUSES.has(input.expectedStoredStatus)) {
+      invalid("Expected vocabulary status is invalid.");
+    }
+    if (!(VOCABULARY_CATEGORIES as readonly unknown[]).includes(input.category)) {
+      invalid("Vocabulary category is invalid.");
+    }
+    const expectedStoredStatus = input.expectedStoredStatus;
+    const category = input.category;
+    const storedStatus = vocabularyStatusForCategory(category);
+    const timestamp = now();
+    const statements = [db.prepare(`
+      UPDATE phrase_progress
+      SET
+        status = ?,
+        updated_at = CASE WHEN status <> ? THEN ? ELSE updated_at END
+      WHERE user_id = ?
+        AND phrase_id = ?
+        AND status = ?
+        AND status IN (${ACTIVE_STATUS_SQL})
+        AND EXISTS (
+          SELECT 1
+          FROM phrases
+          WHERE phrases.id = phrase_progress.phrase_id
+            AND (phrases.source_type = 'preset' OR phrases.owner_id = ?)
+        )
+    `).bind(
+      storedStatus,
+      storedStatus,
+      timestamp,
+      userId,
+      phraseId,
+      expectedStoredStatus,
+      userId,
+    )];
+    const receiptGuard: VocabularyMutationReceiptGuard = {
+      sql: `changes() = 1 AND EXISTS (
+        SELECT 1
+        FROM phrase_progress AS progress
+        JOIN phrases ON phrases.id = progress.phrase_id
+        WHERE progress.user_id = ?
+          AND progress.phrase_id = ?
+          AND progress.status = ?
+          AND (phrases.source_type = 'preset' OR phrases.owner_id = ?)
+      )`,
+      bindings: [userId, phraseId, storedStatus, userId],
+    };
+    const conflictGuard: VocabularyMutationReceiptGuard = {
+      sql: `EXISTS (
+        SELECT 1
+        FROM phrase_progress AS progress
+        JOIN phrases ON phrases.id = progress.phrase_id
+        WHERE progress.user_id = ?
+          AND progress.phrase_id = ?
+          AND progress.status = ?
+          AND progress.status IN (${ACTIVE_STATUS_SQL})
+          AND (phrases.source_type = 'preset' OR phrases.owner_id = ?)
+      )`,
+      bindings: [userId, phraseId, expectedStoredStatus, userId],
+    };
+    return {
+      operation: VOCABULARY_MUTATION_OPERATIONS.setCategory,
+      targetKey: phraseId,
+      canonicalArgs: { phraseId, category },
+      canonicalResult: { ok: true, updated: true, phraseId, category },
+      entityType: "phrase",
+      entityId: phraseId,
+      statements,
+      receiptGuard,
+      conflictGuard,
+    };
+  }
+
   return {
     planAddEntry,
     planAddMeaning,
+    planSetCategory,
     planUpdateMeaning,
   };
 }

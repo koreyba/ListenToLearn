@@ -10,18 +10,26 @@ const vocabularyModule = await import("../lib/vocabulary/repository.ts").catch((
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 class SQLiteD1Statement {
-  constructor(database, sql, bindings = [], observeRows = () => {}) {
+  constructor(database, sql, bindings = [], observeRows = () => {}, beforeExecute = () => {}) {
     this.database = database;
     this.sql = sql;
     this.bindings = bindings;
     this.observeRows = observeRows;
+    this.beforeExecute = beforeExecute;
   }
 
   bind(...bindings) {
-    return new SQLiteD1Statement(this.database, this.sql, bindings, this.observeRows);
+    return new SQLiteD1Statement(
+      this.database,
+      this.sql,
+      bindings,
+      this.observeRows,
+      this.beforeExecute,
+    );
   }
 
   execute() {
+    this.beforeExecute(this.sql);
     const statement = this.database.prepare(this.sql);
     if (/^\s*(?:SELECT|WITH|PRAGMA)\b/iu.test(this.sql)) {
       return { results: statement.all(...this.bindings), success: true, meta: {} };
@@ -57,15 +65,30 @@ class SQLiteD1Database {
   constructor(database) {
     this.database = database;
     this.throwAfterNextBatchCommit = false;
+    this.throwBeforeNextSqlContaining = null;
     this.lastPracticeItemRowCount = null;
   }
 
   prepare(sql) {
-    return new SQLiteD1Statement(this.database, sql, [], (executedSql, rows) => {
-      if (executedSql.includes("items.id AS item_id")) {
-        this.lastPracticeItemRowCount = rows.length;
-      }
-    });
+    return new SQLiteD1Statement(
+      this.database,
+      sql,
+      [],
+      (executedSql, rows) => {
+        if (executedSql.includes("items.id AS item_id")) {
+          this.lastPracticeItemRowCount = rows.length;
+        }
+      },
+      (executedSql) => {
+        if (
+          this.throwBeforeNextSqlContaining
+          && executedSql.includes(this.throwBeforeNextSqlContaining)
+        ) {
+          this.throwBeforeNextSqlContaining = null;
+          throw new Error("Simulated D1 statement failure before commit.");
+        }
+      },
+    );
   }
 
   async batch(statements) {
@@ -391,6 +414,114 @@ test("recent and searched vocabulary stay owner-scoped and include saved meaning
   );
   assert.equal((await vocabulary.search("user-b", "управлять", 5)).length, 0);
   assert.equal((await vocabulary.search("user-a", "get away", 5)).length, 0);
+});
+
+test("vocabulary pages traverse every owned entry without duplicates and filter canonical categories", async () => {
+  const { vocabulary, sqlite } = createFixture();
+  const insertPhrase = sqlite.prepare(`
+    INSERT INTO phrases (
+      id, text, pattern, translation, context, source_type, owner_id, status,
+      created_at, updated_at
+    ) VALUES (?, ?, '', '', '', 'custom', ?, 'pick', ?, ?)
+  `);
+  const insertProgress = sqlite.prepare(`
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  for (const row of [
+    ["phrase-sqlite-newest", "sqlite newest", "user-a", "to_learn", "2026-08-29 23:00:00"],
+    ["phrase-learning-b", "learning b", "user-a", "learning_now", "2026-08-29T12:00:00.000Z"],
+    ["phrase-learning-a", "learning a", "user-a", "learning_now", "2026-08-29T12:00:00.000Z"],
+    ["phrase-legacy-learnt", "legacy learnt", "user-a", "learnt", "2026-08-29T11:50:00.000Z"],
+    ["phrase-new-learned", "new learned", "user-a", "learned", "2026-08-29T11:40:00.000Z"],
+    ["phrase-to-learn", "to learn", "user-a", "to_learn", "2026-08-29T11:30:00.000Z"],
+    ["phrase-sqlite-b", "sqlite b", "user-a", "to_learn", "2026-08-29 11:20:00"],
+    ["phrase-sqlite-a", "sqlite a", "user-a", "to_learn", "2026-08-29 11:20:00"],
+    ["phrase-sqlite-old", "sqlite old", "user-a", "to_learn", "2026-08-28 11:20:00"],
+    ["phrase-foreign", "foreign", "user-b", "learning_now", "2026-08-29T12:30:00.000Z"],
+  ]) {
+    const [id, text, userId, status, timestamp] = row;
+    insertPhrase.run(id, text, userId, timestamp, timestamp);
+    insertProgress.run(userId, id, status, timestamp, timestamp);
+  }
+
+  const collected = [];
+  let cursor = null;
+  do {
+    const page = await vocabulary.listPage("user-a", {
+      category: "all",
+      limit: 2,
+      cursor,
+    });
+    collected.push(...page.entries.map(({ phraseId }) => phraseId));
+    cursor = page.nextCursor;
+    assert.equal(page.hasMore, cursor !== null);
+  } while (cursor);
+
+  assert.deepEqual(collected, [
+    "phrase-sqlite-newest",
+    "phrase-learning-b",
+    "phrase-learning-a",
+    "phrase-legacy-learnt",
+    "phrase-new-learned",
+    "phrase-to-learn",
+    "phrase-sqlite-b",
+    "phrase-sqlite-a",
+    "phrase-shared",
+    "phrase-sqlite-old",
+  ]);
+  assert.equal(new Set(collected).size, collected.length);
+  assert.equal(collected.includes("phrase-foreign"), false);
+
+  const categories = async (category) => {
+    const page = await vocabulary.listPage("user-a", { category, limit: 20 });
+    assert.equal(page.hasMore, false);
+    assert.equal(page.nextCursor, null);
+    return page.entries.map(({ phraseId, status }) => ({ phraseId, status }));
+  };
+  assert.deepEqual(await categories("learning"), [
+    { phraseId: "phrase-learning-b", status: "learning_now" },
+    { phraseId: "phrase-learning-a", status: "learning_now" },
+  ]);
+  assert.deepEqual(await categories("learned"), [
+    { phraseId: "phrase-legacy-learnt", status: "learnt" },
+    { phraseId: "phrase-new-learned", status: "learned" },
+    { phraseId: "phrase-shared", status: "learned" },
+  ]);
+  assert.deepEqual(await categories("to_learn"), [
+    { phraseId: "phrase-sqlite-newest", status: "to_learn" },
+    { phraseId: "phrase-to-learn", status: "to_learn" },
+    { phraseId: "phrase-sqlite-b", status: "to_learn" },
+    { phraseId: "phrase-sqlite-a", status: "to_learn" },
+    { phraseId: "phrase-sqlite-old", status: "to_learn" },
+  ]);
+});
+
+test("category mutation target is owner-scoped and does not load meanings", async () => {
+  const { sqlite, vocabulary } = createFixture();
+  sqlite.exec(`
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at) VALUES
+      ('user-a', 'phrase-a', 'learning_now',
+       '2026-08-29T11:00:00.000Z', '2026-08-29T11:00:00.000Z'),
+      ('user-a', 'phrase-b', 'to_learn',
+       '2026-08-29T11:00:00.000Z', '2026-08-29T11:00:00.000Z');
+  `);
+
+  assert.deepEqual(await vocabulary.getCategoryTarget("user-a", "phrase-a"), {
+    phraseId: "phrase-a",
+    text: "figure out",
+    storedStatus: "learning_now",
+    category: "learning",
+  });
+  assert.deepEqual(await vocabulary.getCategoryTarget("user-a", "phrase-shared"), {
+    phraseId: "phrase-shared",
+    text: "run",
+    storedStatus: "learned",
+    category: "learned",
+  });
+  assert.equal(await vocabulary.getCategoryTarget("user-a", "phrase-b"), null);
+  assert.equal(await vocabulary.getCategoryTarget("user-b", "phrase-a"), null);
+  sqlite.close();
 });
 
 test("vocabulary search rejects LIKE patterns above 50 UTF-8 bytes after escaping", async () => {
@@ -1045,6 +1176,93 @@ test("a different turn expires a stale chat lease before acquiring single-flight
   `).get(chat.id).count, 1);
 });
 
+test("stale lease recovery is atomic when D1 fails between cleanup statements", async () => {
+  const { database, repository, sqlite } = createFixture();
+  const chat = await repository.createChat("user-a");
+  const first = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "atomic-stale-first",
+    content: "First prompt.",
+    practiceContext: [],
+  });
+  sqlite.prepare(`
+    UPDATE ai_chat_assistant_attempts
+    SET lease_expires_at = '2026-08-29T10:00:00.000Z'
+    WHERE id = ?
+  `).run(first.attempt.id);
+  database.throwBeforeNextSqlContaining = "UPDATE ai_chat_messages";
+
+  await assert.rejects(
+    repository.beginTurn("user-a", chat.id, {
+      clientMessageId: "atomic-after-stale",
+      content: "Second prompt.",
+      practiceContext: [],
+    }),
+    /Simulated D1 statement failure before commit/u,
+  );
+
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT attempts.status AS attempt_status, messages.status AS message_status
+    FROM ai_chat_assistant_attempts AS attempts
+    JOIN ai_chat_messages AS messages ON messages.id = attempts.assistant_message_id
+    WHERE attempts.id = ?
+  `).get(first.attempt.id) }, {
+    attempt_status: "pending",
+    message_status: "pending",
+  });
+  assert.equal(sqlite.prepare(`
+    SELECT count(*) AS count
+    FROM ai_chat_messages
+    WHERE chat_id = ? AND client_message_id = 'atomic-after-stale'
+  `).get(chat.id).count, 0);
+
+  const recovered = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "atomic-after-stale",
+    content: "Second prompt.",
+    practiceContext: [],
+  });
+  assert.equal(recovered.state, "created");
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT attempts.status AS attempt_status, messages.status AS message_status
+    FROM ai_chat_assistant_attempts AS attempts
+    JOIN ai_chat_messages AS messages ON messages.id = attempts.assistant_message_id
+    WHERE attempts.id = ?
+  `).get(first.attempt.id) }, {
+    attempt_status: "expired",
+    message_status: "failed",
+  });
+});
+
+test("beginTurn repairs an orphaned pending assistant from a previously expired attempt", async () => {
+  const { repository, sqlite } = createFixture();
+  const chat = await repository.createChat("user-a");
+  const first = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "orphaned-stale-first",
+    content: "First prompt.",
+    practiceContext: [],
+  });
+  sqlite.prepare(`
+    UPDATE ai_chat_assistant_attempts
+    SET status = 'expired', error_code = 'provider_timeout',
+        lease_expires_at = '2026-08-29T10:00:00.000Z',
+        completed_at = '2026-08-29T10:00:00.000Z'
+    WHERE id = ?
+  `).run(first.attempt.id);
+
+  const recovered = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "after-orphaned-stale",
+    content: "Second prompt.",
+    practiceContext: [],
+  });
+
+  assert.equal(recovered.state, "created");
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT status, error_code FROM ai_chat_messages WHERE id = ?
+  `).get(first.assistant.id) }, {
+    status: "failed",
+    error_code: "provider_timeout",
+  });
+});
+
 test("beginTurn recovers its freshly committed turn after an ambiguous D1 response", async () => {
   const { database, repository } = createFixture();
   const chat = await repository.createChat("user-a");
@@ -1087,6 +1305,47 @@ test("finishTurn recovers its exact completion after an ambiguous D1 response", 
   assert.deepEqual(recovered.assistant.usage, { inputTokens: 12, outputTokens: 7 });
   assert.equal(recovered.attempt.id, started.attempt.id);
   assert.equal(recovered.attempt.status, "complete");
+});
+
+test("failed attempts retain configured provenance and recover an ambiguous commit", async () => {
+  const { database, repository, sqlite } = createFixture();
+  const chat = await repository.createChat("user-a");
+  const configuredProvenance = {
+    provider: "openrouter",
+    model: "@preset/free-unmubme-test",
+  };
+  const started = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "ambiguous-failure",
+    content: "Give me a sentence.",
+    practiceContext: [],
+    configuredProvenance,
+  });
+  assert.deepEqual(started.attempt.configuredProvenance, configuredProvenance);
+  database.throwAfterNextBatchCommit = true;
+
+  const recovered = await repository.failTurn(
+    "user-a",
+    chat.id,
+    "ambiguous-failure",
+    "provider_rate_limited",
+    started.attempt.id,
+  );
+
+  assert.equal(recovered.assistant.status, "failed");
+  assert.equal(recovered.assistant.errorCode, "provider_rate_limited");
+  assert.equal(recovered.attempt.status, "failed");
+  assert.equal(recovered.attempt.errorCode, "provider_rate_limited");
+  assert.deepEqual(recovered.attempt.configuredProvenance, configuredProvenance);
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT configured_provider, configured_model, provider, model, error_code
+    FROM ai_chat_assistant_attempts WHERE id = ?
+  `).get(started.attempt.id) }, {
+    configured_provider: "openrouter",
+    configured_model: "@preset/free-unmubme-test",
+    provider: null,
+    model: null,
+    error_code: "provider_rate_limited",
+  });
 });
 
 test("failed turns retain the user row and retry the same assistant to completion", async () => {

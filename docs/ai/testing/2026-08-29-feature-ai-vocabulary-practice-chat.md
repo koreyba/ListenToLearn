@@ -104,8 +104,11 @@ full lint reports zero errors and two warnings in generated
 
 ## Manual Authenticated Smoke
 
-- [ ] Creating a chat visibly shows the real latest five; an empty account shows
-  the honest empty opening; reload preserves it.
+- [x] Branch-preview New Chat creation visibly shows all available latest entries
+  and saved translations without a provider call (two entries existed in the
+  inspected account).
+- [ ] An empty account shows the honest empty opening, and reload preserves both
+  empty and populated openings.
 - [ ] “Покажи последние десять” and a text search return the real bounded D1 data,
   after which conversational subset practice uses saved meanings.
 - [ ] Examples, context change, reverse-translation exercise, and answer feedback
@@ -122,6 +125,8 @@ full lint reports zero errors and two warnings in generated
 - [ ] A bounded live response with tool use works through the configured local or
   preview provider, and logs/network data expose no key, hidden prompt, private
   vocabulary, tool arguments, or results.
+- [x] A real published follow-up maps the observed OpenRouter usage-limit response
+  to the dedicated safe UI error without exposing provider internals.
 - [ ] Desktop and narrow viewport retain usable chat list, timeline, composer,
   loading/error, send, and retry states.
 

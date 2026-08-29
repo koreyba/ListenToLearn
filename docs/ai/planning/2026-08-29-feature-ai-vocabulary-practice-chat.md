@@ -73,6 +73,9 @@ not claimed. Authenticated live-provider smoke remains open.
 - [ ] **P12 · Authenticated manual smoke** — deterministic latest five, request
   latest ten, search/select/practise, explicit add/add-meaning/update-meaning,
   ambiguous-write denial, unchanged active statuses, retry/replay, and reload.
+  Partial evidence: branch-preview New Chat creation and the deterministic opening
+  with all available latest vocabulary passed. The provider-backed continuation is
+  blocked by the observed OpenRouter usage limit before tool execution.
 - [x] **P13 · Final review refresh** — ownership, current-turn authorization, prompt data,
   status invariants, attempt fencing, receipt conflicts, logging/privacy,
   accessibility, responsive shell, and intended diff.

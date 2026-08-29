@@ -220,7 +220,10 @@ outside AI generation, so it cannot consume the generation invocation's D1 budge
 Fresh verification on 2026-08-29 passes: production build plus 466/466 repository
 tests, typecheck, Drizzle schema check, lifecycle lint, diff check, and full lint
 with zero errors (two generated-file warnings). Final current-diff review found no
-unresolved code issue. Authenticated live-provider smoke remains open. Preview
+unresolved code issue. Authenticated branch-preview New Chat creation and its
+deterministic latest-vocabulary opening are confirmed. The subsequent live request
+returned the dedicated OpenRouter usage-limit response before tool execution, so
+authenticated live-provider tool smoke remains open. Preview
 already contains an older applied form of migration 0017; the corrected 0017 still
 requires an explicit preview re-baseline/acceptance decision before production,
 and preview application of 0019 is not yet claimed.

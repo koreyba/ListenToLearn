@@ -179,8 +179,10 @@ never copied into usage storage or the browser stream.
 Fresh verification on 2026-08-29 passes: production build plus 466/466 repository
 tests, typecheck, full lint with zero errors and two generated-file warnings,
 Drizzle check, lifecycle lint, and diff check. Current-diff review found no
-unresolved code issue. Live authenticated OpenRouter tool behavior remains
-unproven for this revision.
+unresolved code issue. Authenticated branch-preview New Chat creation returned the
+deterministic latest-vocabulary opening. A real continuation returned the stable
+OpenRouter usage-limit error before tool execution, so live authenticated tool
+behavior remains unproven for this revision.
 
 The branch has a PR preview, but its already-applied 0017 is older than the corrected
 file in this revision; preview re-baseline or an accepted forward migration is

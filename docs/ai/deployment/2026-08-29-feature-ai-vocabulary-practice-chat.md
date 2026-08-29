@@ -13,8 +13,10 @@ preflight previously found no owner-custom ASCII-`NOCASE` duplicates. Preview ha
 an older applied 0017 and 0018, and the three 0018 trace tables were read back. The
 corrected 0017 has not been validated there, and preview application of 0019 is not
 claimed. No production code deploy, production migration, or production secret
-change is claimed. The previous live model smoke belongs to the superseded UI-heavy
-slice and does not validate current tool execution.
+change is claimed. An authenticated branch-preview New Chat check now confirms the
+deterministic opening with all available latest vocabulary and saved translations.
+A real follow-up reached the published backend but OpenRouter rejected it at the
+usage limit before tool execution, so live provider-tool behavior remains unproven.
 
 ## Configuration
 
@@ -57,7 +59,9 @@ the per-chat pending-attempt index, and the unique receipt key before code rollo
 - [ ] Preview migration 0019 is applied and its per-chat index verified.
 - [ ] Production model, spend/rate limits, alerts, retention, and rotation owner are
   approved.
-- [ ] Authenticated preview smoke covers latest/read/search/write denial,
+- [x] Authenticated preview smoke covers deterministic New Chat creation and its
+  latest-vocabulary opening without a provider call.
+- [ ] Authenticated preview smoke covers provider-backed latest/read/search/write denial,
   add/add-meaning/update, status invariants, interruption/replay, and reload.
 - [ ] Production deployment and remote production migrations receive explicit
   authorization.

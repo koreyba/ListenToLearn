@@ -20,6 +20,12 @@ function aiChatMigrationName() {
   return matches[0];
 }
 
+function vocabularyUniquenessMigrationName() {
+  const matches = migrationNames().filter((name) => name.startsWith("0017_"));
+  assert.equal(matches.length, 1, "exactly one append-only 0017 migration is required");
+  return matches[0];
+}
+
 function applyMigration(db, name) {
   db.exec(readFileSync(join(migrationsDir, name), "utf8"));
 }
@@ -72,7 +78,7 @@ test("0016 is append-only and applies on a fresh database", () => {
 test("0016 preserves existing vocabulary, progress, examples, and videos", () => {
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
-  for (const migration of migrationNames().filter((name) => !name.startsWith("0016_"))) {
+  for (const migration of migrationNames().filter((migration) => migration < aiChatMigrationName())) {
     applyMigration(db, migration);
   }
 
@@ -110,6 +116,139 @@ test("0016 preserves existing vocabulary, progress, examples, and videos", () =>
   assert.equal(db.prepare("SELECT count(*) AS count FROM phrase_progress").get().count, 1);
   assert.equal(db.prepare("SELECT count(*) AS count FROM phrase_examples").get().count, 1);
   assert.equal(db.prepare("SELECT count(*) AS count FROM saved_videos").get().count, 1);
+});
+
+test("0017 prevents case-insensitive custom duplicates per owner only", () => {
+  const name = vocabularyUniquenessMigrationName();
+  const sql = readFileSync(join(migrationsDir, name), "utf8");
+  assert.match(sql, /CREATE UNIQUE INDEX `idx_phrases_custom_owner_text_nocase`/i);
+  assert.match(sql, /WHERE .*source_type.*custom.*owner_id.*IS NOT NULL/i);
+
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  for (const migration of migrationNames()) applyMigration(db, migration);
+  db.exec(`
+    INSERT INTO users (id, email, display_name, created_at, updated_at) VALUES
+      ('user-1', '', '', 'now', 'now'),
+      ('user-2', '', '', 'now', 'now');
+    INSERT INTO phrases (
+      id, text, pattern, source_type, owner_id, status, created_at, updated_at
+    ) VALUES
+      ('uniqueness-custom-1', 'Serendipity', '', 'custom', 'user-1', 'pick', 'now', 'now'),
+      ('uniqueness-custom-2', 'serendipity', '', 'custom', 'user-2', 'pick', 'now', 'now'),
+      ('uniqueness-preset-1', 'SERENDIPITY', '', 'preset', NULL, 'pick', 'now', 'now');
+  `);
+  assert.throws(() => db.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, source_type, owner_id, status, created_at, updated_at
+    ) VALUES ('uniqueness-custom-duplicate', 'SERENDIPITY', '', 'custom', 'user-1', 'pick', 'now', 'now');
+  `), /UNIQUE constraint failed/);
+});
+
+test("0017 merges historical duplicates without losing learner-owned references", () => {
+  const name = vocabularyUniquenessMigrationName();
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  for (const migration of migrationNames().filter((migration) => migration !== name)) {
+    applyMigration(db, migration);
+  }
+  db.exec(`
+    INSERT INTO users (id, email, display_name, created_at, updated_at)
+    VALUES ('user-1', '', '', 'now', 'now');
+    INSERT INTO phrases (
+      id, text, pattern, translation, context, source_type, owner_id, status, created_at, updated_at
+    ) VALUES
+      ('historical-1', 'Run', '', '', '', 'custom', 'user-1', 'pick',
+       '2026-08-29T10:00:00Z', '2026-08-29T10:00:00Z'),
+      ('historical-2', 'run', '', 'бежать', 'run daily', 'custom', 'user-1', 'pick',
+       '2026-08-29T10:01:00Z', '2026-08-29T10:03:00Z');
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at) VALUES
+      ('user-1', 'historical-1', 'to_learn', '2026-08-29T10:00:00Z', '2026-08-29T10:01:00Z'),
+      ('user-1', 'historical-2', 'learning_now', '2026-08-29T10:01:00Z', '2026-08-29T10:02:00Z');
+    INSERT INTO phrase_examples (
+      id, user_id, phrase_id, provider, external_id, query, caption, accent, metadata, created_at
+    ) VALUES (
+      'example-duplicate', 'user-1', 'historical-2', 'youtube', 'video:1', 'run',
+      'I run daily.', '', '{}', '2026-08-29T10:01:00Z'
+    );
+    INSERT INTO saved_videos (
+      id, user_id, youtube_video_id, origin_phrase_id, created_at, updated_at
+    ) VALUES (
+      'saved-duplicate', 'user-1', 'video', 'historical-2',
+      '2026-08-29T10:01:00Z', '2026-08-29T10:01:00Z'
+    );
+    INSERT INTO phrase_meanings (
+      id, user_id, phrase_id, translation, normalized_translation, context, created_at, updated_at
+    ) VALUES
+      ('meaning-canonical', 'user-1', 'historical-1', 'бежать', 'бежать', '',
+       '2026-08-29T10:00:00Z', '2026-08-29T10:00:00Z'),
+      ('meaning-duplicate', 'user-1', 'historical-2', 'Бежать', 'бежать', 'run daily',
+       '2026-08-29T10:01:00Z', '2026-08-29T10:01:00Z'),
+      ('meaning-unique', 'user-1', 'historical-2', 'управлять', 'управлять', 'run a company',
+       '2026-08-29T10:02:00Z', '2026-08-29T10:02:00Z');
+    INSERT INTO ai_chats (id, user_id, title, explanation_language, created_at, updated_at)
+    VALUES ('chat-duplicate', 'user-1', '', 'ru', 'now', 'now');
+    INSERT INTO ai_chat_practice_items (
+      id, chat_id, phrase_id, text_snapshot, meaning_mode, selected_meaning_id,
+      selected_meaning_snapshot, created_at, updated_at
+    ) VALUES (
+      'item-duplicate', 'chat-duplicate', 'historical-2', 'run', 'selected',
+      'meaning-duplicate', 'Бежать', 'now', 'now'
+    );
+  `);
+
+  applyMigration(db, name);
+
+  assert.deepEqual({ ...db.prepare(`
+    SELECT id, text, translation, context
+    FROM phrases WHERE owner_id = 'user-1'
+  `).get() }, {
+    id: "historical-1",
+    text: "Run",
+    translation: "бежать",
+    context: "run daily",
+  });
+  assert.deepEqual({ ...db.prepare(`
+    SELECT phrase_id, status, created_at, updated_at
+    FROM phrase_progress WHERE user_id = 'user-1'
+  `).get() }, {
+    phrase_id: "historical-1",
+    status: "learning_now",
+    created_at: "2026-08-29T10:00:00Z",
+    updated_at: "2026-08-29T10:02:00Z",
+  });
+  assert.equal(
+    db.prepare("SELECT phrase_id FROM phrase_examples WHERE id = 'example-duplicate'").get().phrase_id,
+    "historical-1",
+  );
+  assert.equal(
+    db.prepare("SELECT origin_phrase_id FROM saved_videos WHERE id = 'saved-duplicate'").get().origin_phrase_id,
+    "historical-1",
+  );
+  assert.deepEqual(db.prepare(`
+    SELECT id, phrase_id FROM phrase_meanings ORDER BY id
+  `).all().map((row) => ({ ...row })), [{
+    id: "meaning-canonical",
+    phrase_id: "historical-1",
+  }, {
+    id: "meaning-unique",
+    phrase_id: "historical-1",
+  }]);
+  assert.deepEqual({ ...db.prepare(`
+    SELECT phrase_id, selected_meaning_id
+    FROM ai_chat_practice_items WHERE id = 'item-duplicate'
+  `).get() }, {
+    phrase_id: "historical-1",
+    selected_meaning_id: "meaning-canonical",
+  });
+  assert.equal(
+    db.prepare(`
+      SELECT count(*) AS count
+      FROM sqlite_master
+      WHERE type = 'index' AND name = 'idx_phrases_custom_owner_text_nocase'
+    `).get().count,
+    1,
+  );
 });
 
 test("0016 foreign keys cascade owned chat data and retain practice snapshots", () => {

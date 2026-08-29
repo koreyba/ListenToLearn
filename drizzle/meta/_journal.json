@@ -120,6 +120,20 @@
       "when": 1787998701660,
       "tag": "0016_secret_the_renegades",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1788017408289,
+      "tag": "0017_abandoned_molecule_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1788019857012,
+      "tag": "0018_jittery_the_liberteens",
+      "breakpoints": true
     }
   ]
 }

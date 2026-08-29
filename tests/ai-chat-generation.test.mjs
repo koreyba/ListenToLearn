@@ -24,6 +24,9 @@ function createHarness() {
       timeoutMs: 20_000,
       maxOutputTokens: 800,
     },
+    tools: {
+      get_recent_vocabulary: { description: "read vocabulary" },
+    },
     abortSignal,
     repository: {
       completePendingAssistant: async (completion) => {
@@ -69,8 +72,11 @@ test("generation streams only canonical server prompt with a stable assistant id
       "onAbort",
       "onEnd",
       "onError",
+      "prepareStep",
+      "stopWhen",
       "system",
       "timeout",
+      "tools",
     ],
   );
   assert.deepEqual(
@@ -82,6 +88,7 @@ test("generation streams only canonical server prompt with a stable assistant id
       timeout: harness.calls.streamText.timeout,
       maxRetries: harness.calls.streamText.maxRetries,
       abortSignal: harness.calls.streamText.abortSignal,
+      tools: harness.calls.streamText.tools,
     },
     {
       model: harness.model,
@@ -91,8 +98,15 @@ test("generation streams only canonical server prompt with a stable assistant id
       timeout: 20_000,
       maxRetries: 0,
       abortSignal: harness.input.abortSignal,
+      tools: harness.input.tools,
     },
   );
+  assert.equal(typeof harness.calls.streamText.stopWhen, "function");
+  assert.deepEqual(harness.calls.streamText.prepareStep({ stepNumber: 3 }), undefined);
+  assert.deepEqual(harness.calls.streamText.prepareStep({ stepNumber: 4 }), {
+    activeTools: [],
+    toolChoice: "none",
+  });
   assert.equal(harness.calls.toUIMessageStream.stream, harness.providerStream);
   assert.equal(harness.calls.toUIMessageStream.generateMessageId(), "assistant-stable-id");
   assert.equal(

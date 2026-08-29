@@ -1,51 +1,68 @@
 ---
 phase: deployment
 title: AI Vocabulary Practice Chat Deployment
-description: Release gates, configuration, migration, and rollback for the implemented slice
+description: Unexecuted rollout plan for chat tools, uniqueness, attempts, and receipts
 ---
 
 # AI Vocabulary Practice Chat Deployment
 
 ## Current State
 
-The feature has been exercised only in the isolated local worktree with local D1
-and a bounded OpenRouter preset. It has not been deployed, no remote migration has
-been applied, and no provider secret has been committed or published by this work.
+This revision is local worktree code. A read-only preview D1 preflight found no
+owner-custom ASCII-`NOCASE` duplicates, but migrations 0017/0018 remain pending.
+No preview/production code deploy, production migration, or secret change is
+claimed. The previous live model smoke belongs to the superseded UI-heavy slice and
+does not validate current tool execution.
 
 ## Configuration
 
-- `OPENROUTER_API_KEY`: server-side Cloudflare Worker secret.
-- `OPENROUTER_MODEL`: server-side non-secret model or preset identifier.
-- Local development may use ignored `.dev.vars`; deployed credentials must use the
-  existing Worker secret mechanism. Neither value may enter browser bundles, D1,
-  logs, URLs, or committed files.
+- `OPENROUTER_API_KEY`: Cloudflare Worker secret, never a committed var.
+- `OPENROUTER_MODEL`: server-side model/preset configuration.
+- Local `.dev.vars*` remains ignored. Secrets must not enter browser bundles, D1,
+  trace tables, URLs, public errors, or logs.
 
-Missing configuration intentionally leaves saved chat history available while
-generation returns `not_configured`.
+Missing provider configuration preserves chats and returns `not_configured` before
+paid inference.
+
+## Migration Plan
+
+Apply migrations in order after a normal backup/checkpoint:
+
+1. `0016`: chat, targets, messages, and personal meanings.
+2. `0017`: choose the earliest per-owner ASCII-`NOCASE` custom phrase as canonical;
+   merge historical duplicates and transfer progress, meanings, examples, saved
+   video origins, and chat phrase/selected-meaning references before creating the
+   unique index. Unicode case variants intentionally remain distinct.
+3. `0018`: assistant attempts, tool-call ledger, and mutation receipts.
+
+The migration-file sequence remains append-only; 0017 intentionally rewrites only
+historical duplicate data and its references. Verify fresh and upgraded D1 paths,
+foreign keys, partial one-pending-attempt index, and unique receipt key before code
+rollout.
 
 ## Release Gates
 
-- [x] Targeted and full repository tests pass locally.
-- [x] Full lint and production build pass.
-- [x] Real local OpenRouter preset smoke and local D1 reload were completed.
-- [x] Final security/privacy/regression review is complete.
-- [ ] Production model/preset, spend monitoring, and rotation owner are approved.
-- [ ] Deployment and remote migration are explicitly authorized.
+- [x] Full repository suite and production build pass 439/439 locally.
+- [x] Typecheck and lifecycle lint pass on the current snapshot.
+- [x] Full lint passes with zero errors and two generated-file warnings.
+- [ ] Final review passes on the exact release diff.
+- [x] Preview D1 duplicate preflight is clean.
+- [ ] Preview migrations 0017/0018 and the remote rollout plan are approved and
+  executed in order.
+- [ ] Production model, spend/rate limits, alerts, retention, and rotation owner are
+  approved.
+- [ ] Authenticated preview smoke covers latest/read/search/write denial,
+  add/add-meaning/update, status invariants, interruption/replay, and reload.
+- [ ] Deployment and remote migrations receive explicit authorization.
 
-## Release Sequence
+## Rollout and Rollback
 
-1. Take the normal D1 backup/checkpoint and apply append-only migration 0016 before
-   serving code that reads the new tables.
-2. Provision `OPENROUTER_API_KEY` as a Worker secret and
-   `OPENROUTER_MODEL` as server configuration.
-3. Deploy through the existing Worker pipeline; Vercel hosting is not required.
-4. Run an authenticated smoke: create/open chat, saved plus ad-hoc targets, one
-   bounded response, reload, translation fallback, and explicit vocabulary actions.
-5. Confirm safe error/latency/token telemetry without content or credentials.
+Deploy through the existing Worker pipeline; Vercel hosting is not required.
+Observe attempt/tool/receipt error and spend signals during a limited authenticated
+preview before production. Migration application must stop before code upload on
+any error, then verify the expected schema/indexes before continuing.
 
-## Rollback
-
-On unsafe auth isolation, migration, errors, latency, or spend, disable generation
-configuration and roll back the Worker code. History remains readable when AI is
-unconfigured. Migration 0016 is additive: retain its tables/data rather than run a
-destructive down migration. Rotate the provider key if exposure is suspected.
+On unsafe ownership, write authorization/CAS, status change, receipt conflict, error
+rate, latency, or spend, disable provider configuration and roll back Worker code.
+Chats remain readable while generation is disabled. Keep additive migration data;
+do not run destructive down migrations. Rotate the key on suspected exposure.

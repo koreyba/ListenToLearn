@@ -70,3 +70,20 @@ test("stored practice context restores as validated prompt targets", () => {
     assert.equal(contextModule.readAiChatPracticeContext(corrupt), null);
   }
 });
+
+test("new practice snapshots stay within the provider target-data budget", () => {
+  const maximumItems = Array.from({ length: 12 }, (_, targetIndex) => ({
+    text: `${targetIndex}-${"w".repeat(300)}`,
+    meaningMode: "all_saved",
+    selectedMeaning: null,
+    knownMeanings: Array.from({ length: 12 }, (_, meaningIndex) => ({
+      translation: `${meaningIndex}-${"т".repeat(1_000)}`,
+      context: "c".repeat(1_000),
+    })),
+  }));
+
+  const snapshot = contextModule.createAiChatPracticeContext(maximumItems);
+  assert.ok(JSON.stringify({ targets: snapshot }, null, 2).length <= 48_000);
+  assert.ok([...snapshot[0].knownMeanings[0].translation].length <= 100);
+  assert.ok([...snapshot[0].knownMeanings[0].context].length <= 160);
+});

@@ -463,11 +463,6 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     window.location.assign(`/trainer?${query.toString()}`);
   }
 
-  function openAiPractice(phrase: Phrase) {
-    const query = new URLSearchParams({ phrase: phrase.text, phraseId: phrase.id });
-    window.location.assign(`/chat?${query.toString()}`);
-  }
-
   function resetGuest() {
     if (!window.confirm("Clear all guest progress in this browser?")) return;
     persistGuestState(createGuestLibrary());
@@ -660,7 +655,6 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                   <PracticeAction onClick={() => openPhrase(phrase)} />
                 </div>
                 <div className="card-actions">
-                  <button className="secondary" onClick={() => openAiPractice(phrase)} type="button">Practice with AI</button>
                   {phrase.status === "pick" && <button className={surface === "library" ? "save-action" : undefined} disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "to_learn")} type="button">Add to Learn</button>}
                   {phrase.status === "to_learn" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Move to Learning Now</button>}
                   {phrase.status === "learning_now" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learnt")} type="button">Mark as Learned</button>}

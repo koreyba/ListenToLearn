@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const repositoryModule = await import("../lib/ai-chat/repository.ts").catch(() => ({}));
+const vocabularyModule = await import("../lib/vocabulary/repository.ts").catch(() => ({}));
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 class SQLiteD1Statement {
@@ -52,6 +53,7 @@ class SQLiteD1Statement {
 class SQLiteD1Database {
   constructor(database) {
     this.database = database;
+    this.throwAfterNextBatchCommit = false;
   }
 
   prepare(sql) {
@@ -60,14 +62,19 @@ class SQLiteD1Database {
 
   async batch(statements) {
     this.database.exec("BEGIN IMMEDIATE");
+    let results;
     try {
-      const results = statements.map((statement) => statement.execute());
+      results = statements.map((statement) => statement.execute());
       this.database.exec("COMMIT");
-      return results;
     } catch (error) {
       this.database.exec("ROLLBACK");
       throw error;
     }
+    if (this.throwAfterNextBatchCommit) {
+      this.throwAfterNextBatchCommit = false;
+      throw new Error("Simulated ambiguous response after D1 commit.");
+    }
+    return results;
   }
 }
 
@@ -105,14 +112,14 @@ function createFixture() {
 
   let id = 0;
   let milliseconds = Date.parse("2026-08-29T11:00:00.000Z");
-  const repository = repositoryModule.createAiChatRepository(
-    new SQLiteD1Database(sqlite),
-    {
-      createId: (kind) => `${kind}-${++id}`,
-      now: () => new Date(milliseconds++).toISOString(),
-    },
-  );
-  return { repository, sqlite };
+  const database = new SQLiteD1Database(sqlite);
+  const options = {
+    createId: (kind) => `${kind}-${++id}`,
+    now: () => new Date(milliseconds++).toISOString(),
+  };
+  const repository = repositoryModule.createAiChatRepository(database, options);
+  const vocabulary = vocabularyModule.createVocabularyRepository(database, options);
+  return { database, repository, sqlite, vocabulary };
 }
 
 function hasCode(code) {
@@ -120,9 +127,9 @@ function hasCode(code) {
 }
 
 test("meaning fallback and personal meanings stay owner-scoped and status-neutral", async () => {
-  const { repository, sqlite } = createFixture();
+  const { vocabulary, sqlite } = createFixture();
 
-  assert.deepEqual(await repository.listMeanings("user-a", "phrase-shared"), {
+  assert.deepEqual(await vocabulary.listMeanings("user-a", "phrase-shared"), {
     phraseId: "phrase-shared",
     text: "run",
     meanings: [{
@@ -133,38 +140,253 @@ test("meaning fallback and personal meanings stay owner-scoped and status-neutra
     }],
   });
 
-  const created = await repository.addMeaning("user-a", {
+  const created = await vocabulary.addMeaning("user-a", {
     phraseId: "phrase-shared",
     translation: "управлять",
     context: "run a company",
   });
-  const deduped = await repository.addMeaning("user-a", {
+  const deduped = await vocabulary.addMeaning("user-a", {
     phraseId: "phrase-shared",
     translation: "  УПРАВЛЯТЬ  ",
     context: "run an organization",
   });
+  const preserved = await vocabulary.addMeaning("user-a", {
+    phraseId: "phrase-shared",
+    translation: "управлять",
+  });
   assert.equal(deduped.id, created.id);
+  assert.equal(preserved.context, "run an organization");
   assert.equal(sqlite.prepare("SELECT count(*) AS count FROM phrase_meanings").get().count, 1);
   assert.equal(
     sqlite.prepare("SELECT status FROM phrase_progress WHERE user_id = 'user-a' AND phrase_id = 'phrase-shared'").get().status,
     "learned",
   );
 
-  const owned = await repository.listMeanings("user-a", "phrase-shared");
+  const contextOnly = await vocabulary.addEntry("user-a", {
+    text: "edge case",
+    context: "an existing context",
+  });
+  const filledLater = await vocabulary.addEntry("user-a", {
+    text: "edge case",
+    translation: "пограничный случай",
+  });
+  assert.equal(filledLater.entry.phraseId, contextOnly.entry.phraseId);
+  assert.equal(filledLater.entry.meanings[0].context, "an existing context");
+
+  const owned = await vocabulary.listMeanings("user-a", "phrase-shared");
   assert.deepEqual(owned.meanings.map(({ source, translation, context }) => ({ source, translation, context })), [
     { source: "legacy", translation: "бежать", context: "run every morning" },
-    { source: "personal", translation: "УПРАВЛЯТЬ", context: "run an organization" },
+    { source: "personal", translation: "управлять", context: "run an organization" },
   ]);
-  assert.equal((await repository.listMeanings("user-b", "phrase-shared")).meanings.length, 1);
+  assert.equal((await vocabulary.listMeanings("user-b", "phrase-shared")).meanings.length, 1);
   await assert.rejects(
-    repository.addMeaning("user-a", {
+    vocabulary.addMeaning("user-a", {
       phraseId: "phrase-b",
       translation: "уйти",
       context: "",
     }),
     hasCode("not_found"),
   );
-  assert.equal(await repository.listMeanings("user-a", "phrase-b"), null);
+  assert.equal(await vocabulary.listMeanings("user-a", "phrase-b"), null);
+});
+
+test("recent and searched vocabulary stay owner-scoped and include saved meanings", async () => {
+  const { vocabulary, sqlite } = createFixture();
+  sqlite.exec(`
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
+    VALUES ('user-a', 'phrase-a', 'to_learn',
+      '2026-08-29T10:30:00.000Z', '2026-08-29T10:30:00.000Z');
+  `);
+  await vocabulary.addMeaning("user-a", {
+    phraseId: "phrase-shared",
+    translation: "управлять",
+    context: "run a company",
+  });
+
+  const recent = await vocabulary.listRecent("user-a", 2);
+  assert.deepEqual(recent.map(({ text, status }) => ({ text, status })), [
+    { text: "figure out", status: "to_learn" },
+    { text: "run", status: "learned" },
+  ]);
+  assert.deepEqual(recent[1].meanings.map(({ translation }) => translation), [
+    "бежать",
+    "управлять",
+  ]);
+
+  const searched = await vocabulary.search("user-a", "RUN", 5);
+  assert.deepEqual(searched.map(({ phraseId, text }) => ({ phraseId, text })), [
+    { phraseId: "phrase-shared", text: "run" },
+  ]);
+  assert.deepEqual(
+    (await vocabulary.search("user-a", "управлять", 5)).map(({ phraseId, text }) => ({
+      phraseId,
+      text,
+    })),
+    [{ phraseId: "phrase-shared", text: "run" }],
+  );
+  assert.deepEqual(
+    (await vocabulary.search("user-a", "разобраться", 5)).map(({ phraseId, text }) => ({
+      phraseId,
+      text,
+    })),
+    [{ phraseId: "phrase-a", text: "figure out" }],
+  );
+  assert.equal((await vocabulary.search("user-b", "управлять", 5)).length, 0);
+  assert.equal((await vocabulary.search("user-a", "get away", 5)).length, 0);
+});
+
+test("vocabulary search rejects LIKE patterns above 50 UTF-8 bytes after escaping", async () => {
+  assert.equal(typeof vocabularyModule.createVocabularySearchPattern, "function");
+  assert.deepEqual(vocabularyModule.createVocabularySearchPattern(`  ${"%".repeat(24)}  `), {
+    query: "%".repeat(24),
+    normalizedQuery: "%".repeat(24),
+    pattern: `%${"\\%".repeat(24)}%`,
+  });
+  assert.equal(
+    new TextEncoder().encode(vocabularyModule.createVocabularySearchPattern("\ud83d\ude80".repeat(12)).pattern).byteLength,
+    50,
+  );
+  assert.equal(vocabularyModule.createVocabularySearchPattern("%".repeat(25)), null);
+  assert.equal(vocabularyModule.createVocabularySearchPattern("％".repeat(25)), null);
+  assert.equal(vocabularyModule.createVocabularySearchPattern("\ud83d\ude80".repeat(13)), null);
+
+  const { vocabulary } = createFixture();
+  assert.deepEqual(await vocabulary.search("user-a", "%".repeat(25), 5), []);
+  assert.deepEqual(await vocabulary.search("user-a", "\ud83d\ude80".repeat(13), 5), []);
+});
+
+test("provider-facing vocabulary reads bound meanings at the D1 query", async () => {
+  const { vocabulary } = createFixture();
+  for (let index = 0; index < 12; index += 1) {
+    await vocabulary.addMeaning("user-a", {
+      phraseId: "phrase-shared",
+      translation: `значение ${index}`,
+      context: `context ${index}`,
+    });
+  }
+
+  const [entry] = await vocabulary.listRecent("user-a", 1);
+  assert.equal(entry.meaningCount, 13);
+  assert.equal(entry.meanings.length, 8);
+  assert.equal(entry.meanings[0].source, "legacy");
+  assert.equal(entry.meanings.filter(({ source }) => source === "personal").length, 7);
+});
+
+test("agent vocabulary writes are idempotent, owner-scoped, and status-safe", async () => {
+  const { vocabulary, sqlite } = createFixture();
+
+  const first = await vocabulary.addEntry("user-a", {
+    text: "serendipity",
+    translation: "счастливая случайность",
+    context: "a lucky discovery",
+  });
+  const duplicate = await vocabulary.addEntry("user-a", {
+    text: "  SERENDIPITY  ",
+    translation: "счастливая случайность",
+    context: "a lucky discovery",
+  });
+  assert.equal(first.created, true);
+  assert.equal(duplicate.created, false);
+  assert.equal(duplicate.entry.phraseId, first.entry.phraseId);
+  assert.equal(duplicate.entry.status, "to_learn");
+  assert.deepEqual(duplicate.entry.meanings.map(({ translation }) => translation), [
+    "счастливая случайность",
+  ]);
+  assert.equal(
+    sqlite.prepare("SELECT count(*) AS count FROM phrases WHERE text = 'serendipity' COLLATE NOCASE").get().count,
+    1,
+  );
+
+  const existing = await vocabulary.addEntry("user-a", {
+    text: "run",
+    translation: "управлять",
+    context: "run a company",
+  });
+  assert.equal(existing.created, false);
+  assert.equal(existing.entry.status, "learned");
+  assert.deepEqual(existing.entry.meanings.map(({ translation }) => translation), [
+    "бежать",
+    "управлять",
+  ]);
+  assert.equal(
+    sqlite.prepare("SELECT status FROM phrase_progress WHERE user_id = 'user-a' AND phrase_id = 'phrase-shared'").get().status,
+    "learned",
+  );
+
+  const personal = existing.entry.meanings.find(({ source }) => source === "personal");
+  assert.equal(
+    (await vocabulary.getEntryForMeaning("user-a", personal.id)).phraseId,
+    "phrase-shared",
+  );
+  assert.equal(await vocabulary.getEntryForMeaning("user-b", personal.id), null);
+  assert.equal(await vocabulary.getEntryForMeaning("user-a", "legacy"), null);
+  const updated = await vocabulary.updateMeaning("user-a", {
+    meaningId: personal.id,
+    phraseId: "phrase-shared",
+    expectedTranslation: "управлять",
+    expectedContext: "run a company",
+    translation: "руководить",
+    context: "run an organisation",
+  });
+  assert.deepEqual(
+    { id: updated.id, translation: updated.translation, context: updated.context },
+    { id: personal.id, translation: "руководить", context: "run an organisation" },
+  );
+  const preservedUpdate = await vocabulary.updateMeaning("user-a", {
+    meaningId: personal.id,
+    phraseId: "phrase-shared",
+    expectedTranslation: "руководить",
+    expectedContext: "run an organisation",
+    translation: "руководить организацией",
+  });
+  assert.equal(preservedUpdate.context, "run an organisation");
+  await assert.rejects(
+    vocabulary.updateMeaning("user-b", {
+      meaningId: personal.id,
+      phraseId: "phrase-shared",
+      expectedTranslation: "руководить организацией",
+      expectedContext: "run an organisation",
+      translation: "работать",
+      context: "a machine runs",
+    }),
+    hasCode("not_found"),
+  );
+
+  await assert.rejects(
+    vocabulary.updateMeaning("user-a", {
+      meaningId: personal.id,
+      phraseId: "phrase-shared",
+      expectedTranslation: "руководить",
+      expectedContext: "run an organisation",
+      translation: "вести",
+    }),
+    hasCode("conflict"),
+  );
+});
+
+test("concurrent agent retries converge on one custom vocabulary entry", async () => {
+  const { vocabulary, sqlite } = createFixture();
+
+  const [first, second] = await Promise.all([
+    vocabulary.addEntry("user-a", {
+      text: "concurrency",
+      translation: "конкурентность",
+    }),
+    vocabulary.addEntry("user-a", {
+      text: "CONCURRENCY",
+      translation: "конкурентность",
+    }),
+  ]);
+
+  assert.equal(first.entry.phraseId, second.entry.phraseId);
+  assert.equal(
+    sqlite.prepare(`
+      SELECT count(*) AS count
+      FROM phrases
+      WHERE owner_id = 'user-a' AND text = 'concurrency' COLLATE NOCASE
+    `).get().count,
+    1,
+  );
 });
 
 test("create, list, and get expose only owned chats with empty or multiple targets", async () => {
@@ -202,14 +424,40 @@ test("create, list, and get expose only owned chats with empty or multiple targe
   assert.equal((await repository.getChat("user-a", initialized.id)).messages.length, 0);
 });
 
+test("chat creation can persist a deterministic assistant opening without a model turn", async () => {
+  const { repository } = createFixture();
+  const chat = await repository.createChat("user-a", {
+    openingMessage: "Последние 1 добавленных слов и фраз:\n\n1. run — бежать",
+  });
+
+  assert.equal(chat.messageCount, 1);
+  assert.deepEqual(chat.messages.map((message) => ({
+    role: message.role,
+    sequence: message.sequence,
+    content: message.content,
+    status: message.status,
+    practiceContext: message.practiceContext,
+    provider: message.provider,
+    model: message.model,
+  })), [{
+    role: "assistant",
+    sequence: 1,
+    content: "Последние 1 добавленных слов и фраз:\n\n1. run — бежать",
+    status: "complete",
+    practiceContext: [],
+    provider: null,
+    model: null,
+  }]);
+});
+
 test("replacing current targets validates visibility, ownership, limits, and snapshots before mutation", async () => {
-  const { repository, sqlite } = createFixture();
-  const selected = await repository.addMeaning("user-a", {
+  const { repository, sqlite, vocabulary } = createFixture();
+  const selected = await vocabulary.addMeaning("user-a", {
     phraseId: "phrase-shared",
     translation: "управлять",
     context: "run a company",
   });
-  const foreignMeaning = await repository.addMeaning("user-b", {
+  const foreignMeaning = await vocabulary.addMeaning("user-b", {
     phraseId: "phrase-shared",
     translation: "работать",
     context: "a machine runs",
@@ -338,7 +586,7 @@ test("canonical history is ordered, bounded, and excludes unfinished assistant r
     practiceContext: [{ text: "run", meaningMode: "all_saved" }],
   });
   await repository.finishTurn("user-a", chat.id, "turn-1", {
-    attemptUpdatedAt: firstTurn.assistant.updatedAt,
+    attemptId: firstTurn.attempt.id,
     content: "I run every morning.",
     provider: "openrouter",
     model: "test/model",
@@ -354,7 +602,7 @@ test("canonical history is ordered, bounded, and excludes unfinished assistant r
     chat.id,
     "turn-2",
     "provider_timeout",
-    secondTurn.assistant.updatedAt,
+    secondTurn.attempt.id,
   );
   await repository.beginTurn("user-a", chat.id, {
     clientMessageId: "turn-3",
@@ -413,6 +661,8 @@ test("beginTurn atomically creates one ordered pair and reuses a client id", asy
   assert.equal(created.state, "created");
   assert.deepEqual([created.user.sequence, created.assistant.sequence], [1, 2]);
   assert.equal(created.assistant.status, "pending");
+  assert.equal(created.attempt.status, "pending");
+  assert.equal(created.attempt.attemptNumber, 1);
   const duplicate = await repository.beginTurn("user-a", chat.id, input);
   assert.equal(duplicate.state, "existing");
   assert.equal(duplicate.user.id, created.user.id);
@@ -442,6 +692,23 @@ test("beginTurn atomically creates one ordered pair and reuses a client id", asy
   );
 });
 
+test("beginTurn recovers its freshly committed turn after an ambiguous D1 response", async () => {
+  const { database, repository } = createFixture();
+  const chat = await repository.createChat("user-a");
+  database.throwAfterNextBatchCommit = true;
+
+  const recovered = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "ambiguous-create",
+    content: "Practice run.",
+    practiceContext: [],
+  });
+
+  assert.equal(recovered.state, "created");
+  assert.equal(recovered.assistant.status, "pending");
+  assert.equal(recovered.attempt.status, "pending");
+  assert.equal(recovered.attempt.attemptNumber, 1);
+});
+
 test("failed turns retain the user row and retry the same assistant to completion", async () => {
   const { repository, sqlite } = createFixture();
   const chat = await repository.createChat("user-a");
@@ -457,7 +724,7 @@ test("failed turns retain the user row and retry the same assistant to completio
     chat.id,
     "retry-me",
     "provider_timeout",
-    started.assistant.updatedAt,
+    started.attempt.id,
   );
   assert.equal(failed.assistant.status, "failed");
   assert.equal(failed.assistant.errorCode, "provider_timeout");
@@ -467,7 +734,7 @@ test("failed turns retain the user row and retry the same assistant to completio
     chat.id,
     "retry-me",
     "provider_timeout",
-    failed.assistant.updatedAt,
+    failed.attempt.id,
   );
   assert.equal(failedAgain.assistant.id, started.assistant.id);
 
@@ -476,9 +743,11 @@ test("failed turns retain the user row and retry the same assistant to completio
   assert.equal(retry.assistant.id, started.assistant.id);
   assert.equal(retry.assistant.status, "pending");
   assert.equal(retry.assistant.errorCode, null);
+  assert.equal(retry.attempt.attemptNumber, 2);
+  assert.equal(started.attempt.status, "pending");
 
   const completed = await repository.finishTurn("user-a", chat.id, "retry-me", {
-    attemptUpdatedAt: retry.assistant.updatedAt,
+    attemptId: retry.attempt.id,
     content: "I figured out the answer.",
     provider: "openrouter",
     model: "test/model",
@@ -489,7 +758,7 @@ test("failed turns retain the user row and retry the same assistant to completio
   assert.deepEqual(completed.assistant.usage, { inputTokens: 12, outputTokens: 7 });
 
   const duplicateFinish = await repository.finishTurn("user-a", chat.id, "retry-me", {
-    attemptUpdatedAt: completed.assistant.updatedAt,
+    attemptId: completed.attempt.id,
     content: "A late competing result.",
     provider: "other",
     model: "other/model",
@@ -501,7 +770,7 @@ test("failed turns retain the user row and retry the same assistant to completio
     chat.id,
     "retry-me",
     "provider_failed",
-    completed.assistant.updatedAt,
+    completed.attempt.id,
   );
   assert.equal(lateFailure.assistant.status, "complete");
   assert.equal(
@@ -511,7 +780,7 @@ test("failed turns retain the user row and retry the same assistant to completio
 
   for (const action of [
     () => repository.finishTurn("user-b", chat.id, "retry-me", {
-      attemptUpdatedAt: completed.assistant.updatedAt,
+      attemptId: completed.attempt.id,
       content: "No.", provider: "openrouter", model: "test/model", usage: null,
     }),
     () => repository.failTurn(
@@ -519,11 +788,79 @@ test("failed turns retain the user row and retry the same assistant to completio
       chat.id,
       "retry-me",
       "provider_failed",
-      completed.assistant.updatedAt,
+      completed.attempt.id,
     ),
   ]) {
     await assert.rejects(action(), hasCode("not_found"));
   }
+});
+
+test("retry recovers its freshly committed attempt after an ambiguous D1 response", async () => {
+  const { database, repository } = createFixture();
+  const chat = await repository.createChat("user-a");
+  const input = {
+    clientMessageId: "ambiguous-retry",
+    content: "Give me another sentence.",
+    practiceContext: [],
+  };
+  const started = await repository.beginTurn("user-a", chat.id, input);
+  await repository.failTurn(
+    "user-a",
+    chat.id,
+    input.clientMessageId,
+    "provider_timeout",
+    started.attempt.id,
+  );
+  database.throwAfterNextBatchCommit = true;
+
+  const recovered = await repository.beginTurn("user-a", chat.id, input);
+
+  assert.equal(recovered.state, "retrying");
+  assert.equal(recovered.assistant.id, started.assistant.id);
+  assert.equal(recovered.assistant.status, "pending");
+  assert.equal(recovered.attempt.status, "pending");
+  assert.equal(recovered.attempt.attemptNumber, 2);
+});
+
+test("expired leases fence late assistant completion and failure callbacks", async () => {
+  const { repository, sqlite } = createFixture();
+  const chat = await repository.createChat("user-a");
+  const started = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "expired-callback",
+    content: "Give me a sentence.",
+    practiceContext: [],
+  });
+  sqlite.prepare(`
+    UPDATE ai_chat_assistant_attempts
+    SET lease_expires_at = '2026-08-29T10:00:00.000Z'
+    WHERE id = ?
+  `).run(started.attempt.id);
+
+  const completion = await repository.finishTurn(
+    "user-a",
+    chat.id,
+    "expired-callback",
+    {
+      attemptId: started.attempt.id,
+      content: "A late answer.",
+      provider: "openrouter",
+      model: "late/model",
+      usage: null,
+    },
+  );
+  const failure = await repository.failTurn(
+    "user-a",
+    chat.id,
+    "expired-callback",
+    "provider_timeout",
+    started.attempt.id,
+  );
+
+  assert.equal(completion.assistant.status, "pending");
+  assert.equal(failure.assistant.status, "pending");
+  assert.equal(sqlite.prepare(`
+    SELECT status FROM ai_chat_assistant_attempts WHERE id = ?
+  `).get(started.attempt.id).status, "pending");
 });
 
 test("stale pending turns recover for retry while fresh pending turns stay single-flight", async () => {
@@ -542,6 +879,11 @@ test("stale pending turns recover for retry while fresh pending turns stay singl
     SET updated_at = '2026-08-29T10:00:00.000Z'
     WHERE id = ?
   `).run(started.assistant.id);
+  sqlite.prepare(`
+    UPDATE ai_chat_assistant_attempts
+    SET lease_expires_at = '2026-08-29T10:00:00.000Z'
+    WHERE id = ?
+  `).run(started.attempt.id);
   const recovered = await repository.beginTurn("user-a", chat.id, input);
   assert.equal(recovered.state, "retrying");
   assert.equal(recovered.assistant.id, started.assistant.id);
@@ -557,13 +899,18 @@ test("stale retry ignores terminal callbacks from the previous generation attemp
     practiceContext: [{ text: "run", meaningMode: "all_saved" }],
   };
   const started = await repository.beginTurn("user-a", chat.id, input);
-  const staleAttempt = "2026-08-29T10:00:00.000Z";
+  const staleAttemptId = started.attempt.id;
   sqlite.prepare("UPDATE ai_chat_messages SET updated_at = ? WHERE id = ?")
-    .run(staleAttempt, started.assistant.id);
+    .run("2026-08-29T10:00:00.000Z", started.assistant.id);
+  sqlite.prepare(`
+    UPDATE ai_chat_assistant_attempts
+    SET lease_expires_at = '2026-08-29T10:00:00.000Z'
+    WHERE id = ?
+  `).run(staleAttemptId);
   const recovered = await repository.beginTurn("user-a", chat.id, input);
 
   const lateCompletion = await repository.finishTurn("user-a", chat.id, "fenced-retry", {
-    attemptUpdatedAt: staleAttempt,
+    attemptId: staleAttemptId,
     content: "Late answer from the stale attempt.",
     provider: "openrouter",
     model: "stale/model",
@@ -576,12 +923,12 @@ test("stale retry ignores terminal callbacks from the previous generation attemp
     chat.id,
     "fenced-retry",
     "provider_timeout",
-    staleAttempt,
+    staleAttemptId,
   );
   assert.equal(lateFailure.assistant.status, "pending");
 
   const completed = await repository.finishTurn("user-a", chat.id, "fenced-retry", {
-    attemptUpdatedAt: recovered.assistant.updatedAt,
+    attemptId: recovered.attempt.id,
     content: "Answer from the current attempt.",
     provider: "openrouter",
     model: "current/model",
@@ -604,6 +951,11 @@ test("opening a chat marks an abandoned pending assistant retryable", async () =
     SET updated_at = '2026-08-29T10:00:00.000Z'
     WHERE id = ?
   `).run(started.assistant.id);
+  sqlite.prepare(`
+    UPDATE ai_chat_assistant_attempts
+    SET lease_expires_at = '2026-08-29T10:00:00.000Z'
+    WHERE id = ?
+  `).run(started.attempt.id);
 
   const reopened = await repository.getChat("user-a", chat.id);
   const assistant = reopened.messages.find((message) => message.role === "assistant");

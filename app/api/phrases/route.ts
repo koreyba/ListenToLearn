@@ -1,6 +1,12 @@
 import { getD1 } from "@/db";
 import { getCurrentUser, LEGACY_OWNER_EMAIL, unauthorizedResponse } from "@/lib/auth";
 import { mapPhraseRows, type CatalogJoinedRow } from "@/lib/catalog/catalog-api";
+import {
+  createVocabularyRepository,
+  VocabularyRepositoryError,
+  VOCABULARY_LEGACY_MEANING_ID,
+} from "@/lib/vocabulary/repository";
+import { createVocabularyMutationPlanner } from "@/lib/vocabulary/mutations";
 import { DeepLError, translateEnglishToRussian } from "@/lib/deepl";
 
 export const dynamic = "force-dynamic";
@@ -72,24 +78,43 @@ export async function backfillTranslations(userId: string, request: Request) {
   try {
     const db = getD1();
     const missing = await db.prepare(`
-      SELECT p.id, p.text
+      SELECT p.id, p.text, p.source_type
       FROM phrases AS p
       LEFT JOIN phrase_progress AS progress
         ON progress.phrase_id = p.id AND progress.user_id = ?
       WHERE (p.source_type = 'preset' OR p.owner_id = ?)
         AND COALESCE(progress.status, 'pick') != 'pick'
         AND p.translation = ''
+        AND NOT EXISTS (
+          SELECT 1
+          FROM phrase_meanings AS meaning
+          WHERE meaning.user_id = ? AND meaning.phrase_id = p.id
+        )
       ORDER BY p.updated_at ASC
-    `).bind(userId, userId).all<{ id: string; text: string }>();
+    `).bind(userId, userId, userId).all<{
+      id: string;
+      text: string;
+      source_type: "preset" | "custom";
+    }>();
     if (!missing.results.length) return;
 
+    const repository = createVocabularyRepository(db);
     for (let offset = 0; offset < missing.results.length; offset += 50) {
       const rows = missing.results.slice(offset, offset + 50);
       const translations = await translateEnglishToRussian(rows.map((row) => row.text), "", { request });
-      await db.batch(rows.map((row, index) =>
-        db.prepare("UPDATE phrases SET translation = ? WHERE id = ? AND translation = ''")
-          .bind(translations[index], row.id),
-      ));
+      for (const [index, row] of rows.entries()) {
+        if (row.source_type === "preset") {
+          await repository.addMeaning(userId, {
+            phraseId: row.id,
+            translation: translations[index],
+          });
+        } else {
+          await repository.addEntry(userId, {
+            text: row.text,
+            translation: translations[index],
+          });
+        }
+      }
     }
   } catch (error) {
     console.error("Phrase translation backfill failed:", error);
@@ -134,7 +159,13 @@ function containsCatalogMetadata(payload: Record<string, unknown>) {
 
 const phraseProjection = `
   SELECT
-    p.id, p.text, p.pattern, p.ipa, p.translation, p.context, p.source_type, p.catalog_order,
+    p.id, p.text, p.pattern, p.ipa,
+    COALESCE(NULLIF(p.translation, ''), fallback_meaning.translation, '') AS translation,
+    CASE
+      WHEN p.translation <> '' THEN p.context
+      ELSE COALESCE(fallback_meaning.context, p.context)
+    END AS context,
+    p.source_type, p.catalog_order,
     COALESCE(progress.status, 'pick') AS status,
     p.created_at, p.updated_at,
     analysis.kind AS analysis_kind,
@@ -148,6 +179,14 @@ const phraseProjection = `
   FROM phrases AS p
   LEFT JOIN phrase_progress AS progress
     ON progress.phrase_id = p.id AND progress.user_id = ?
+  LEFT JOIN phrase_meanings AS fallback_meaning
+    ON fallback_meaning.id = (
+      SELECT candidate.id
+      FROM phrase_meanings AS candidate
+      WHERE candidate.user_id = ? AND candidate.phrase_id = p.id
+      ORDER BY candidate.created_at, candidate.id
+      LIMIT 1
+    )
   LEFT JOIN catalog_phrase_analysis AS analysis
     ON analysis.phrase_id = p.id AND analysis.active = 1
   LEFT JOIN phrase_mechanisms AS mechanisms
@@ -165,7 +204,7 @@ export async function GET(request: Request) {
       const result = await db.prepare(`${phraseProjection}
         WHERE p.id = ? AND (p.source_type = 'preset' OR p.owner_id = ?)
         ORDER BY mechanisms.display_order
-      `).bind(user.subject, phraseId, user.subject).all<CatalogJoinedRow>();
+      `).bind(user.subject, user.subject, phraseId, user.subject).all<CatalogJoinedRow>();
       const examples = await db.prepare(`
         SELECT
           id AS example_id,
@@ -195,7 +234,7 @@ export async function GET(request: Request) {
         CASE WHEN COALESCE(progress.status, 'pick') = 'pick' THEN p.catalog_order END ASC,
         p.updated_at DESC,
         mechanisms.display_order
-    `).bind(user.subject, user.subject).all<CatalogJoinedRow>();
+    `).bind(user.subject, user.subject, user.subject).all<CatalogJoinedRow>();
     const phrases = mapPhraseRows(result.results);
     const needsBackfill = phrases.some((phrase) => phrase.status !== "pick" && !phrase.translation);
     return Response.json(
@@ -225,16 +264,31 @@ export async function POST(request: Request) {
 
     const db = getD1();
     const existing = await db.prepare(`
-      SELECT p.id, p.translation, p.context, p.source_type,
+      SELECT p.id,
+             COALESCE(NULLIF(p.translation, ''), fallback_meaning.translation, '') AS translation,
+             CASE
+               WHEN p.translation <> '' THEN p.context
+               ELSE COALESCE(fallback_meaning.context, p.context)
+             END AS context,
+             p.source_type,
              p.created_at, p.updated_at,
              COALESCE(progress.status, 'pick') AS status
       FROM phrases AS p
       LEFT JOIN phrase_progress AS progress
         ON progress.phrase_id = p.id AND progress.user_id = ?
+      LEFT JOIN phrase_meanings AS fallback_meaning
+        ON fallback_meaning.id = (
+          SELECT candidate.id
+          FROM phrase_meanings AS candidate
+          WHERE candidate.user_id = ? AND candidate.phrase_id = p.id
+          ORDER BY candidate.created_at, candidate.id
+          LIMIT 1
+        )
       WHERE p.text = ? COLLATE NOCASE
         AND (p.source_type = 'preset' OR p.owner_id = ?)
+      ORDER BY CASE WHEN p.owner_id = ? THEN 0 ELSE 1 END, p.id
       LIMIT 1
-    `).bind(user.subject, text, user.subject).first<{
+    `).bind(user.subject, user.subject, text, user.subject, user.subject).first<{
       id: string;
       translation: string;
       context: string;
@@ -243,68 +297,42 @@ export async function POST(request: Request) {
       updated_at: string;
       status: PhraseStatus;
     }>();
-    if (existing) {
-      const status = existing.status === "pick" ? "to_learn" : existing.status;
-      const translation = await optionalTranslationForPhrase(text, existing.translation || suppliedTranslation, request);
-      const nextContext = context || existing.context;
-      const now = new Date().toISOString();
-      await db.batch([
-        db.prepare(`
-          UPDATE phrases
-          SET translation = CASE WHEN translation = '' THEN ? ELSE translation END,
-              context = ?, updated_at = ?
-          WHERE id = ?
-        `).bind(translation.text, nextContext, now, existing.id),
-        db.prepare(`
-          INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?)
-          ON CONFLICT(user_id, phrase_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at
-        `).bind(user.subject, existing.id, status, now, now),
-      ]);
-      return Response.json({
-        id: existing.id,
-        status,
-        translation: translation.text,
-        context: nextContext,
-        created_at: existing.created_at,
-        updated_at: now,
-        translationPending: translation.pending,
-        created: false,
-      });
-    }
-
-    const translation = await optionalTranslationForPhrase(text, suppliedTranslation, request);
-    const id = "custom-" + crypto.randomUUID();
-    const now = new Date().toISOString();
-    await db.batch([
-      db.prepare(`
-        INSERT INTO phrases
-          (id, text, pattern, ipa, translation, context, source_type, catalog_order, owner_id, status, created_at, updated_at)
-        VALUES (?, ?, ?, '', ?, ?, 'custom', NULL, ?, 'pick', ?, ?)
-      `).bind(id, text, text, translation.text, context, user.subject, now, now),
-      db.prepare(`
-        INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
-        VALUES (?, ?, 'to_learn', ?, ?)
-      `).bind(user.subject, id, now, now),
-    ]);
-    return Response.json({
-      id,
-      sourceType: "custom",
-      analysis: null,
-      status: "to_learn",
+    const translation = await optionalTranslationForPhrase(
+      text,
+      suppliedTranslation || existing?.translation,
+      request,
+    );
+    const saved = await createVocabularyRepository(db).addEntry(user.subject, {
+      text,
       translation: translation.text,
-      context,
-      created_at: now,
-      updated_at: now,
+      ...(context ? { context } : {}),
+    });
+    const legacyMeaning = saved.entry.meanings.find(
+      (meaning) => meaning.id === VOCABULARY_LEGACY_MEANING_ID,
+    );
+    const displayMeaning = legacyMeaning || saved.entry.meanings[0];
+    return Response.json({
+      id: saved.entry.phraseId,
+      sourceType: saved.entry.sourceType,
+      analysis: null,
+      status: saved.entry.status,
+      translation: displayMeaning?.translation || "",
+      context: displayMeaning?.context || "",
+      created_at: saved.entry.addedAt,
+      updated_at: saved.entry.updatedAt,
       translationPending: translation.pending,
-      created: true,
-    }, { status: 201 });
+      created: saved.created,
+    }, { status: saved.created ? 201 : 200 });
   } catch (error) {
     if (error instanceof DeepLError) {
       return Response.json({ error: error.message }, { status: error.code === "not_configured" ? 503 : 502 });
     }
-    const message = error instanceof Error ? error.message : "Could not add the phrase.";
-    return Response.json({ error: message }, { status: 500 });
+    if (error instanceof VocabularyRepositoryError) {
+      const status = error.code === "not_found" ? 404 : error.code === "conflict" ? 409 : 400;
+      return Response.json({ error: "Could not add the phrase." }, { status });
+    }
+    console.error("Custom phrase creation failed:", error);
+    return Response.json({ error: "Could not add the phrase." }, { status: 500 });
   }
 }
 
@@ -322,25 +350,61 @@ export async function PATCH(request: Request) {
 
     const db = getD1();
     const phrase = await db.prepare(`
-      SELECT p.text, p.translation
+      SELECT
+        p.text,
+        p.translation AS legacy_translation,
+        COALESCE(NULLIF(p.translation, ''), fallback_meaning.translation, '') AS translation,
+        p.source_type
       FROM phrases AS p
+      LEFT JOIN phrase_meanings AS fallback_meaning
+        ON fallback_meaning.id = (
+          SELECT candidate.id
+          FROM phrase_meanings AS candidate
+          WHERE candidate.user_id = ? AND candidate.phrase_id = p.id
+          ORDER BY candidate.created_at, candidate.id
+          LIMIT 1
+        )
       WHERE p.id = ? AND (p.source_type = 'preset' OR p.owner_id = ?)
-    `).bind(id, user.subject).first<{ text: string; translation: string }>();
+    `).bind(user.subject, id, user.subject).first<{
+      text: string;
+      legacy_translation: string;
+      translation: string;
+      source_type: "preset" | "custom";
+    }>();
     if (!phrase) return Response.json({ error: "Phrase not found." }, { status: 404 });
 
     const translation = status === "pick"
       ? { text: phrase.translation, pending: false }
       : await optionalTranslationForPhrase(phrase.text, phrase.translation, request);
     const now = new Date().toISOString();
-    await db.batch([
-      db.prepare("UPDATE phrases SET translation = ?, updated_at = ? WHERE id = ? AND translation = ''")
-        .bind(translation.text, now, id),
-      db.prepare(`
-        INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(user_id, phrase_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at
-      `).bind(user.subject, id, status, now, now),
-    ]);
+    const progressUpdate = db.prepare(`
+      INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(user_id, phrase_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at
+    `).bind(user.subject, id, status, now, now);
+    if (phrase.source_type === "preset") {
+      const statements = [progressUpdate];
+      if (status !== "pick" && !phrase.legacy_translation && translation.text) {
+        const meaningPlan = await createVocabularyMutationPlanner(db).planAddMeaning(
+          user.subject,
+          {
+            phraseId: id,
+            translation: translation.text,
+          },
+        );
+        statements.push(...meaningPlan.statements);
+      }
+      await db.batch(statements);
+    } else {
+      await db.batch([
+        db.prepare(`
+          UPDATE phrases
+          SET translation = ?, updated_at = ?
+          WHERE id = ? AND source_type = 'custom' AND owner_id = ? AND translation = ''
+        `).bind(translation.text, now, id, user.subject),
+        progressUpdate,
+      ]);
+    }
     return Response.json({
       ok: true,
       status,

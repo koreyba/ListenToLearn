@@ -17,6 +17,18 @@ export type AiChatPracticeContextSource = {
   knownMeanings: readonly PracticeMeaningSource[];
 };
 
+type MutablePracticeTarget =
+  | {
+      text: string;
+      meaningMode: "selected";
+      selectedMeaning: AiChatPromptMeaning;
+    }
+  | {
+      text: string;
+      meaningMode: Exclude<AiChatMeaningMode, "selected">;
+      knownMeanings: AiChatPromptMeaning[];
+    };
+
 function truncateCharacters(value: string, maximum: number) {
   return [...value].slice(0, maximum).join("");
 }
@@ -30,32 +42,54 @@ function cleanText(value: string, maximum: number, singleLine = false) {
 
 function snapshotMeaning(meaning: PracticeMeaningSource): AiChatPromptMeaning {
   return {
-    translation: cleanText(meaning.translation, AI_CHAT_LIMITS.meaningCharacters, true),
-    context: cleanText(meaning.context || "", AI_CHAT_LIMITS.contextCharacters),
+    translation: cleanText(
+      meaning.translation,
+      AI_CHAT_LIMITS.promptMeaningCharacters,
+      true,
+    ),
+    context: cleanText(
+      meaning.context || "",
+      AI_CHAT_LIMITS.promptContextCharacters,
+    ),
   };
 }
 
 export function createAiChatPracticeContext(
   items: readonly AiChatPracticeContextSource[],
 ): AiChatPromptTarget[] {
-  return items.slice(0, AI_CHAT_LIMITS.targetCount).map((item) => {
-    const text = cleanText(item.text, AI_CHAT_LIMITS.targetTextCharacters, true);
-    if (item.meaningMode === "selected") {
-      if (!item.selectedMeaning) throw new Error("Selected practice meaning is missing.");
+  const targets: MutablePracticeTarget[] = items
+    .slice(0, AI_CHAT_LIMITS.targetCount)
+    .map((item): MutablePracticeTarget => {
+      const text = cleanText(item.text, AI_CHAT_LIMITS.targetTextCharacters, true);
+      if (item.meaningMode === "selected") {
+        if (!item.selectedMeaning) throw new Error("Selected practice meaning is missing.");
+        return {
+          text,
+          meaningMode: "selected",
+          selectedMeaning: snapshotMeaning(item.selectedMeaning),
+        };
+      }
       return {
         text,
-        meaningMode: "selected",
-        selectedMeaning: snapshotMeaning(item.selectedMeaning),
+        meaningMode: item.meaningMode,
+        knownMeanings: item.knownMeanings
+          .slice(0, AI_CHAT_LIMITS.meaningsPerTarget)
+          .map(snapshotMeaning),
       };
+    });
+  while (
+    JSON.stringify({ targets }, null, 2).length
+      > AI_CHAT_LIMITS.targetPromptCharacters
+  ) {
+    const candidate = targets
+      .filter((target) => target.meaningMode !== "selected")
+      .sort((left, right) => right.knownMeanings.length - left.knownMeanings.length)[0];
+    if (!candidate || !candidate.knownMeanings.length) {
+      break;
     }
-    return {
-      text,
-      meaningMode: item.meaningMode,
-      knownMeanings: item.knownMeanings
-        .slice(0, AI_CHAT_LIMITS.meaningsPerTarget)
-        .map(snapshotMeaning),
-    };
-  });
+    candidate.knownMeanings.pop();
+  }
+  return targets;
 }
 
 function readStoredText(value: unknown, maximum: number, allowEmpty = false) {

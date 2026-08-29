@@ -1,53 +1,71 @@
 ---
 phase: monitoring
 title: AI Vocabulary Practice Chat Monitoring
-description: Safe operational signals and incident handling for a future deployment
+description: Required privacy-safe signals for attempts, tools, receipts, and spend
 ---
 
 # AI Vocabulary Practice Chat Monitoring
 
 ## Current State
 
-No production deployment or feature-specific dashboard/alert is claimed. Before a
-release, monitoring must cover the paid provider boundary and D1 turn lifecycle
-without collecting learning content or credentials.
+No production dashboard, alert, or deployment is claimed. The durable D1 ledger is
+an execution/audit boundary, not a substitute for aggregated operational metrics.
 
 ## Required Signals
 
-- Generation requests, completions, retries, cancellations, and recovered stale
-  pending turns.
-- End-to-end/provider latency and counts by success or stable error code:
-  `not_configured`, `provider_timeout`, `provider_failed`, `empty_response`,
-  validation, auth, not-found, and conflict.
-- Aggregated input/output/total tokens and estimated spend per environment.
-- D1 write failures, pending rows older than the 30-second lease, chat reload
-  failures, and translation fallback success/failure.
-- Product counts for chats, active targets, and explicit add/status/meaning actions
-  only if analytics consent and retention policy permit them.
+- Chat generation count, completion/failure/cancellation, latency, token counts,
+  estimated spend, and stable public error code.
+- Attempt outcomes (`complete`, `failed`, `expired`), lease age, retries per
+  assistant message, any pending attempt surviving the 30-second lease, and terminal
+  assistant/tool/receipt writes rejected because the lease expired.
+- Tool calls by name and terminal status (`succeeded`, `committed`, `replayed`,
+  `rejected`, `failed`), tool-budget exhaustion, stale-attempt rejection, and
+  tool-call identity conflict. Track calls-per-turn against the hard limit of two
+  and adapter-level pre-trace rejections from call three onward; these rejections have
+  no ledger row. Track D1 query usage/headroom against the Free-plan 50-query
+  invocation allowance, including the verified 45-statement cold two-write path and
+  47-statement ambiguous committed-write recovery path.
+- Mutation receipt commit/replay/conflict counts by versioned operation, plus D1
+  batch/postcondition failures, the single transient retry outcome,
+  `operation_failed`, and ambiguous-post-commit recovery.
+- Latest/search result counts and opening empty/partial counts, without vocabulary
+  content; count `meaningsTruncated`/`detailsTruncated` and near-7,800-character
+  compact results without logging their payloads.
+- Rejected/near-limit practice snapshots by target count and serialized size, never
+  snapshot content; the hard target-data budget is 48,000 characters.
+- A status-invariant guard: agent writes must not transition an already active
+  phrase; investigate any correlated `phrase_progress` transition.
+- Meaning-update conflict counts split safely between authorization rejection and
+  owner/phrase/meaning/old-value CAS conflict, without logging either translation.
 
 ## Privacy Boundary
 
-Logs may contain a correlation id, environment, normalized provider/model or
-preset, latency, token counts, HTTP status, and stable error code. They must not
-contain the API key, session data, prompt/system text, targets, messages,
-translations, meanings, upstream bodies, or raw provider metadata.
+Operational logs may contain correlation ID, environment, normalized provider/model
+or preset, latency, counts, token totals, tool name, attempt number/status, versioned
+operation, and safe error code. They must not contain keys/session data, prompts,
+messages, vocabulary, translations/contexts, tool args/results/hashes/target keys,
+provider bodies, or raw metadata. Access to D1 ledger rows must follow the same
+account/operations controls as private vocabulary.
 
 ## Alerts and Triage
 
-Thresholds require a production baseline and spend budget before release. At
-minimum, notify on sustained authentication or D1 failures, a material provider
-failure/timeout spike, pending rows surviving recovery, or spend approaching its
-configured cap.
+Thresholds remain an open release decision. At minimum, notify on sustained auth or
+D1 failures, provider failure/timeout spike, pending attempts beyond lease, elevated
+`stale_attempt`/`tool_call_conflict`/`mutation_conflict`/`operation_failed`, repeated
+batch retry exhaustion, lease-fence rejection spike, D1 query usage approaching 50,
+receipt-vs-domain inconsistency, an active-status mutation, or spend approaching
+its cap.
 
-Triage in order: verify session and D1 health; group failures by stable code; check
-provider status/configuration without printing secrets; disable generation if cost
-or privacy is at risk; preserve D1 history; rotate the key if exposure is possible;
-then run the bounded authenticated smoke before re-enabling.
+Triage in order: verify session and D1 health; group by safe code/attempt/tool
+status; inspect owner and receipt invariants without copying private payloads; stop
+generation if cost/privacy/write safety is uncertain; preserve D1 history; rotate
+the provider key if exposure is possible; then repeat the bounded authenticated
+preview smoke before re-enabling.
 
 ## Health Verification
 
-Read-only chat list/detail checks prove application/D1 availability without a paid
-call. A deliberate authenticated generation smoke proves the provider path and
-must use a bounded message, explicit budget, and approved preset. Reload must
-confirm that the completed assistant row, target set, and manual vocabulary changes
-remain canonical in D1.
+Owned chat list/detail and latest/search checks validate application/D1 without a
+paid model call. A deliberate authenticated provider smoke must verify read tool,
+denied ambiguous write, one explicit receipt-backed write, interruption/replay, and
+reload within a fixed budget. Production automation must not perform ongoing
+vocabulary writes merely as a health check.

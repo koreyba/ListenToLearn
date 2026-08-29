@@ -6,7 +6,9 @@ import {
   readCreateChatPayload,
 } from "@/lib/ai-chat/api-contracts";
 import { aiChatRouteErrorResponse, noStoreJson } from "@/lib/ai-chat/http";
+import { createChatWithVocabularyOpening } from "@/lib/ai-chat/chat-creation";
 import { createAiChatRepository } from "@/lib/ai-chat/repository";
+import { createVocabularyRepository } from "@/lib/vocabulary/repository";
 import { isAiChatServerConfigured } from "@/lib/ai-chat/server-config";
 
 export const dynamic = "force-dynamic";
@@ -29,8 +31,13 @@ export async function POST(request: Request) {
   const payload = await readAiMutationPayload(request, readCreateChatPayload);
   if (!payload.ok) return aiChatErrorResponse(payload.error);
   try {
-    const repository = createAiChatRepository(getD1());
-    const chat = await repository.createChat(user.subject, payload.value);
+    const db = getD1();
+    const chat = await createChatWithVocabularyOpening({
+      chatRepository: createAiChatRepository(db),
+      vocabularyRepository: createVocabularyRepository(db),
+      userId: user.subject,
+      targets: payload.value.targets,
+    });
     return noStoreJson({ chat }, { status: 201 });
   } catch (error) {
     return aiChatRouteErrorResponse(error);

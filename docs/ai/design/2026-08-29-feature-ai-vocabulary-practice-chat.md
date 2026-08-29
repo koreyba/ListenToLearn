@@ -1,112 +1,205 @@
 ---
 phase: design
 title: AI Vocabulary Practice Chat Design
-description: Implemented account-scoped D1 chat with vocabulary context and OpenRouter streaming
+description: Chat-only UI with bounded vocabulary tools and durable D1 execution receipts
 ---
 
 # AI Vocabulary Practice Chat Design
 
-## Delivered Vertical Slice
+## Architecture
 
-The feature stays inside the existing React/vinext Cloudflare Worker. A signed-in
-learner opens `/chat` directly or launches it from a Library/Practice phrase,
-chooses one or several saved and ad-hoc words or phrases, and directs the practice
-in natural language. Vercel AI SDK streams the response from the server-selected
-OpenRouter model; D1 remains the canonical source for chats, targets, meanings,
-messages, retries, and reloads.
+The feature stays in the existing React/vinext Cloudflare Worker. The browser is a
+minimal chat client; the Worker owns identity, history, prompt, tools, OpenRouter
+runtime, and D1 persistence.
 
 ```mermaid
 flowchart LR
-  Library["Library / Practice"] --> Chat["/chat"]
-  Chat --> APIs["authenticated /api/ai/*"]
-  APIs --> D1[(D1)]
-  APIs --> Prompt["server prompt + canonical history"]
-  Prompt --> SDK["Vercel AI SDK"] --> OpenRouter
-  Chat --> Vocabulary["/api/phrases"]
-  Chat --> Translate["/api/translate -> /api/ai/translate fallback"]
+  UI["/chat: list + messages + composer"] --> API["authenticated chat API"]
+  API --> Turn["canonical user/assistant turn"]
+  Turn --> Attempt["immutable attempt identity"]
+  Attempt --> SDK["Vercel AI SDK loop"]
+  SDK --> Read["latest N / search"]
+  SDK --> Guard["current-turn write policy"]
+  Read --> Vocabulary[(D1 vocabulary)]
+  Guard --> Ledger["tool-call ledger"]
+  Ledger --> Batch["domain write + receipt + call result"]
+  Batch --> Vocabulary
+  SDK --> OpenRouter
 ```
 
-Guests may see the sign-in boundary, but `/api/ai/*` is account-only.
+Guests may render the sign-in boundary; generation and tools remain account-only.
 
-## State and API Contracts
+## Chat-only Browser Contract
 
-- `phrase_meanings` stores user-owned meanings without changing
-  `phrase_progress.status`.
-- `ai_chats`, `ai_chat_practice_items`, and `ai_chat_messages` persist owned chats,
-  the current practice set, ordered turns, target snapshots, safe failure codes,
-  and normalized provider/model/token metadata.
-- `GET/POST /api/ai/chats` lists or creates chats; `GET /api/ai/chats/:id` restores
-  one owned chat.
-- `PATCH /api/ai/chats/:id/targets` atomically replaces the complete current
-  `targets[]` array. Adding, removing, changing scope, and selecting a meaning all
-  use this one contract; there are no target `POST` or `DELETE` routes.
-- `POST /api/ai/chats/:id/messages` accepts only `{ clientMessageId, content }`.
-  The browser cannot provide authoritative history, targets, model, or system role.
-- `GET/POST /api/ai/meanings` lists legacy plus personal meanings or explicitly
-  adds a personal meaning.
-- Selection translation first uses existing `/api/translate`; its `503`
-  unavailable response falls back to authenticated `/api/ai/translate`, which uses
-  the same bounded OpenRouter runtime.
-- Existing `/api/phrases` remains the only explicit add-to-`To Learn` and manual
-  `To Learn` / `Learning Now` / `Learned` status boundary.
+- `GET/POST /api/ai/chats` lists or creates owned chats.
+- `GET /api/ai/chats/:id` restores an owned chat.
+- `POST /api/ai/chats/:id/messages` accepts only
+  `{ clientMessageId, content }` and streams the assistant response.
+- The browser cannot submit identity, history, roles, targets, model, tool names,
+  arguments, results, receipts, or attempts.
+- The visible UI contains chat list, `New Chat`, timeline, composer, send/retry, and
+  essential states only. Compatibility target/meaning APIs and tables may remain,
+  but the UI does not depend on them or preselect vocabulary from Library/Practice.
+- Compatibility target replacement is one owner-scoped atomic
+  `PATCH /api/ai/chats/:id/targets` containing the complete desired array; there are
+  no incremental target `POST`/`DELETE` routes. It accepts up to 12 saved/ad-hoc
+  targets with `all_saved`, saved-only `selected`, or `explore` meaning mode.
+- `POST /api/ai/translate` is an authenticated, bounded server-side contextual
+  translation fallback; the current chat UI does not invoke it.
 
-## Practice Context
+## Deterministic Opening and Read Tools
 
-Each saved target supports exactly three scopes:
+`POST /api/ai/chats` calls `listRecent(userId, 5)` before creation. D1 orders active
+entries by `phrase_progress.created_at DESC, phrases.id DESC`. The Worker formats a
+bounded Russian offer and persists it in the chat-creation batch as complete
+assistant sequence 1 with `clientMessageId = opening:<chatId>`. No synthetic user
+message, assistant attempt, tool ledger row, or provider call is created. When this
+message later enters model history, the service escapes delimiter-like characters
+and wraps it in `BEGIN/END_UNTRUSTED_VOCABULARY_OPENING` markers; the persisted UI
+copy remains readable.
 
-- `all_saved`: use the legacy translation and all personal meanings;
-- `selected`: use one server-validated legacy or personal meaning;
-- `explore`: use a meaning outside the known set and explain the distinction.
+The model later receives two read tools:
 
-Ad-hoc targets support `all_saved` or `explore`; they cannot claim a saved meaning.
-Several words and phrases can be active together. The prompt deliberately does not
-force them into one sentence or define their distribution.
+- `get_recent_vocabulary({ limit? })`: default 5, integer range 1–10;
+- `find_vocabulary({ query, limit? })`: default/maximum 10; owner-scoped substring
+  search over phrase text, legacy translation, and the current learner's personal
+  translations, with exact matches first, then recency and phrase-ID tie-breaker.
+  Query text is capped at 48 characters and its escaped wildcard `LIKE` pattern at
+  50 UTF-8 bytes.
 
-Every generation rebuilds a learner-led system prompt from the current owned
-practice set and bounded complete D1 history. Target text is serialized as data,
-not instructions. The exact target/meaning snapshot is stored on the user turn, so
-a retry remains faithful even after the current targets change.
+Both read only active account-visible vocabulary (`to_learn`, `learning_now`,
+`learnt`, plus the stored legacy `learned` alias). Each provider-facing entry is
+bounded to 240 text characters and six meanings of 100/160 translation/context
+characters. The whole success result is at most 7,800 JSON characters: excess
+meanings are removed first, then meaning contexts are blanked if needed, with
+`meaningsTruncated` and `detailsTruncated` preserving honest metadata.
 
-## Streaming, Retry, and Cancellation
+## Write Tools and Authorization
 
-The first write atomically creates a complete user row and a pending assistant row.
-The AI SDK response is streamed to the browser and only normalized complete text is
-committed to canonical history. Provider error, timeout, request abort, or consumer
-cancellation marks the pending assistant retryable with a stable code. Terminal
-callbacks are idempotent. A duplicate client id never creates a second user turn.
+The model has `add_vocabulary_entry`, `add_vocabulary_meaning`, and
+`update_vocabulary_meaning`. Their JSON Schemas reject extra properties and omit
+identity/status. Handlers bind the authenticated user and exact persisted current
+user message.
 
-A fresh pending turn is single-flight. A pending assistant older than the 30-second
-lease (20-second provider timeout plus 10 seconds) is recovered as
-`provider_timeout` when the chat is opened or the turn is retried. Completion and
-failure writes compare the attempt's pending timestamp, so a late callback from a
-recovered attempt cannot finish or fail the newer attempt. Retrying an older turn
-builds model history only from messages before that turn, preserving chronology.
+A write passes only when that current message contains a recognized direct
+vocabulary-write command and literally includes every value to persist. Meaning
+writes additionally resolve the entry server-side and require its text literally
+in the same message. Prior turns and model-generated values never authorize a
+write. Denials become bounded tool results, so the assistant can ask for a precise
+command.
 
-## Interactive Learning Loop
+An update also requires the resolved current translation literally in the current
+message. The planner captures phrase/meaning IDs plus old translation/context and
+executes an owner-scoped compare-and-swap. A wrong owner, entry, meaning, old value,
+or concurrent edit fails the postcondition/conflict guard and becomes a traced
+`mutation_conflict`.
 
-Assistant output is rendered as plain React text. English words are clickable and
-a phrase selection must remain inside one message. The learner can translate the
-selection, add it to `To Learn`, attach it as a new meaning to an existing saved
-item, or manually change a saved target's status. None of these mutations is
-performed by the model. Selection offsets identify the actual occurrence of a
-repeated phrase, and asynchronous translations are accepted only for the same text
-and context that initiated them.
+There is no status tool. Mutation plans can initialize a new/`pick` entry as
+`to_learn`, but preserve every active status. Preset legacy fields are never
+updated; owner-custom empty legacy fields may be initialized, otherwise additions
+are user-owned `phrase_meanings`. Updating by meaning ID is personal/owner scoped
+and cannot target the `legacy` sentinel.
 
-## Safety Limits
+The existing manual phrase `PATCH` remains outside the agent tool boundary. For a
+preset phrase with no stored translation, it saves the resolved translation as the
+current learner's personal meaning and commits that meaning with the requested
+status change in one D1 batch; shared preset fields remain immutable.
 
-The implemented server limits are: 16,384 request bytes; 12 targets; 240 characters
-per target; 500 translation-selection characters; 12 meanings per target; 1,000
-characters per stored meaning or context; 100/160 characters per meaning/context in
-the model target payload; 48,000 characters for all serialized target data; 4,000
-characters per user message; 40 history messages within 32,000 characters; 800
-output tokens; and a 20-second upstream timeout.
+## Attempts, Ledger, and Receipts
 
-All mutations require exact same-origin requests. Every D1 operation is owner
-scoped. Model output is never trusted HTML. Credentials, prompts, messages, and
-upstream bodies are excluded from public errors and must not be logged.
+`ai_chat_assistant_attempts` separates a logical assistant message from each
+generation run. Attempt ID and number are never reused; terminal attempts remain as
+history, and a partial unique index allows only one `pending` attempt per assistant
+message. The 30-second lease expires abandoned work. Finish/fail/tool SQL is fenced
+by the exact current attempt with both `status = pending` and an unexpired
+`lease_expires_at`. The same lease predicate protects assistant terminal writes,
+tool registration/completion, receipt insertion, commit, and replay.
 
-## Deferred
+`ai_chat_tool_calls` records every within-budget invocation before execution,
+including reads and rejections. A provider-adapter counter rejects the third and
+later calls with `tool_budget_exceeded` before reaching the trace executor, so they
+consume no D1 trace queries. The identity
+`(assistant_attempt_id, provider_tool_call_id)` is unique; canonical argument JSON
+and SHA-256 detect conflicting ID reuse. Terminal states are `succeeded`,
+`committed`, `replayed`, `rejected`, or `failed`.
 
-Guest-funded AI, production model/fallback policy, autonomous agent tools,
-automatic progress, resumable background streams, final multi-target UX, chat
-rename/delete, and retention remain outside this slice.
+`ai_chat_tool_mutation_receipts` is the cross-attempt idempotency boundary. Its
+unique key is `(user_message_id, operation, target_key)`. Operations are versioned
+domain names; entry targets use normalized text, while meaning updates use the
+owned meaning ID. Equal canonical-argument hashes replay the stored bounded result;
+different hashes return `mutation_conflict`.
+
+Entry `target_key` normalization mirrors SQLite `NOCASE`: NFKC and whitespace
+cleanup followed by ASCII `A-Z` folding only. This aligns receipt identity with the
+database unique index; non-ASCII case variants intentionally remain distinct.
+
+For a write, D1 executes domain statements, a postcondition-guarded receipt insert,
+and the tool-call `committed` update in one `batch`. A false owner/status/entity
+postcondition aborts the batch. Concurrent equivalent writes converge on one
+receipt; an ambiguous error after commit is resolved by reading that receipt. A
+failure before execution is safe to retry once because the batch is idempotent and
+receipt guarded. If both attempts fail without a receipt or stale-attempt verdict,
+the ledger call ends with `operation_failed`.
+
+## Turn and Retry Flow
+
+1. `beginTurn` batches the complete user row, its bounded immutable
+   practice snapshot (at most 48,000 JSON characters), pending assistant row,
+   attempt 1, and chat timestamp.
+2. The service rebuilds bounded canonical history only before this user sequence,
+   creates the tool executor with user/chat/message/attempt IDs, and starts a
+   maximum five-step AI SDK loop.
+3. Each tool call is registered and fenced before execution. The hard per-turn
+   budget is two calls. A pre-trace adapter fence rejects call three onward without
+   D1 trace work, leaving room under D1 Free's 50-query invocation limit. Counting
+   each batch statement, a cold turn with two new-entry writes uses 45 statements;
+   one ambiguous committed-write recovery raises that envelope to 47. Tools are
+   disabled for the final model step.
+4. Final text/usage completes only the current attempt and assistant row. Error,
+   abort, cancellation, or timeout fails only that current attempt.
+5. Retry retains the same user, practice snapshot, and assistant message, expires
+   any stale pending attempt, inserts the next attempt number, and replays matching
+   durable receipts. Later target changes cannot rewrite an older turn's context.
+
+Turn and retry IDs are allocated before their D1 batches. If a batch response is
+ambiguous after commit, readback accepts only those exact fresh user/assistant and
+attempt IDs as the operation's own result (`created`/`retrying`), allowing the
+service to continue generation rather than return a false conflict.
+
+The provider timeout is 20 seconds and the pending lease is 30 seconds. Complete or
+fresh-pending duplicate client turns return conflict/existing state rather than
+starting another paid request; reuse with different user content is rejected.
+
+## Limits and Privacy
+
+Existing chat ceilings remain: 16,384 request bytes; 4,000 message characters;
+40 complete history messages/32,000 characters; 800 output tokens; 20-second
+provider timeout. Vocabulary limits are 10 read entries, 240 entry characters,
+1,000 meaning/context characters, and six bounded provider meanings per entry. A
+successful compact read result is capped at 7,800 JSON characters. Practice target
+data is capped at 12 targets/48,000 characters. Tool trace JSON is limited to 4,096
+argument and 8,192 result characters; provider call ID/tool name are limited to
+240/120 characters.
+
+Every mutation requires exact origin; every D1 operation is owner scoped. Stored
+vocabulary is untrusted prompt data, assistant output is plain text, and public
+errors/logging exclude secrets, prompts, messages, vocabulary, tool arguments,
+results, and upstream bodies.
+
+## Duplicate Migration Contract
+
+Migration 0017 chooses the earliest owner-custom phrase under SQLite ASCII
+`NOCASE` as canonical, merges historical duplicates, and then creates the partial
+unique index. It preserves/rehomes progress, personal meanings, examples, saved
+video origins, and chat practice-item phrase/selected-meaning references; duplicate
+meaning/example rows converge deterministically. Unicode case variants stay
+separate by explicit contract.
+
+## Open Decisions
+
+- Whether re-activation should change recency; today `created_at` defines latest.
+- Final target/meaning controls, interactive translation, and cross-surface launch.
+- Intent languages and whether deterministic write authorization should evolve
+  beyond the current Russian/English command recognizer.
+- Production model/routing, spend/rate policy, guest access, retention, monitoring
+  thresholds, and resumable/background execution.

@@ -1,4 +1,4 @@
-import { streamText, toUIMessageStream } from "ai";
+import { stepCountIs, streamText, toUIMessageStream, type ToolSet } from "ai";
 import { AI_CHAT_ERROR_CODES, type AiChatErrorCode } from "./contracts.ts";
 import type { AiChatPrompt } from "./prompt.ts";
 import {
@@ -35,6 +35,7 @@ export type AiChatGenerationInput = {
   prompt: AiChatPrompt;
   pendingAssistant: AiChatPendingAssistantTurn;
   runtime: AiChatRuntime;
+  tools: ToolSet;
   repository: AiChatGenerationRepository;
   abortSignal?: AbortSignal;
 };
@@ -129,6 +130,11 @@ export function startAiChatGeneration(
     maxOutputTokens: input.runtime.maxOutputTokens,
     timeout: input.runtime.timeoutMs,
     maxRetries: 0,
+    tools: input.tools,
+    stopWhen: stepCountIs(5),
+    prepareStep: ({ stepNumber }) => stepNumber >= 4
+      ? { activeTools: [], toolChoice: "none" }
+      : undefined,
     onEnd: async ({ text, model, usage }) => {
       const normalizedText = normalizeAiChatAssistantText(text);
       if (!normalizedText.ok) {

@@ -1,80 +1,150 @@
 ---
 phase: implementation
 title: AI Vocabulary Practice Chat Implementation
-description: Implemented files, boundaries, resilience, and local proof
+description: Implemented chat-only tools, attempts, ledger, and mutation receipts
 ---
 
 # AI Vocabulary Practice Chat Implementation
 
-## What Is Implemented
+## Implemented Files
 
-- `db/schema.ts` and `drizzle/0016_secret_the_renegades.sql`: user meanings,
-  account chats, current practice targets, and ordered message history.
-- `lib/ai-chat/`: validation/limits, prompt construction, D1 repository, canonical
-  practice snapshots, AI SDK/OpenRouter runtime, streaming orchestration,
-  translation fallback runtime, client contracts, and safe HTTP errors.
-- `app/api/ai/`: authenticated chat list/create/detail, atomic target replacement,
-  message streaming/retry, meanings, and AI selection translation.
-- `app/chat/` and `app/components/ai-practice-chat.tsx`: multiple chats, saved and
-  ad-hoc targets, the three meaning modes, selected meaning, streamed messages,
-  failure retry, and manual learning actions.
-- `app/components/interactive-english-text.tsx`: exact plain-text rendering,
-  clickable English words, and bounded same-message phrase selection.
-- `app/components/phrase-workspace.tsx`: `Practice with AI` launch from both
-  Library and Practice using the chosen `phraseId`.
+- `app/components/ai-practice-chat.tsx`: minimal account-gated chat list, `New
+  Chat`, messages, composer, stream state, and retry; no target/meaning/status UI.
+- `lib/ai-chat/chat-creation.ts`, `prompt.ts`: server-built latest-five opening and
+  its escaped `UNTRUSTED_VOCABULARY_OPENING` model-history envelope.
+- `lib/vocabulary/contracts.ts`, `repository.ts`, `mutations.ts`: reusable bounded
+  vocabulary reads and composable mutation plans.
+- `lib/ai-chat/vocabulary-tools.ts`: two read tools, three guarded write tools,
+  current-message policy, provider result bounds, and opening formatter.
+- `lib/ai-chat/tool-trace.ts`: durable invocation registration, execution ledger,
+  atomic mutation receipt commit, hash conflict, and replay.
+- `lib/ai-chat/service.ts`, `generation.ts`, `prompt.ts`, `repository.ts`: tool-aware
+  bounded generation, canonical history, distinct attempts, fencing, and retries.
+- `lib/ai-chat/practice-context.ts`: immutable provider-safe per-turn snapshots,
+  bounded to the 48,000-character target-data budget.
+- `app/api/phrases/route.ts`: preset fallback translations remain personal; manual
+  status plus new personal meaning commit atomically.
+- `app/api/ai/chats/[chatId]/targets/route.ts`: atomic owner-scoped replacement of
+  the complete saved/ad-hoc target set; no incremental target mutation routes.
+- `app/api/ai/translate/route.ts`, `lib/ai-chat/translation.ts`: authenticated,
+  bounded contextual translation fallback, currently not called by the chat UI.
+- `drizzle/0017_abandoned_molecule_man.sql`: deterministic historical
+  ASCII-`NOCASE` duplicate merge, reference transfer, and per-owner uniqueness.
+- `drizzle/0018_jittery_the_liberteens.sql`: assistant attempts, tool calls, and
+  mutation receipts.
 
-## Key Contracts
+## Actual Tool Contracts
 
-The browser submits only the latest `{ clientMessageId, content }`. The server
-loads the owned chat, current saved/ad-hoc targets, personal and legacy meanings,
-and complete bounded history from D1. The current target set is always replaced as
-one array with `PATCH /api/ai/chats/:id/targets`; no incremental target methods are
-implemented.
+- `get_recent_vocabulary({ limit? })`: default 5, capped at 10; active owned-visible
+  entries ordered by progress `created_at DESC`, phrase ID `DESC`.
+- `find_vocabulary({ query, limit? })`: default/max 10; SQLite-`NOCASE` search over
+  phrase text, legacy translation, and only the current owner's personal saved
+  translations, with exact match first and then deterministic recency. Queries are
+  at most 48 characters and the escaped wildcard pattern at most 50 UTF-8 bytes.
+- `add_vocabulary_entry({ text, translation?, context? })` returns the committed
+  bounded result `{ ok: true, saved: true, text }`.
+- `add_vocabulary_meaning({ phraseId, translation, context? })` returns
+  `{ ok: true, saved: true, phraseId, translation }`.
+- `update_vocabulary_meaning({ meaningId, translation, context? })` returns
+  `{ ok: true, updated: true, meaningId, translation }`.
 
-`all_saved`, `selected`, and `explore` are carried into the prompt explicitly.
-Several targets are supported without deciding whether the model must combine them
-in one sentence. The user-turn practice snapshot makes retries independent of
-later target edits.
+The two IDs used by meaning writes come from owner-scoped reads, not user identity.
+Every text value persisted must also appear literally in the persisted current user
+message, which must itself match a direct vocabulary-write command. Extra tool
+fields are rejected. No tool accepts status.
 
-Selection translation first calls `/api/translate`. When that service returns
-`503`, the UI calls authenticated `/api/ai/translate`, which uses the configured
-OpenRouter runtime and returns only a bounded Russian translation.
+Update authorization also requires the current translation and affected entry text
+literally in the current message. The handler reads the owned meaning snapshot and
+the planner compares owner, phrase ID, meaning ID, old translation, and old context
+in its SQL/postcondition. Missing or concurrently changed state is recorded as
+`mutation_conflict`, not applied as a stale overwrite.
 
-## Persistence and Failure Handling
+The compatibility target contract accepts at most 12 saved or ad-hoc entries with
+`all_saved`, saved-only `selected`, or `explore` meaning mode. It is mutated only by
+one whole-array `PATCH`; the chat-only browser does not render these controls.
 
-The initial D1 batch writes one user row and one pending assistant row. Completion
-stores normalized plain text, provider/model names, and token counts. Provider
-failure, timeout, request abort, or browser stream cancellation stores only a safe
-failure code and leaves the turn retryable. Terminal callbacks and retries are
-idempotent. Opening/retrying a chat recovers an abandoned pending row after the
-30-second lease; fresh pending rows remain single-flight. Completion/failure uses
-the current attempt timestamp as a CAS fence, and retrying an older turn supplies
-only its preceding canonical history to the model.
+New/unsaved entries begin in `to_learn`; adding a duplicate preserves any active
+status. Preset legacy fields cannot be changed. An owner-custom empty legacy
+translation can be filled; other additions are normalized personal meanings.
 
-## Limits and Security
+## Deterministic New Chat
 
-Shared limits cover 16,384 request bytes, 12 targets, 240 target characters, 500
-translation characters, 12 meanings per target, 1,000 stored meaning/context
-characters, 100/160 prompt meaning/context characters, 48,000 aggregate serialized
-target characters, 4,000 message characters, 40/32,000 history messages/characters,
-800 output tokens, and a 20-second provider timeout.
+The chat route reads exactly five recent entries before creation. The formatter
+uses stored meanings and produces an honest empty/partial list. `createChat` writes
+the chat and complete opening assistant row in one D1 batch. The opening has no
+synthetic user row, attempt, tool call, provider/model, or usage. When canonical
+history is prepared for a later model turn, that opening alone is escaped and
+wrapped in `UNTRUSTED_VOCABULARY_OPENING` markers.
 
-All AI routes require the application session, owner-scoped D1 queries, exact
-origin for mutations, and `no-store`. Assistant text is never inserted as HTML.
-Provider credentials remain server-only; `.dev.vars*` is ignored and no key or
-model credential is committed.
+## Attempt and Tool Persistence
 
-## Local Proof
+`beginTurn` batches a stable user message, stable assistant message, attempt 1, and
+chat timestamp. The user row also stores a provider-safe snapshot of the current
+practice targets/meaning mode, bounded to 12 targets and 48,000 JSON characters. A
+retry keeps both messages and that original snapshot, marks an abandoned pending
+attempt expired when necessary, and inserts attempt `N+1`; the attempt identity and
+number are never reused. A partial unique index enforces one pending attempt per
+assistant. Finish, failure, and tool registration all require the exact current
+pending attempt with a live `lease_expires_at`, which fences late callbacks. Tool
+terminal updates and receipt insert/commit/replay use the same pending-plus-live-
+lease predicate.
 
-- Targeted AI chat and interactive-text suite: 84 passed, 0 failed.
-- A bounded real completion was received through OpenRouter preset
-  `@preset/free-unmubme-test`.
-- The signed-in local flow restored its chat, targets, and messages from local D1
-  after reload.
-- Saved plus ad-hoc targets, manual add to `To Learn`, status change, and adding a
-  meaning were exercised through the UI.
-- Full repository tests, lint, and production build pass on the implementation
-  diff.
+`beginTurn` and retry allocate fresh message/attempt IDs before their batches. On
+an ambiguous post-commit D1 error, exact-ID readback returns `created` or `retrying`
+and generation continues; unrelated IDs converge to the normal existing-turn path.
 
-No production deployment, remote D1 migration, secret publication, commit, or push
-is recorded by this implementation phase.
+Before execution, each of the first two provider tool calls is stored with
+canonical argument JSON and SHA-256. The provider adapter rejects call three onward
+as `tool_budget_exceeded` before the trace executor, so no D1 trace query or ledger
+row is consumed. A duplicate provider call ID in one attempt returns its prior
+terminal result or reports in-progress; a changed tool/hash is a conflict. Read
+successes and in-budget policy rejections receive terminal ledger rows like writes.
+
+For a mutation, the planner returns versioned `operation`, stable `targetKey`,
+canonical args/result, domain statements, and an owner/status/entity postcondition.
+The executor batches domain statements, guarded durable receipt, and the call's
+`committed` update. The unique receipt key is
+`(user_message_id, operation, target_key)`. Same hash replays; different hash
+rejects; equivalent concurrent or ambiguous-post-commit retries converge on the
+single receipt. A transient failure before batch execution is retried once after
+checking receipt and attempt state; an unexplained second failure records
+`operation_failed`.
+
+Entry receipt target keys use NFKC/whitespace cleanup plus ASCII-only `A-Z` folding
+to match SQLite `NOCASE`. Non-ASCII case variants intentionally keep distinct keys.
+
+Migration 0017 selects the earliest owner-custom ASCII-`NOCASE` entry as canonical,
+merges legacy fields/progress, moves or deduplicates meanings/examples, rewrites
+saved-video origins and chat practice/selected-meaning references, then deletes
+redundant phrases and creates the partial unique index.
+
+## Bounds and Failure Handling
+
+The AI SDK uses `stepCountIs(5)` and disables tools from step 4 onward; handlers
+allow two total tool invocations. A separate provider-adapter fence rejects the
+third and later calls before trace persistence. This reserves headroom below D1
+Free's 50-query Worker-invocation budget: the instrumented cold full-turn envelope
+is 45 statements for two new-entry writes and 47 when one committed write needs
+ambiguous-response recovery. Provider
+output includes at most six meanings. The complete successful tool result is compacted to at most
+7,800 JSON characters by dropping extra meanings and then contexts, with
+`meaningCount`, `meaningsTruncated`, and `detailsTruncated`. Tool trace args/results
+remain limited to 4,096/8,192 canonical JSON characters.
+
+Existing chat limits remain 16,384 request bytes, 4,000 message characters,
+40/32,000 canonical history messages/characters, 800 output tokens, 20-second
+timeout, and 30-second attempt lease. Abort, cancellation, provider failure, and
+empty output fail the current attempt with a safe code. A retry of an older turn
+loads only messages before that turn and can replay committed receipts.
+
+## Validation Evidence
+
+Fresh on 2026-08-29, `npm test` passed the full repository suite 439/439 and included
+the production build. The review-focused targeted suite passed 90/90 and typecheck
+passed before that final gate. Lifecycle feature lint passes for the reconciled
+docs. Full lint passes with zero errors and two warnings in generated
+`worker-configuration.d.ts`. Final review closure and live authenticated OpenRouter
+tool behavior remain unproven for this revision.
+
+No production deployment, remote migration, commit, push, or production secret
+change is claimed here.

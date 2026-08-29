@@ -22,11 +22,20 @@ test("every AI route stays dynamic, authenticated, owner-scoped, and uncached", 
     assert.match(source, /export const dynamic = "force-dynamic"/, name);
     assert.match(source, /getCurrentUser\(request\)/, name);
     assert.match(source, /unauthorizedResponse\(\)/, name);
-    assert.match(source, /createAiChatRepository\(getD1\(\)\)/, name);
+    assert.match(
+      source,
+      /create(?:AiChat|Vocabulary)Repository\((?:getD1\(\)|db)\)/,
+      name,
+    );
     assert.match(source, /noStoreJson|aiChatErrorResponse|createUIMessageStreamResponse/, name);
     assert.doesNotMatch(source, /request\.json\(\)/, name);
     assert.doesNotMatch(source, /process\.env|OPENROUTER_API_KEY\s*[:=]\s*["']sk-/, name);
   }
+  assert.match(routeSources.messages, /createAiChatRepository\(db\)/);
+  assert.match(routeSources.messages, /createVocabularyRepository\(db\)/);
+  assert.match(routeSources.messages, /createVocabularyMutationPlanner\(db\)/);
+  assert.match(routeSources.messages, /createAiChatToolTraceRepository\(db\)/);
+  assert.match(routeSources.meanings, /createVocabularyRepository\(getD1\(\)\)/);
 });
 
 test("AI mutations share the exact-origin bounded body boundary", async () => {
@@ -60,4 +69,6 @@ test("chat, target, and meaning routes expose the complete first-slice persisten
   assert.match(routeSources.meanings, /export async function GET/);
   assert.match(routeSources.meanings, /export async function POST/);
   assert.match(routeSources.chats, /generationConfigured/);
+  assert.match(routeSources.chats, /createChatWithVocabularyOpening\(/);
+  assert.doesNotMatch(routeSources.chats, /repository\.createChat\(/);
 });

@@ -11,6 +11,9 @@ import { aiChatRouteErrorResponse } from "@/lib/ai-chat/http";
 import { createAiChatRepository } from "@/lib/ai-chat/repository";
 import { getAiChatServerConfig } from "@/lib/ai-chat/server-config";
 import { prepareAiChatGeneration } from "@/lib/ai-chat/service";
+import { createAiChatToolTraceRepository } from "@/lib/ai-chat/tool-trace";
+import { createVocabularyMutationPlanner } from "@/lib/vocabulary/mutations";
+import { createVocabularyRepository } from "@/lib/vocabulary/repository";
 
 export const dynamic = "force-dynamic";
 
@@ -25,13 +28,18 @@ export async function POST(request: Request, context: ChatRouteContext) {
   if (!payload.ok) return aiChatErrorResponse(payload.error);
 
   try {
-    const repository = createAiChatRepository(getD1());
+    const db = getD1();
+    const repository = createAiChatRepository(db);
+    const vocabularyRepository = createVocabularyRepository(db);
     const generation = await prepareAiChatGeneration({
       userId: user.subject,
       chatId: chatId.value,
       message: payload.value,
       serverConfig: getAiChatServerConfig(),
-      repository,
+      chatRepository: repository,
+      vocabularyRepository,
+      vocabularyMutationPlanner: createVocabularyMutationPlanner(db),
+      toolTraceRepository: createAiChatToolTraceRepository(db),
       abortSignal: request.signal,
     });
     if (!generation.ok) return aiChatErrorResponse(generation.error);

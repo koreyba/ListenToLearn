@@ -436,11 +436,16 @@ test("learning phrases persist and render their translation", async () => {
     new URL("../app/api/phrases/route.ts", import.meta.url),
     "utf8",
   );
+  const repository = await readFile(
+    new URL("../lib/vocabulary/repository.ts", import.meta.url),
+    "utf8",
+  );
   const page = await readFile(
     new URL("../app/components/phrase-workspace.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(route, /translation = CASE WHEN translation = '' THEN/);
+  assert.match(route, /createVocabularyRepository\(db\)\.addEntry/);
+  assert.match(repository, /WHERE id = \? AND owner_id = \? AND translation = ''/);
   assert.match(route, /translateEnglishToRussian/);
   assert.match(route, /optionalTranslationForPhrase/);
   assert.match(route, /translationPending/);
@@ -471,7 +476,8 @@ test("MVP UX persists phrase context and exposes global library sorting", async 
   assert.doesNotMatch(route, /CREATE TABLE IF NOT EXISTS|ALTER TABLE.*context/);
   assert.match(route, /payload\.context/);
   assert.match(route, /payload\.translation/);
-  assert.match(route, /p\.id, p\.text, p\.pattern, p\.ipa, p\.translation, p\.context/);
+  assert.match(route, /COALESCE\(NULLIF\(p\.translation, ''\), fallback_meaning\.translation, ''\) AS translation/);
+  assert.match(route, /candidate\.user_id = \? AND candidate\.phrase_id = p\.id/);
   assert.match(schema, /context: text\("context"\)/);
   assert.match(migration, /ALTER TABLE [`]phrases[`] ADD [`]context[`]/);
   assert.match(page, /phrase-sort/);

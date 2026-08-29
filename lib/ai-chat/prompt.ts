@@ -154,7 +154,9 @@ function serializeUntrustedData(value: unknown) {
 }
 
 function boundedTargetData(targets: readonly AiChatPromptTarget[]) {
-  const promptTargets = targets.slice(0, AI_CHAT_LIMITS.targetCount).map(promptTarget);
+  const promptTargets = targets
+    .slice(0, AI_CHAT_LIMITS.targetCount)
+    .map((target, index) => promptTarget(target, index));
   let serialized = serializeUntrustedData({ targets: promptTargets });
   for (const minimumMeanings of [1, 0]) {
     while ([...serialized].length > AI_CHAT_LIMITS.targetPromptCharacters) {

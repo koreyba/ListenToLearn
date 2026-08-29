@@ -46,8 +46,29 @@ Controller scenarios to cover with a fake widget/event harness:
 - [ ] A source/video reset or newer command leaves controls consistent.
 - [x] Repeat follows a newly selected adjacent caption, handles its consumed
   event, and repeat-off prevents the next consumed event from seeking.
-- [x] Missing timing or movement failure disables repeat rather than continuing
-  an unsafe loop.
+- [x] Ten repeat cycles with varying consumed-callback delays use ten native
+  `replay()` calls and zero Repeat `move()` calls.
+- [x] A timed caption and a manual iframe-seek caption keep the same YouGlish
+  widget instance, reopen their full normalized text, and confirm the same
+  video ID from the returned callback before looping.
+- [x] Same-widget callbacks arriving before the new `onFetchDone` cannot confirm
+  the Repeat target or trigger its replay loop.
+- [x] A stale `onFetchDone` received before pause confirmation cannot open the
+  transaction barrier for old video/caption callbacks.
+- [x] Repeat waits for `PAUSED` before fetch, resumes only previously active
+  playback, and fails closed without reload if pause is not confirmed.
+- [x] In-place fetch omits the provider-incompatible inline video constraint,
+  while a returned result from another video disables Repeat.
+- [x] Long provider captions use a centered 12-word search window while full
+  normalized caption confirmation remains mandatory.
+- [x] Provider-search punctuation is removed after a live punctuated query
+  returned zero results, while full caption text remains required for target
+  confirmation.
+- [x] A provider callback during native Replay confirmation is discarded when
+  the target confirms promptly, or becomes the new manual-seek target after the
+  bounded confirmation window.
+- [x] Missing text/video, zero search results, wrong-video results, fetch error,
+  or confirmation timeout disables repeat rather than approximating a loop.
 
 ## Integration Tests
 
@@ -147,6 +168,87 @@ Fresh Repeat follow-up evidence on 2026-08-25:
 - `npx tsc --noEmit`, scoped ESLint for all changed source/test files,
   `git diff --check`, and `npx ai-devkit@latest lint --feature
   phrase-navigation`: passed.
+
+Earlier Repeat stabilization attempt on 2026-08-27, superseded by the live
+provider findings below:
+
+- A ten-cycle delayed-callback test failed before the fix with a first seek of
+  `-3.10` instead of the cached `-3.00` caption boundary; after preferring the
+  known boundary, all ten seeks stayed at `-3.00`.
+- A provider-race callback for the next caption initially caused the first fix
+  to turn Repeat off. The corrected guard ignores that mismatch, keeps Repeat
+  pressed, and resumes the loop when the selected caption confirms the seek.
+- Temporarily reverting the boundary preference reproduced drift; restoring the
+  self-disabling callback path reproduced the pressed-state failure. Restoring
+  both corrected behaviors made the focused Repeat scenarios pass again.
+- After synchronizing PR #27, `npm test`: build passed; 257 tests passed,
+  0 failed.
+- `npx tsc --noEmit`, `git diff --check`, and feature lint passed. ESLint passed
+  with 0 errors and 2 existing generated-file warnings in
+  `worker-configuration.d.ts`.
+
+Superseded boundary-seek evidence and replacement feasibility on 2026-08-28:
+
+- The first search caption arrived with `current_time: null`. Its consumed event
+  produced no seek command under the old implementation, and Repeat moved on to
+  the second caption. The corrected path issued native `replay()` on every first
+  caption consumption while keeping `aria-pressed="true"`.
+- The timed loop progressively landed later in the target caption until it
+  repeated roughly 0.3 seconds. Waiting for the observed next boundary removed
+  drift but did not recover the clicked caption's beginning.
+- Clicking the live YouTube seek slider while Repeat was already on changed the
+  target from the old caption to the clicked caption, but the observed
+  approximately `-0.69` second move repeated only the tail from the click to the
+  next boundary. This invalidated boundary arithmetic as a complete fix.
+- A focused live feasibility check searched the full clicked-caption text with
+  `#s0TRYW_AnRU`, returned the same YouTube video at the target result, and native
+  `replay()` restored the full target caption. The replacement implementation
+  therefore resolves timed/manual captions through a constrained search and
+  removes all Repeat `move()` calls.
+- Reusing `widget.fetch()` during active playback timed out with provider error
+  `YG.Error.TIMEOUT (3)`. The same exact query succeeded as the initial fetch on
+  a fresh widget. The final implementation calls the documented `close()`,
+  replaces only the widget mount, and keeps the trainer URL and outer DOM intact.
+- Deterministic contracts now cover first/timed/manual captions, ten delayed
+  native-replay cycles, manual seek during Replay confirmation, and stale
+  callback cancellation.
+- Live post-implementation acceptance enabled Repeat on a timed caption and
+  completed ten stable full-caption cycles before the later manual seek: 10
+  `replay()` commands, 0 Repeat `move()` commands, pressed state retained.
+- Final local verification: `npm test` built successfully and passed 267/267
+  tests; `npx tsc --noEmit`, `npm run lint`, `npm ls --depth=0`,
+  `git diff --check`, repository AI lint, and feature AI lint all passed. ESLint
+  reported only the two pre-existing generated declaration warnings.
+
+Widget-only replacement evidence on 2026-08-28:
+
+- A live timed Repeat kept the trainer URL byte-for-byte unchanged and replaced
+  only the provider mount (`fr_yg-widget-0` to `fr_yg-widget-3`). The resolved
+  native result retained `aria-pressed="true"` and completed ten replay cycles.
+- A live click on the nested YouTube seek slider while Repeat was active again
+  kept the outer URL unchanged and replaced only the iframe
+  (`fr_yg-widget-3` to `fr_yg-widget-4`) with the clicked caption constrained to
+  the same video ID.
+- The second replacement could not complete its provider confirmation because
+  the iframe reported the YouGlish daily search quota was exceeded. The
+  deterministic manual-seek test covers the success callback sequence; the live
+  smoke claim is limited to URL stability and widget-only replacement.
+
+Same-widget Repeat evidence on 2026-08-28:
+
+- A video-constrained in-place fetch reproduced `YG.Error.TIMEOUT (3)` even
+  after a confirmed `PAUSED` state. Full long-caption searches were also
+  unreliable; a centered 12-word window completed in the existing widget.
+- Timed Repeat kept the same URL, `fr_yg-widget-0` ID, and iframe `src`, stayed
+  pressed, and completed five native replay cycles with zero Repeat `move()`
+  commands.
+- Clicking the nested YouTube seek slider while Repeat was active selected a
+  distant caption, resolved it in the same iframe and video, kept Repeat
+  pressed, and completed seven subsequent native replay cycles with zero Repeat
+  `move()` commands.
+- `npm test` rebuilt the application and passed 273/273 tests. Removing the
+  pause-before-fetch phase made the focused regression fail; restoring it made
+  the same test pass.
 
 ## Manual Testing
 

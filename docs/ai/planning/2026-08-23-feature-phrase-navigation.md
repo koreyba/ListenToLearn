@@ -44,6 +44,26 @@ description: Break down work into actionable tasks and estimate timeline
   selects another caption in the same video. Outcome: repeat persists until the
   learner turns it off or playback context resets. Validate repeat-on,
   next-caption, repeat-off, reset, and failure fixtures.
+- [x] T2.4 Stabilize long-running repeat by preferring the cached caption
+  boundary over callback timing and keeping the target pinned when a provider
+  race emits another caption during a pending seek. Validate ten delayed
+  playback cycles and a mismatched provider callback.
+- [x] T2.5 Replace boundary arithmetic after the live manual-seek failure.
+  Reopen a timestamped or manually selected caption as a video-constrained
+  native search result through a fresh widget, validate the returned
+  video/text, and loop only with `replay()`. Validate the first phrase, timed
+  phrases, manual seek, delayed cycles, and the short Replay-confirmation race
+  without Repeat `move()` calls.
+- [x] T2.6 Replace the temporary page reload transport with widget-only
+  lifecycle management. Close the current widget, create a uniquely identified
+  generation inside a stable host, and guard every callback by generation.
+  Validate an unchanged URL, a replaced mount, stale-event rejection, manual
+  seek retargeting, and native replay after exact caption confirmation.
+- [x] T2.7 Remove widget replacement from Repeat. Pause the existing player,
+  wait for `PAUSED`, fetch a bounded caption search in place, and accept only
+  exact callbacks following `onFetchDone`. Validate one widget instance,
+  stale-event rejection, playback restoration, manual seek, and fail-closed
+  pause timeout.
 
 ### Phase 3: Integration & Polish
 
@@ -85,8 +105,12 @@ refactor, then fresh verification evidence.
   controls with an honest message.
 - `move()` can throw or land across a boundary: one in-flight guard, cached
   target update, and a fail-closed direction after a movement error.
-- Repeat estimate drifts: prefer observed neighboring start times, retarget only
-  to accepted captions in the same video, and disable on timing/movement failure.
+- Repeat target resolution fails or returns another video: verify video ID and
+  normalized caption text, use a bounded timeout, and disable Repeat instead of
+  falling back to timing arithmetic.
+- Same-widget fetch receives callbacks from the previous result: reject all
+  repeat-resolution video/caption callbacks until the new `onFetchDone`, then
+  require the expected video and full normalized caption.
 - Navigation changes the wrong video: assert `videoId` before accepting a
   target; never use track methods for phrase controls.
 - Live widget behavior is unavailable in CI: deterministic fake-widget tests

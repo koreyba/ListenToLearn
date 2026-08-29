@@ -293,7 +293,10 @@ test("Full Video Mode keeps learning controls and removes result-only controls",
   assert.match(trainer, /MAX_OBSERVED_CAPTIONS = 200/);
   assert.match(trainer, /result\.history\.slice\(-MAX_OBSERVED_CAPTIONS\)/);
   assert.match(trainer, /#\$\{fullVideoOrigin\.videoId\}/);
-  assert.match(trainer, /autoStart:\s*fullVideoMode \? 0 : 1/);
+  assert.match(
+    trainer,
+    /function createYouglishWidget\(\{ autoStart = fullVideoMode \? 0 : 1 \} = \{\}\)/,
+  );
   assert.match(trainer, /window\.addEventListener\("popstate"/);
   assert.match(trainer, /id="repeatCaptionBtn"/);
   assert.match(trainer, /id="translateSelectionBtn"/);
@@ -508,7 +511,10 @@ test("trainer uses one unbroken toolbar and one stateful play pause control", as
   assert.match(trainer, /id="slowPlaybackBtn"[^>]*aria-label="Slow playback"/);
   assert.match(trainer, /function renderPlaybackControl\(\)/);
   assert.match(trainer, /const wantsPlayback = playerState !== 1;[\s\S]*?requestedYouglishPlayback = wantsPlayback;[\s\S]*?callWidget\(wantsPlayback \? "play" : "pause"\)/);
-  assert.match(trainer, /playerState = nextState;\s*if \(nextState === 1\) beginCurrentYouglishRestoreAnchorClock\(\);\s*renderPlaybackControl\(\);/);
+  assert.match(
+    trainer,
+    /playerState = nextState;\s*if \(nextState === 2 && repeatResolvePending\?\.phase === "pausing"\) \{\s*fetchRepeatResolution\(\);\s*\}\s*if \(nextState === 1\) beginCurrentYouglishRestoreAnchorClock\(\);\s*renderPlaybackControl\(\);/,
+  );
   assert.match(trainer, /Recording ready — press Play\./);
   assert.doesNotMatch(trainer, /Recording ready — press Listen\./);
 });
@@ -715,13 +721,17 @@ test("saved example button names the remove action", async () => {
   assert.doesNotMatch(trainer, /setButtonLabel\(el\.saveExampleBtn, saved \? "Saved"/);
 });
 
-test("YouGlish widget uses a nonzero dependency-only mask to hide its built-in chrome", async () => {
+test("YouGlish repeat keeps one stable widget instance", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),
     "utf8",
   );
 
-  assert.match(trainer, /new YG\.Widget\("yg-widget", \{\s*components: 128,/);
+  assert.match(trainer, /id="youglishWidgetHost"[\s\S]*?id="yg-widget-0"/);
+  assert.match(trainer, /new YG\.Widget\("yg-widget-0", \{\s*components: 128,/);
+  assert.doesNotMatch(trainer, /widget\.close\(\)/);
+  assert.doesNotMatch(trainer, /host\.replaceChildren\(mount\)/);
+  assert.doesNotMatch(trainer, /recreateYouglishWidget/);
   assert.doesNotMatch(trainer, /components: 0/);
   assert.doesNotMatch(trainer, /components: 68/);
 });

@@ -18,6 +18,7 @@ its relative `move()` request.
 flowchart LR
   UI[Previous / Next / Repeat controls] --> Controller[Caption controller]
   Controller -->|move(delta)| Widget[YouGlish Widget API]
+  Controller -->|pause then fetch exact result in place| Widget
   Widget -->|onCaptionChange caption id current_time| Controller
   Widget -->|onCaptionConsumed id| Repeat[Repeat guard]
   Controller --> History[(Per-video in-memory caption timeline)]
@@ -59,6 +60,8 @@ Navigation state is local and ephemeral:
 - `captionNavigationBlocked` disables a direction after a movement failure until
   a fresh caption observation provides new evidence;
 - `repeatCaptionEnabled` and `repeatTargetId` control the active repeat loop;
+- `repeatResolvePending` gates pause, fetch confirmation, video confirmation,
+  and full-caption confirmation in one same-widget transaction;
 - `playerState`, `observedAt`, and `lastKnownTime` provide a bounded estimate of
   current playback time when `onCaptionConsumed` lacks a timestamp, including a
   paused/resumed caption.
@@ -73,16 +76,18 @@ The existing YouGlish calls are used as follows:
   observed caption start times, not hard-coded to five seconds.
 - `widget.next()` and `widget.previous()` remain exclusively video-track
   navigation.
+- `widget.pause()` is acknowledged through `onPlayerStateChange(PAUSED)` before
+  a timed Repeat target calls `widget.fetch()` on the same widget instance.
 - `onCaptionChange(event)` consumes `event.caption`, opaque `event.id`, and the
   optional numeric `event.current_time`.
 - `onCaptionConsumed(event)` triggers repeat only when its ID equals the active
   caption ID.
-- `onPlayerStateChange(event)` is used only to improve the repeat timing
-  estimate; missing state events do not enable unsafe navigation.
+- `onPlayerStateChange(event)` maintains playback state for navigation and
+  coalesces duplicate replay commands; Repeat does not infer duration from it.
 
-`current_time` is an optional capability. The controller requires a finite
-number and a callable `move`; otherwise it disables phrase controls and keeps
-the existing honest fallback text.
+`current_time` is an optional capability for Previous/Next. A finite value and
+callable `move` are required for those controls, while Repeat uses the native
+search-result boundary and `replay()` instead.
 
 ## Component Breakdown
 
@@ -105,13 +110,31 @@ exception blocks that direction and reports the failure.
 ### Repeat controller
 
 When repeat is enabled, `onCaptionConsumed` checks the consumed ID against the
-current target. It seeks back to the current caption's observed start using the
-elapsed playback estimate when available, then the known next-caption interval,
-then a minimum bounded fallback. An accepted caption change within the current
-video retargets the loop to that caption, including after previous/next
-navigation. Missing timing, a failed movement, or a query/source/video reset
-still disables repeat. Turning repeat off clears the target before any future
-consumed event is handled.
+current target. An existing search-result caption uses the widget's native
+`replay()` command. For a timestamped caption or one reached by manual iframe
+seek, the controller first pauses the existing widget and waits for the actual
+`PAUSED` callback. It then calls `widget.fetch()` in place with a centered,
+punctuation-free window of at most 12 caption words plus `:r`; the page,
+iframe, and `YG.Widget` instance remain mounted. Full long-caption queries and
+inline video constraints were unreliable in the same-widget API, so exactness
+is enforced on the returned callbacks instead.
+The controller keeps Repeat pressed, confirms `onFetchDone`, the same video,
+and the complete normalized caption text in that order, and
+then loops only that native result with `replay()`. Callbacks arriving before
+`onFetchDone` are treated as stale events from the previous result. Playback is
+resumed after confirmation only when it was active before the technical pause.
+Provider search punctuation is removed before fetch because the live API
+returned zero results for an otherwise exact punctuated caption. Confirmation
+still compares the complete normalized provider caption, so search tolerance
+does not weaken target identity.
+
+A mismatched callback during the short native-Replay confirmation window is
+held for 750 ms. If the requested caption confirms, the callback is discarded as
+provider race noise; otherwise its first caption becomes the manual-seek target
+and starts the same pause-then-fetch transaction in place. Repeat never derives
+a caption duration from `current_time` and never calls `move()` to loop a caption. Search failure,
+wrong-video results, confirmation timeout, or a query/source/video reset disables
+Repeat with a visible message. Turning Repeat off clears all pending work.
 
 ### UI state
 
@@ -136,6 +159,14 @@ whole-track controls remain separate and available.
   regression.
 - Do not attempt to discover an unobserved neighbor by repeated movement. Keep
   the direction disabled until ordinary caption playback adds that neighbor.
+- Keep one YouGlish widget instance. Pause acknowledgement plus ordered fetch,
+  video, and caption confirmation isolates stale callbacks without iframe
+  replacement.
+- Do not put the video constraint into an in-place fetch. Live verification
+  returned `TIMEOUT (3)` for that form; reject a different returned video in
+  the transaction instead.
+- Bound only the provider search input to a centered 12-word window. Continue
+  requiring the complete normalized caption text before enabling native replay.
 
 Alternatives rejected in requirements review: fixed five-second movement,
 private endpoint/iframe scraping, and replacing the provider widget with an

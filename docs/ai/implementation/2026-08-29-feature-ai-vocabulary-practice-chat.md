@@ -267,13 +267,14 @@ OpenRouter smoke returned a DeepSeek
 `list_vocabulary` tool call; it proves model tool selection only, not authenticated
 app execution or D1 effects.
 
-The branch has a PR preview whose already-applied 0017 is older than the corrected
-file. Commit `c970f80` documents a zero-duplicate preflight before that deployment,
-so current preview data is explicitly accepted as behaviorally equivalent and needs
-no 0017 re-baseline or forward migration; fresh production will run corrected 0017.
-Read-only preview evidence confirms 0019 applied, its pending-chat index present,
-`PRAGMA foreign_key_check` clean, and 0020 as the only pending migration. Commit/
-push and preview rebuild, 0020 plus post-migration checks, authenticated updated-
-preview tool smoke, operational ownership, and production authorization remain
-open. No production deployment, production migration, or production secret change
-is claimed here.
+Backend commit `8f671288` is pushed and PR #32 reports green CodeQL, Analyze, Sonar, and
+Workers checks. Preview 0020 is applied: configured provider/model columns are
+present and backfilled, the pending-chat index remains present, and
+`PRAGMA foreign_key_check` is clean. Authenticated provider-backed preview smoke
+executed the owned D1 read path: requests for latest ten/all available and `To Learn`
+each returned the account's two matching entries without a user-data mutation.
+Commit `c970f80` still establishes
+behavioral equivalence for preview's older 0017; fresh production will run corrected
+0017. Manual >10 cross-turn pagination, write/replay, operational ownership, and
+production authorization remain open. No production deployment, production
+migration, or production secret change is claimed here.

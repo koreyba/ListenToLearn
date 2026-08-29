@@ -327,8 +327,11 @@ results, and upstream bodies.
 Fresh exact-diff evidence passes focused backend tests 219/219, full `npm test`
 503/503, typecheck, Drizzle validation, dependency audit, lifecycle/diff/secret/
 ignore checks, and lint with zero errors plus three existing warnings. Independent
-final review found no P0/P1. These close the local architecture/static gates, not
-the remaining preview or production rollout gates.
+final review found no P0/P1. Backend commit `8f671288` is pushed and PR #32 has green CodeQL,
+Analyze, Sonar, and Workers checks. Authenticated provider-backed preview requests
+for latest ten/all available and `To Learn` each returned the account's two matching
+entries without a user-data mutation. These close local/published read-path gates, not manual >10
+cross-turn traversal, write/replay, or production rollout gates.
 
 ## Duplicate Migration Contract
 
@@ -345,9 +348,9 @@ read-only preflight that found zero owner-custom ASCII-`NOCASE` duplicates befor
 that deployment. The corrected merge therefore had no rows to transform, and this
 preview is explicitly accepted as behaviorally equivalent: no 0017 re-baseline or
 forward migration is needed there. Fresh production will execute the corrected
-0017. Read-only preview evidence also confirms 0019 applied, its one-pending-
-attempt-per-chat index present, and `PRAGMA foreign_key_check` clean; 0020 is the
-only pending preview migration.
+0017. Preview evidence confirms 0019 and 0020 applied,
+`configured_provider`/`configured_model` present and backfilled, the one-pending-
+attempt-per-chat index present, and `PRAGMA foreign_key_check` clean.
 
 ## Authentication Migration Boundary
 

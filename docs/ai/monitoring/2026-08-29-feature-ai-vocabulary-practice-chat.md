@@ -16,8 +16,11 @@ are configuration facts, not deployed-state evidence. The durable D1 ledger is a
 execution/audit boundary, not a substitute for aggregated operational metrics.
 Fresh exact-diff automated/static checks pass (219/219 focused, 503/503 full, zero
 lint errors with three existing warnings), and independent review found no P0/P1;
-alert thresholds, spend ownership, retention, and key-rotation ownership remain
-release decisions.
+backend commit `8f671288` is pushed and PR #32 CodeQL, Analyze, Sonar, and Workers checks are
+green. Preview 0020/provenance backfill, pending-chat index, and foreign keys are
+verified. Authenticated provider-backed preview requests for latest ten/all available
+and `To Learn` each returned the account's two matching entries without mutation. Alert thresholds, spend
+ownership, retention, and key-rotation ownership remain release decisions.
 
 ## Implemented Safe Signals
 
@@ -113,9 +116,8 @@ D1 failures, provider failure/timeout spike, pending attempts beyond lease, elev
 receipt-vs-domain inconsistency, an untraced category mutation, or spend approaching
 its cap. Alert separately if runtime preview schema does not contain the accepted
 behaviorally-equivalent 0017 state, migration 0019 per-chat index, or has foreign-
-key violations. Migration 0020 configured-provenance columns remain a pre-rollout
-gate while it is the only pending preview migration; alert on absence only after
-its planned application.
+key violations. Migration 0020 configured-provenance columns are now present and
+backfilled in preview; their absence/regression is an alert condition.
 
 Triage in order: verify session and D1 health; group by safe code/attempt/tool
 status; inspect owner and receipt invariants without copying private payloads; stop
@@ -127,9 +129,9 @@ preview smoke before re-enabling.
 
 Owned chat list/detail and category-list/search checks validate application/D1
 without a paid model call. A live direct OpenRouter smoke confirms that the concrete
-DeepSeek model selects `list_vocabulary`; it does not prove authenticated route
-execution, ownership, ledger writes, or cross-turn cursor continuation. A deliberate
-authenticated preview smoke must still verify paginated read/continuation, denied
-ambiguous/autonomous category write, one explicit receipt-backed write, retry/replay,
-and reload within a fixed budget. Production automation must not perform ongoing
-vocabulary writes merely as a health check.
+DeepSeek model selects `list_vocabulary`; authenticated provider-backed preview
+smoke now also proves the application-owned read path: latest ten/all available and
+category `To Learn` each returned the account's two matching entries. Manual evidence remains open for >10-page
+pagination/cross-turn continuation and for bounded explicit write/replay behavior.
+Production automation must not perform ongoing vocabulary writes merely as a health
+check.

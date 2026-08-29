@@ -137,6 +137,8 @@ zero errors and three existing warnings. Independent final review found no P0/P1
 - [x] Fresh typecheck, Drizzle, dependency audit, tracked-secret, ignore, lifecycle,
   and diff checks pass; full lint has zero errors and three existing warnings.
 - [x] Independent final review reports no P0/P1.
+- [x] Pushed backend commit `8f671288`: PR #32 CodeQL, Analyze, Sonar, and Workers checks are
+  green.
 
 ## Preview Data Evidence
 
@@ -149,7 +151,9 @@ zero errors and three existing warnings. Independent final review found no P0/P1
 - [x] Read-only preview evidence confirms 0019 applied, the
   `idx_ai_chat_assistant_attempts_one_pending_chat` index present, and
   `PRAGMA foreign_key_check` clean.
-- [ ] Apply and verify migration 0020, currently the only pending preview migration.
+- [x] Preview migration 0020 is applied; `configured_provider` and
+  `configured_model` columns are present and backfilled. The pending-chat index
+  remains present and `PRAGMA foreign_key_check` remains clean.
 
 ## Manual Authenticated Smoke
 
@@ -161,11 +165,13 @@ zero errors and three existing warnings. Independent final review found no P0/P1
   route execution, ledger persistence, cursor continuation, or D1 ownership.
 - [x] A real published follow-up maps the observed OpenRouter usage-limit response
   to the dedicated safe UI error without exposing provider internals.
-- [ ] After commit/push, preview rebuild, and migration 0020, run one bounded
-  authenticated updated-preview smoke covering: empty/populated opening and reload;
-  category pagination plus cross-turn continuation; search/practice; explicit add/
-  meaning/update/category writes and denial cases; retry/replay; usable desktop/
-  narrow chat; and absence of private data in logs/network output.
+- [x] Authenticated provider-backed preview requests for latest ten/all available
+  and category `To Learn` each returned the account's two matching entries. They
+  performed no user-data mutation.
+- [ ] With an account containing more than ten entries, manually verify pagination
+  and cross-turn continuation beyond the first page.
+- [ ] Manually verify explicit write denial/commit and interruption/replay without a
+  duplicate user-data mutation.
 
 Automated tests use local D1 and controlled model/tool adapters. They never read,
 print, snapshot, or call a real provider credential.

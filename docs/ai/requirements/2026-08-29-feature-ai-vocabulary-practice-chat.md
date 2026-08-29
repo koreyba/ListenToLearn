@@ -288,17 +288,14 @@ Fresh exact-diff evidence on 2026-08-29 passes the focused backend suite 219/219
 full `npm test` 503/503, plus typecheck, Drizzle validation, dependency audit,
 lifecycle lint, diff check, tracked-secret check, and ignore check. Full lint has
 zero errors and three existing warnings. Independent final review found no P0/P1.
-Current provider evidence also includes the real serializer and a live direct
-OpenRouter smoke in which
-`deepseek/deepseek-v4-flash-0731` selected `list_vocabulary`; that proves model-to-
-tool selection, not authenticated application execution or D1 persistence.
-Authenticated branch-preview New Chat was previously confirmed. Read-only preview
-evidence now shows migration 0019 applied, migration 0020 as the only pending
-migration, a clean `PRAGMA foreign_key_check`, and the one-pending-attempt-per-chat
-index. Commit `c970f80` documented a zero-duplicate preflight before preview ran
-0017; because there was nothing for the corrected merge to transform, the current
-preview is explicitly accepted as behaviorally equivalent and needs neither a
-re-baseline nor a forward migration for 0017. A fresh production database will run
-the corrected 0017. Commit/push and preview rebuild, migration 0020 plus its schema
-checks, authenticated updated-preview tool smoke, operational ownership, and
-production authorization remain open. No production deployment is claimed.
+Backend commit `8f671288` is pushed and PR #32 reports green CodeQL, Analyze, Sonar, and
+Workers checks. Preview migration 0020 is applied; `configured_provider` and
+`configured_model` exist and are backfilled, the one-pending-attempt-per-chat index
+exists, and `PRAGMA foreign_key_check` is clean. An authenticated provider-backed
+preview smoke requested latest ten/all available and the `To Learn` category; each
+response returned the account's two matching entries and performed no user-data
+mutation. Commit `c970f80` documented a
+zero-duplicate preflight before preview ran 0017, so that preview remains accepted
+as behaviorally equivalent to corrected 0017. Manual traversal beyond ten with
+cross-turn continuation, write/replay smoke, operational ownership, and production
+authorization remain open. No production deployment is claimed.

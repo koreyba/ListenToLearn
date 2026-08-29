@@ -12,12 +12,13 @@ The chat-only backend is implemented locally. Fresh exact-diff evidence passes t
 focused backend suite 219/219, full `npm test` 503/503, typecheck, Drizzle, audit,
 lifecycle/diff/secret/ignore checks, and lint with zero errors plus three existing
 warnings. Independent final review found no P0/P1. The concrete-model serializer
-passes, and a live direct OpenRouter smoke returned a DeepSeek `list_vocabulary`
-tool call. Read-only preview evidence confirms 0019 applied, its pending-chat index
-present, foreign keys clean, and only 0020 pending. The zero-duplicate preflight in
-`c970f80` makes preview behaviorally equivalent to corrected 0017. No deployment is
-claimed; commit/push/rebuild, preview 0020/checks, authenticated updated-preview
-smoke, operational ownership, and production authorization remain open.
+passes. Backend commit `8f671288` is pushed; PR #32 CodeQL, Analyze, Sonar, and Workers checks
+are green. Preview 0020 is applied with configured provenance columns backfilled,
+the pending-chat index present, and foreign keys clean. Authenticated provider-
+backed preview requests for latest ten/all available and `To Learn` each returned
+the account's two matching entries without mutating user data. No production deployment is claimed;
+manual >10 cross-turn traversal, write/replay, operational ownership, and production
+authorization remain open.
 
 ## Implemented
 
@@ -107,19 +108,18 @@ smoke, operational ownership, and production authorization remain open.
 
 ## Remaining Gates
 
-- [ ] **P12 · Authenticated manual smoke** — deterministic latest five, request
-  all/category pagination and cross-turn continuation, search/select/practise,
-  explicit add/add-meaning/update/category change, ambiguous-write denial,
-  autonomous-category denial, retry/replay, and reload. Partial evidence: earlier
-  preview New Chat passed; direct OpenRouter now proves DeepSeek can select
-  `list_vocabulary`, but not that the app executed the tool against owned D1 data.
+- [x] **P12 · Authenticated preview read smoke** — the published application used
+  the provider-backed `list_vocabulary` path for latest ten/all available and
+  category `To Learn`; each returned the account's two matching entries and no
+  user-data mutation was performed.
+- [ ] **P12a · Extended manual smoke** — traverse more than ten entries through
+  pagination/cross-turn continuation, then verify explicit write denial/commit and
+  interruption/replay without duplicate mutation.
 - [x] **P13 · Final local verification/review** — focused 219/219, full `npm test`
   503/503, typecheck, Drizzle, audit, lifecycle/diff/secret/ignore checks, and lint
   (zero errors, three existing warnings) pass; independent review found no P0/P1.
-- [ ] **P14 · Publish and release decision** — commit/push and rebuild preview,
-  apply/verify preview 0020, run authenticated updated-preview smoke, assign spend/
-  alerts/retention/rotation ownership, then obtain explicit production migration/
-  deployment authorization.
+- [ ] **P14 · Release decision** — assign spend/alerts/retention/key-rotation
+  ownership, then obtain explicit production migration/deployment authorization.
 
 ## Open Product and Technical Decisions
 
@@ -148,8 +148,8 @@ smoke, operational ownership, and production authorization remain open.
   update metadata, and rehomes progress, examples, videos, and chat references.
   Preview has an older applied 0017, but `c970f80` recorded zero duplicates before
   its deployment, so the current preview is explicitly accepted as behaviorally
-  equivalent and needs no corrective migration. Preview 0019/index and clean
-  foreign keys are verified; 0020 remains the only pending preview migration.
+  equivalent and needs no corrective migration. Preview 0019/0020, configured
+  provenance backfill, pending-chat index, and clean foreign keys are verified.
 - The runtime intentionally rejects presets and unlisted models; the
   concrete model, local-tool-only serialization, disabled plugins, and privacy
   plus parameter-support fences must remain covered. Preset response-cache settings

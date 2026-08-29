@@ -8,21 +8,16 @@ description: Preview rollout state for chat tools, uniqueness, attempts, and rec
 
 ## Current State
 
-PR #32 and its branch preview currently contain an earlier feature revision; the
-backend-hardening diff described here is still local. A read-only preview D1
-preflight documented in commit `c970f80` found no owner-custom ASCII-`NOCASE`
-duplicates before preview ran 0017. Although that applied 0017 body is older, the
-absence of duplicates makes current preview data behaviorally equivalent to the
-corrected merge; no preview re-baseline or forward migration is needed. Read-only
-evidence now confirms 0019 applied, the one-pending-attempt-per-chat index present,
-`PRAGMA foreign_key_check` clean, and 0020 as the only pending migration. Fresh
-production will run corrected 0017. No production code deploy, production migration,
-or production secret change is claimed. The earlier preview confirmed deterministic
-New Chat opening.
-The revised concrete-model path has outbound serialization coverage and a live
-direct OpenRouter smoke in which DeepSeek selected `list_vocabulary`. That bypassed
-the application route, so authenticated tool execution/D1 behavior on the updated
-preview remains unproven.
+Backend commit `8f671288` is pushed to PR #32; CodeQL, Analyze, Sonar, and Workers checks are
+green and the branch preview is current. Preview migration 0020 is applied:
+`configured_provider` and `configured_model` are present/backfilled, the one-
+pending-attempt-per-chat index is present, and `PRAGMA foreign_key_check` is clean.
+The `c970f80` zero-duplicate preflight still makes preview's older 0017 behaviorally
+equivalent to corrected 0017; fresh production will run corrected 0017. An
+authenticated provider-backed preview smoke requested the latest ten/all available
+and category `To Learn`; both responses returned the account's two matching entries,
+with no user-data mutation. No production code
+deploy, production migration, or production secret change is claimed.
 
 ## Configuration
 
@@ -67,9 +62,8 @@ preflight in `c970f80` proves that the corrected merge had no data to transform.
 current preview is therefore explicitly accepted as behaviorally equivalent; do
 not create a re-baseline or forward migration solely for 0017 there. This exception
 does not change the fresh-production sequence: production must run the corrected
-0017, then 0018–0020 in order. Preview needs only 0020 now. After applying it, verify
-foreign keys, the per-chat pending-attempt index, configured-provenance columns/
-backfill, and the unique receipt key before code rollout.
+0017, then 0018–0020 in order. Preview has now applied 0020 and verified foreign
+keys, the per-chat pending-attempt index, and configured-provenance columns/backfill.
 
 ## Release Gates
 
@@ -83,9 +77,11 @@ backfill, and the unique receipt key before code rollout.
   required there.
 - [x] Preview migration 0019 is applied; the per-chat pending-attempt index exists
   and `PRAGMA foreign_key_check` is clean.
-- [ ] Commit/push the backend-hardening diff and rebuild the PR preview.
-- [ ] Apply migration 0020, the only pending preview migration, then recheck its
-  configured-provenance backfill, pending-chat index, and foreign keys.
+- [x] Backend commit `8f671288` is pushed, the PR preview is current, and PR #32 CodeQL,
+  Analyze, Sonar, and Workers checks are green.
+- [x] Preview migration 0020 is applied; configured provider/model columns are
+  present/backfilled, the pending-chat index remains present, and foreign keys are
+  clean.
 - [x] Concrete code-allowlisted DeepSeek model, privacy/local-tool fence, and
   10/account plus approximate 100/location per-minute edge abuse limits are explicit
   in deployment configuration.
@@ -97,9 +93,12 @@ backfill, and the unique receipt key before code rollout.
 - [ ] Spend cap ownership, alerts, retention, and rotation owner are approved.
 - [x] Authenticated preview smoke covers deterministic New Chat creation and its
   latest-vocabulary opening without a provider call.
-- [ ] Authenticated preview smoke covers provider-backed category pagination and
-  cross-turn continuation, search, add/add-meaning/update, literal category change,
-  autonomous/ambiguous-write denial, interruption/replay, and reload.
+- [x] Authenticated provider-backed preview smoke requested latest ten/all available
+  entries and category `To Learn`; each response returned the account's two matching
+  entries without user-data mutation.
+- [ ] Manually verify pagination/cross-turn continuation with more than ten entries.
+- [ ] Manually verify explicit write denial/commit and interruption/replay without
+  duplicate mutation.
 - [ ] Production deployment and remote production migrations receive explicit
   authorization.
 

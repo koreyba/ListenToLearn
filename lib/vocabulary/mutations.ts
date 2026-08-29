@@ -1,6 +1,7 @@
 import {
   normalizeVocabularyMeaning,
   normalizeVocabularyTarget,
+  readScopedLegacyMeaningId,
   VOCABULARY_LIMITS,
 } from "./contracts.ts";
 
@@ -26,6 +27,7 @@ export type VocabularyMutationPlan<
   canonicalResult: Result;
   entityType: "phrase" | "meaning";
   entityId: string | null;
+  candidateEntityId?: string;
   statements: D1PreparedStatement[];
   receiptGuard: VocabularyMutationReceiptGuard;
   conflictGuard?: VocabularyMutationReceiptGuard;
@@ -187,14 +189,20 @@ export function createVocabularyMutationPlanner(
     const timestamp = now();
     const existing = await findVisibleByText(userId, text);
     const contextSupplied = context === undefined ? 0 : 1;
+    const personalContext = context === undefined
+      ? existing?.source_type === "custom" && !existing.translation.trim()
+        ? existing.context
+        : ""
+      : context;
     const statements: D1PreparedStatement[] = [];
+    const candidatePhraseId = createId("phrase");
 
     statements.push(db.prepare(`
       INSERT OR IGNORE INTO phrases (
         id, text, pattern, ipa, translation, context, source_type, catalog_order,
         owner_id, status, created_at, updated_at
       )
-      SELECT ?, ?, ?, '', ?, ?, 'custom', NULL, ?, 'pick', ?, ?
+      SELECT ?, ?, ?, '', '', ?, 'custom', NULL, ?, 'pick', ?, ?
       WHERE NOT EXISTS (
         SELECT 1
         FROM phrases
@@ -202,11 +210,10 @@ export function createVocabularyMutationPlanner(
           AND (source_type = 'preset' OR owner_id = ?)
       )
     `).bind(
-      createId("phrase"),
+      candidatePhraseId,
       text,
       text,
-      translation || "",
-      context || "",
+      translation ? "" : context || "",
       userId,
       timestamp,
       timestamp,
@@ -233,46 +240,7 @@ export function createVocabularyMutationPlanner(
         END
     `).bind(userId, timestamp, timestamp, text, userId, userId));
 
-    statements.push(db.prepare(`
-      UPDATE phrases
-      SET
-        translation = ?,
-        context = CASE WHEN ? = 1 THEN ? ELSE context END,
-        updated_at = ?
-      WHERE id = (
-        SELECT candidate.id
-        FROM phrases AS candidate
-        WHERE candidate.text = ? COLLATE NOCASE
-          AND (candidate.source_type = 'preset' OR candidate.owner_id = ?)
-        ORDER BY CASE WHEN candidate.owner_id = ? THEN 0 ELSE 1 END, candidate.id
-        LIMIT 1
-      )
-        AND source_type = 'custom'
-        AND owner_id = ?
-        AND TRIM(translation) = ''
-        AND ? <> ''
-    `).bind(
-      translation || "",
-      contextSupplied,
-      context || "",
-      timestamp,
-      text,
-      userId,
-      userId,
-      userId,
-      translation || "",
-    ));
-
-    const existingLegacySatisfies = Boolean(
-      translation
-      && existing?.translation.trim()
-      && normalizeVocabularyMeaning(existing.translation) === normalizedTranslation,
-    );
-    const plansConditionalPersonalMeaning = Boolean(
-      translation && !existingLegacySatisfies,
-    );
-
-    if (plansConditionalPersonalMeaning) {
+    if (translation) {
       statements.push(db.prepare(`
         INSERT INTO phrase_meanings (
           id, user_id, phrase_id, translation, normalized_translation, context,
@@ -285,17 +253,6 @@ export function createVocabularyMutationPlanner(
         WHERE phrases.text = ? COLLATE NOCASE
           AND (phrases.source_type = 'preset' OR phrases.owner_id = ?)
           AND progress.status IN (${ACTIVE_STATUS_SQL})
-          AND (
-            phrases.source_type = 'preset'
-            OR (
-              phrases.source_type = 'custom'
-              AND phrases.owner_id = ?
-              AND (
-                phrases.translation <> ?
-                OR (? = 1 AND phrases.context <> ?)
-              )
-            )
-          )
         ORDER BY CASE WHEN phrases.owner_id = ? THEN 0 ELSE 1 END, phrases.id
         LIMIT 1
         ON CONFLICT(user_id, phrase_id, normalized_translation) DO UPDATE SET
@@ -315,35 +272,17 @@ export function createVocabularyMutationPlanner(
         userId,
         translation,
         normalizedTranslation,
-        context || "",
+        personalContext,
         timestamp,
         timestamp,
         userId,
         text,
         userId,
         userId,
-        translation,
-        contextSupplied,
-        context || "",
-        userId,
         contextSupplied,
         contextSupplied,
       ));
     }
-
-    const mayPersistLegacy = Boolean(translation && (
-      existingLegacySatisfies
-      || !existing
-      || (existing.source_type === "custom" && !existing.translation.trim())
-    ));
-    const expectedLegacyTranslation = existingLegacySatisfies
-      ? existing?.translation || ""
-      : translation || "";
-    const legacyScope = existingLegacySatisfies ? "visible" : "owned_custom";
-    const expectedLegacyContext = existingLegacySatisfies
-      ? existing?.context || ""
-      : context || "";
-    const legacyContextMustMatch = existingLegacySatisfies ? 0 : contextSupplied;
 
     const receiptGuard: VocabularyMutationReceiptGuard = {
       sql: `EXISTS (
@@ -362,30 +301,15 @@ export function createVocabularyMutationPlanner(
           AND progress.status IN (${ACTIVE_STATUS_SQL})
           AND (
             ? = 0
-            OR (
-              ? = 1
-              AND phrases.translation = ?
-              AND (
-                ? = 'visible'
-                OR (
-                  ? = 'owned_custom'
-                  AND phrases.source_type = 'custom'
-                  AND phrases.owner_id = ?
-                )
-              )
-              AND (? = 0 OR phrases.context = ?)
-            )
-            OR (
-              ? = 1
-              AND EXISTS (
-                SELECT 1
-                FROM phrase_meanings
-                WHERE phrase_meanings.user_id = ?
-                  AND phrase_meanings.phrase_id = phrases.id
-                  AND phrase_meanings.normalized_translation = ?
-                  AND phrase_meanings.translation = ?
-                  AND (? = 0 OR phrase_meanings.context = ?)
-              )
+            OR EXISTS (
+              SELECT 1
+              FROM phrase_meanings
+              WHERE ? = 1
+                AND phrase_meanings.user_id = ?
+                AND phrase_meanings.phrase_id = phrases.id
+                AND phrase_meanings.normalized_translation = ?
+                AND phrase_meanings.translation = ?
+                AND (? = 0 OR phrase_meanings.context = ?)
             )
           )
       )`,
@@ -395,19 +319,12 @@ export function createVocabularyMutationPlanner(
         userId,
         userId,
         translation ? 1 : 0,
-        mayPersistLegacy ? 1 : 0,
-        expectedLegacyTranslation,
-        legacyScope,
-        legacyScope,
-        userId,
-        legacyContextMustMatch,
-        expectedLegacyContext,
-        plansConditionalPersonalMeaning ? 1 : 0,
+        translation ? 1 : 0,
         userId,
         normalizedTranslation,
         translation || "",
         contextSupplied,
-        context || "",
+        personalContext,
       ],
     };
 
@@ -422,6 +339,7 @@ export function createVocabularyMutationPlanner(
       canonicalResult: { ok: true, saved: true, text },
       entityType: "phrase",
       entityId: null,
+      candidateEntityId: candidatePhraseId,
       statements,
       receiptGuard,
     };
@@ -535,7 +453,7 @@ export function createVocabularyMutationPlanner(
     UpdateVocabularyMeaningMutationResult
   >> {
     assertUserId(userId);
-    const meaningId = cleanSingleLine(input.meaningId, 120, "Meaning identity");
+    const meaningId = cleanSingleLine(input.meaningId, 140, "Meaning identity");
     const phraseId = cleanSingleLine(input.phraseId, 120, "Phrase identity");
     const expectedTranslation = cleanSingleLine(
       input.expectedTranslation,
@@ -558,6 +476,197 @@ export function createVocabularyMutationPlanner(
     const normalizedTranslation = normalizeVocabularyMeaning(translation);
     const timestamp = now();
     const contextSupplied = context === undefined ? 0 : 1;
+
+    const scopedLegacyPhraseId = readScopedLegacyMeaningId(meaningId);
+    if (scopedLegacyPhraseId) {
+      const nextContext = context === undefined ? expectedContext : context;
+      const existingMeaning = await db.prepare(`
+        SELECT id
+        FROM phrase_meanings
+        WHERE user_id = ? AND phrase_id = ? AND normalized_translation = ?
+        LIMIT 1
+      `).bind(
+        userId,
+        phraseId,
+        normalizedTranslation,
+      ).first<{ id: string }>();
+      const personalMeaningId = existingMeaning?.id || createId("meaning");
+
+      const statements = [
+        db.prepare(`
+          INSERT INTO phrase_meanings (
+            id, user_id, phrase_id, translation, normalized_translation, context,
+            created_at, updated_at
+          )
+          SELECT ?, ?, phrases.id, ?, ?, ?, ?, ?
+          FROM phrases
+          JOIN phrase_progress AS progress
+            ON progress.phrase_id = phrases.id AND progress.user_id = ?
+          WHERE phrases.id = ?
+            AND phrases.id = ?
+            AND phrases.source_type = 'custom'
+            AND phrases.owner_id = ?
+            AND phrases.translation = ?
+            AND phrases.context = ?
+            AND progress.status IN (${ACTIVE_STATUS_SQL})
+          ON CONFLICT(user_id, phrase_id, normalized_translation) DO UPDATE SET
+            translation = excluded.translation,
+            context = excluded.context,
+            updated_at = CASE
+              WHEN phrase_meanings.translation <> excluded.translation
+                OR phrase_meanings.context <> excluded.context
+                THEN excluded.updated_at
+              ELSE phrase_meanings.updated_at
+            END
+        `).bind(
+          personalMeaningId,
+          userId,
+          translation,
+          normalizedTranslation,
+          nextContext,
+          timestamp,
+          timestamp,
+          userId,
+          phraseId,
+          scopedLegacyPhraseId,
+          userId,
+          expectedTranslation,
+          expectedContext,
+        ),
+        db.prepare(`
+          UPDATE phrases
+          SET translation = '', context = '', updated_at = ?
+          WHERE id = ?
+            AND id = ?
+            AND source_type = 'custom'
+            AND owner_id = ?
+            AND translation = ?
+            AND context = ?
+            AND EXISTS (
+              SELECT 1
+              FROM phrase_progress AS progress
+              WHERE progress.phrase_id = phrases.id
+                AND progress.user_id = ?
+                AND progress.status IN (${ACTIVE_STATUS_SQL})
+            )
+            AND EXISTS (
+              SELECT 1
+              FROM phrase_meanings AS meanings
+              WHERE meanings.id = ?
+                AND meanings.user_id = ?
+                AND meanings.phrase_id = phrases.id
+                AND meanings.translation = ?
+                AND meanings.normalized_translation = ?
+                AND meanings.context = ?
+            )
+        `).bind(
+          timestamp,
+          phraseId,
+          scopedLegacyPhraseId,
+          userId,
+          expectedTranslation,
+          expectedContext,
+          userId,
+          personalMeaningId,
+          userId,
+          translation,
+          normalizedTranslation,
+          nextContext,
+        ),
+      ];
+
+      const receiptGuard: VocabularyMutationReceiptGuard = {
+        sql: `changes() = 1 AND EXISTS (
+          SELECT 1
+          FROM phrases
+          JOIN phrase_progress AS progress
+            ON progress.phrase_id = phrases.id
+          JOIN phrase_meanings AS meanings
+            ON meanings.phrase_id = phrases.id
+          WHERE phrases.id = ?
+            AND phrases.source_type = 'custom'
+            AND phrases.owner_id = ?
+            AND phrases.translation = ''
+            AND phrases.context = ''
+            AND progress.user_id = ?
+            AND progress.status IN (${ACTIVE_STATUS_SQL})
+            AND meanings.id = ?
+            AND meanings.user_id = ?
+            AND meanings.translation = ?
+            AND meanings.normalized_translation = ?
+            AND meanings.context = ?
+        )`,
+        bindings: [
+          phraseId,
+          userId,
+          userId,
+          personalMeaningId,
+          userId,
+          translation,
+          normalizedTranslation,
+          nextContext,
+        ],
+      };
+
+      const conflictGuard: VocabularyMutationReceiptGuard = {
+        sql: `EXISTS (
+          SELECT 1
+          FROM phrases
+          JOIN phrase_progress AS progress
+            ON progress.phrase_id = phrases.id
+          WHERE phrases.id = ?
+            AND phrases.id = ?
+            AND phrases.source_type = 'custom'
+            AND phrases.owner_id = ?
+            AND phrases.translation = ?
+            AND phrases.context = ?
+            AND progress.user_id = ?
+            AND progress.status IN (${ACTIVE_STATUS_SQL})
+            AND NOT EXISTS (
+              SELECT 1
+              FROM phrase_meanings AS duplicate
+              WHERE duplicate.user_id = ?
+                AND duplicate.phrase_id = phrases.id
+                AND duplicate.normalized_translation = ?
+                AND duplicate.id <> ?
+            )
+        )`,
+        bindings: [
+          phraseId,
+          scopedLegacyPhraseId,
+          userId,
+          expectedTranslation,
+          expectedContext,
+          userId,
+          userId,
+          normalizedTranslation,
+          personalMeaningId,
+        ],
+      };
+
+      return {
+        operation: VOCABULARY_MUTATION_OPERATIONS.updateMeaning,
+        targetKey: meaningId,
+        canonicalArgs: withOptionalContext({
+          meaningId,
+          phraseId,
+          expectedTranslation,
+          expectedContext,
+          translation,
+        }, context),
+        canonicalResult: {
+          ok: true,
+          updated: true,
+          meaningId: personalMeaningId,
+          translation,
+        },
+        entityType: "meaning",
+        entityId: personalMeaningId,
+        statements,
+        receiptGuard,
+        conflictGuard,
+      };
+    }
 
     const statements = [db.prepare(`
       UPDATE phrase_meanings

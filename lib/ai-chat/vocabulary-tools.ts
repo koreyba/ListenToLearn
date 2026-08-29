@@ -10,6 +10,7 @@ import {
   createVocabularySearchPattern,
   VOCABULARY_SEARCH_MAX_QUERY_CHARACTERS,
 } from "../vocabulary/repository.ts";
+import { scopedLegacyMeaningId } from "../vocabulary/contracts.ts";
 import type {
   AddVocabularyEntryMutationResult,
   AddVocabularyMeaningMutationResult,
@@ -102,6 +103,26 @@ const WRITE_VERB_PATTERN = [
   "replace",
 ].join("|");
 
+const ADD_WRITE_VERB_PATTERN = [
+  "добав(?:ь|ьте|ляй|ляйте|ить|им|имте|лю)",
+  "сохран(?:и|ите|яй|яйте|ить|им|ю)",
+  "запиш(?:и|ите|ем|у|ите)",
+  "add",
+  "save",
+  "store",
+].join("|");
+
+const UPDATE_WRITE_VERB_PATTERN = [
+  "обнов(?:и|ите|ляй|ляйте|ить|им|лю)",
+  "измен(?:и|ите|яй|яйте|ить|им|ю)",
+  "исправ(?:ь|ьте|ляй|ляйте|ить|им|лю)",
+  "замен(?:и|ите|яй|яйте|ить|им|ю)",
+  "update",
+  "change",
+  "correct",
+  "replace",
+].join("|");
+
 const VOCABULARY_WRITE_OBJECT_PATTERN = [
   "слов(?:о|а)",
   "фраз(?:а|у|ы)",
@@ -122,6 +143,35 @@ const DIRECT_VOCABULARY_WRITE_COMMAND = new RegExp(
   `^(?:(?:пожалуйста|please)\\s*[,;:—-]?\\s+|давай\\s+)?(?:${WRITE_VERB_PATTERN})(?:\\s+\\S+){0,4}\\s+(?:${VOCABULARY_WRITE_OBJECT_PATTERN})(?:$|[^\\p{L}])`,
   "iu",
 );
+const ENTRY_WRITE_OBJECT_PATTERN = [
+  "слов(?:о|а)",
+  "фраз(?:а|у|ы)",
+  "в\\s+словар(?:ь|е)",
+  "words?",
+  "phrases?",
+  "(?:to|in)\\s+(?:my\\s+)?(?:vocabulary|dictionary)",
+].join("|");
+const MEANING_WRITE_OBJECT_PATTERN = [
+  "перевод(?:а|у|ом)?",
+  "значени(?:е|я|ю)",
+  "смысл",
+  "контекст",
+  "translations?",
+  "meanings?",
+  "contexts?",
+].join("|");
+const DIRECT_ADD_ENTRY_COMMAND = new RegExp(
+  `^(?:(?:пожалуйста|please)\\s*[,;:—-]?\\s+|давай\\s+)?(?:${ADD_WRITE_VERB_PATTERN})(?:\\s+\\S+){0,4}\\s+(?:${ENTRY_WRITE_OBJECT_PATTERN})(?:$|[^\\p{L}])`,
+  "iu",
+);
+const DIRECT_ADD_MEANING_COMMAND = new RegExp(
+  `^(?:(?:пожалуйста|please)\\s*[,;:—-]?\\s+|давай\\s+)?(?:${ADD_WRITE_VERB_PATTERN})(?:\\s+\\S+){0,4}\\s+(?:${MEANING_WRITE_OBJECT_PATTERN})(?:$|[^\\p{L}])`,
+  "iu",
+);
+const DIRECT_UPDATE_MEANING_COMMAND = new RegExp(
+  `^(?:(?:пожалуйста|please)\\s*[,;:—-]?\\s+|давай\\s+)?(?:${UPDATE_WRITE_VERB_PATTERN})(?:\\s+\\S+){0,4}\\s+(?:${MEANING_WRITE_OBJECT_PATTERN})(?:$|[^\\p{L}])`,
+  "iu",
+);
 const DIRECT_ADD_COMMAND = /^(?:(?:пожалуйста|please)\s*[,;:—-]?\s+|давай\s+)?(?:добав(?:ь|ьте|ляй|ляйте|ить|им|имте|лю)|add)(?:$|[^\p{L}])/iu;
 const PRACTICE_ADD_DESTINATION = /(?:^|[^\p{L}])(?:предложен\p{L}*|пример\p{L}*|упражнен\p{L}*|текст\p{L}*|ответ\p{L}*|sentences?|examples?|exercises?|texts?|answers?)(?:$|[^\p{L}])/iu;
 const DICTIONARY_ADD_DESTINATION = /(?:в\s+(?:мой\s+)?словарь|(?:to|in)\s+(?:my\s+)?(?:vocabulary|dictionary))/iu;
@@ -129,6 +179,10 @@ const NEGATED_WRITE_VERB = new RegExp(
   `(?:^|[^\\p{L}])(?:не|никогда|do\\s+not|don['’]t|never)\\s+(?:\\S+\\s+){0,2}(?:${WRITE_VERB_PATTERN})(?:$|[^\\p{L}])`,
   "iu",
 );
+const REVOKED_WRITE_COMMAND = /(?:^|[^\p{L}])(?:не\s+(?:делай|делайте)\s+(?:этого|это)|не\s+надо|отмен(?:а|и|ите)|передумал(?:а)?|do\s+not\s+do\s+(?:it|that)|don['’]t\s+do\s+(?:it|that)|cancel\s+(?:it|that)|never\s+mind)(?:$|[^\p{L}])/iu;
+const TRAILING_REVOKED_WRITE_COMMAND = /(?:[—–;]|,\s*)\s*(?:не\s+выполняй(?:те)?(?:\s+(?:это|этого))?|забудь(?:те)?(?:\s+(?:это|об\s+этом))?|игнорируй(?:те)?(?:\s+(?:это|эту\s+команду))?|ignore|disregard)(?:\s+(?:this|that)(?:\s+instruction)?|\s+(?:it|that))?\s*[.!?]*$/iu;
+
+type VocabularyWriteOperation = "add_entry" | "add_meaning" | "update_meaning";
 
 function normalizedLiteral(value: unknown) {
   return typeof value === "string"
@@ -140,12 +194,16 @@ function truncateCharacters(value: string, maximum: number) {
   return [...value].slice(0, maximum).join("");
 }
 
-function boundedToolMeaning(meaning: VocabularyMeaning): VocabularyMeaning {
+function boundedToolMeaning(
+  meaning: VocabularyMeaning,
+  entry?: Pick<VocabularyEntry, "phraseId" | "sourceType">,
+): VocabularyMeaning {
+  const id = meaning.source === "legacy" && entry?.sourceType === "custom"
+    ? scopedLegacyMeaningId(entry.phraseId)
+    : meaning.id;
   return {
     ...meaning,
-    id: typeof meaning.id === "string"
-      ? truncateCharacters(meaning.id, 120)
-      : meaning.id,
+    id: typeof id === "string" ? truncateCharacters(id, 140) : id,
     translation: truncateCharacters(
       meaning.translation,
       AI_CHAT_LIMITS.promptMeaningCharacters,
@@ -160,7 +218,7 @@ function boundedToolEntry(entry: VocabularyEntry): AiVocabularyToolEntry {
     phraseId: truncateCharacters(entry.phraseId, 120),
     text: truncateCharacters(entry.text, AI_CHAT_LIMITS.targetTextCharacters),
     status: entry.status,
-    meanings: includedMeanings.map(boundedToolMeaning),
+    meanings: includedMeanings.map((meaning) => boundedToolMeaning(meaning, entry)),
     meaningCount: entry.meaningCount,
     meaningsTruncated: entry.meaningCount > 6,
     detailsTruncated: includedMeanings.some((meaning) => (
@@ -194,7 +252,22 @@ function boundedToolEntries(entries: readonly VocabularyEntry[]) {
     candidate.entry.detailsTruncated = true;
   }
 
-  return bounded;
+  while (
+    resultCharacters() > MAX_TOOL_RESULT_JSON_CHARACTERS
+    && bounded.length > 1
+  ) {
+    bounded.pop();
+  }
+
+  while (resultCharacters() > MAX_TOOL_RESULT_JSON_CHARACTERS) {
+    const candidate = bounded.find((entry) => entry.meanings.length > 0);
+    if (!candidate) break;
+    candidate.meanings.pop();
+    candidate.meaningsTruncated = true;
+    candidate.detailsTruncated = true;
+  }
+
+  return resultCharacters() <= MAX_TOOL_RESULT_JSON_CHARACTERS ? bounded : [];
 }
 
 function cleanSingleLine(value: unknown, maximum: number) {
@@ -218,31 +291,127 @@ function boundedLimit(value: unknown, fallback: number) {
     : fallback;
 }
 
-function escapeRegularExpression(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+const COMMAND_PREFIX_PATTERN = "(?:(?:пожалуйста|please)\\s*[,;:—-]?\\s+|давай\\s+)?";
+const ENTRY_VALUE_LABEL_PATTERN = "(?:слов(?:о|а)|фраз(?:а|у|ы)|words?|phrases?)";
+const TRANSLATION_VALUE_LABEL_PATTERN = "(?:перевод(?:а|у|ом)?|значени(?:е|я|ю)|смысл|translations?|meanings?)";
+const CONTEXT_SEPARATOR_PATTERN = "(?:в\\s+контексте|контекст|with\\s+(?:the\\s+)?context)";
+
+function cleanCommandValue(value: string | undefined) {
+  return normalizedLiteral(value)
+    .replace(/^[\s"'“”‘’«»]+/gu, "")
+    .replace(/[\s"'“”‘’«».,!?;:]+$/gu, "");
 }
 
-function containsExplicitLiteral(message: string, literal: string) {
-  const characters = [...literal];
-  const wordCharacter = /[\p{L}\p{M}\p{N}]/u;
-  const leftBoundary = wordCharacter.test(characters[0] || "")
-    ? "(?:^|[^\\p{L}\\p{M}\\p{N}])"
-    : "";
-  const rightBoundary = wordCharacter.test(characters.at(-1) || "")
-    ? "(?:$|[^\\p{L}\\p{M}\\p{N}])"
-    : "";
-  return new RegExp(
-    `${leftBoundary}${escapeRegularExpression(literal)}${rightBoundary}`,
-    "u",
-  ).test(message);
+function exactCommandValue(actual: string | undefined, expected: string) {
+  return Boolean(actual) && cleanCommandValue(actual) === normalizedLiteral(expected);
 }
 
-function valuesAreExplicit(currentMessage: string, values: readonly string[]) {
-  const normalizedMessage = normalizedLiteral(currentMessage);
-  return values.every((value) => {
-    const literal = normalizedLiteral(value);
-    return Boolean(literal) && containsExplicitLiteral(normalizedMessage, literal);
+function parseContextSuffix(value: string) {
+  const match = new RegExp(
+    `^(?<value>.+?)\\s+${CONTEXT_SEPARATOR_PATTERN}\\s*[:—–-]?\\s+(?<context>.+)$`,
+    "iu",
+  ).exec(value);
+  return match?.groups
+    ? { value: match.groups.value, context: match.groups.context }
+    : { value, context: undefined };
+}
+
+function parseAddEntryCommands(message: string) {
+  const normalized = normalizedLiteral(message);
+  const match = new RegExp(
+    `^${COMMAND_PREFIX_PATTERN}(?:${ADD_WRITE_VERB_PATTERN})(?:\\s+\\S+){0,3}\\s+(?<body>${ENTRY_VALUE_LABEL_PATTERN}\\s+.+?)(?:\\s+(?:в\\s+(?:мой\\s+)?словарь|(?:to|in)\\s+(?:my\\s+)?(?:vocabulary|dictionary)))?[.!?]?$`,
+    "iu",
+  ).exec(normalized);
+  if (!match?.groups?.body) return [];
+  const clauses = match.groups.body.split(new RegExp(
+    `\\s+(?:и|and)\\s+(?=${ENTRY_VALUE_LABEL_PATTERN}\\s+)`,
+    "iu",
+  ));
+  return clauses.flatMap((clause) => {
+    const entry = new RegExp(
+      `^${ENTRY_VALUE_LABEL_PATTERN}\\s+(?<body>.+)$`,
+      "iu",
+    ).exec(clause);
+    if (!entry?.groups?.body) return [];
+    const withContext = parseContextSuffix(entry.groups.body);
+    const values = /^(.+?)\s+(?:—|–|->|→|=|:)\s+(.+)$/u
+      .exec(withContext.value);
+    return [{
+      text: values?.[1] || withContext.value,
+      translation: values?.[2],
+      context: withContext.context,
+    }];
   });
+}
+
+function parseAddMeaningCommand(message: string) {
+  const normalized = normalizedLiteral(message);
+  const match = new RegExp(
+    `^${COMMAND_PREFIX_PATTERN}(?:${ADD_WRITE_VERB_PATTERN})\\s+(?:к|для|to|for)\\s+(?<entry>.+?)\\s+${TRANSLATION_VALUE_LABEL_PATTERN}\\s*[:—–-]?\\s+(?<body>.+?)[.!?]?$`,
+    "iu",
+  ).exec(normalized);
+  if (!match?.groups?.entry || !match.groups.body) return null;
+  const withContext = parseContextSuffix(match.groups.body);
+  return {
+    entry: match.groups.entry,
+    translation: withContext.value,
+    context: withContext.context,
+  };
+}
+
+function parseUpdateMeaningCommand(message: string) {
+  const normalized = normalizedLiteral(message);
+  const russianOwner = new RegExp(
+    `^${COMMAND_PREFIX_PATTERN}(?:${UPDATE_WRITE_VERB_PATTERN})(?:\\s+\\S+){0,2}\\s+у\\s+(?<entry>.+?)\\s+${TRANSLATION_VALUE_LABEL_PATTERN}\\s+(?<old>.+?)\\s+(?:на|->|→)\\s+(?<body>.+?)[.!?]?$`,
+    "iu",
+  ).exec(normalized);
+  const russianFrom = new RegExp(
+    `^${COMMAND_PREFIX_PATTERN}(?:${UPDATE_WRITE_VERB_PATTERN})(?:\\s+\\S+){0,2}\\s+${TRANSLATION_VALUE_LABEL_PATTERN}\\s+(?<entry>.+?)\\s+с\\s+(?<old>.+?)\\s+(?:на|->|→)\\s+(?<body>.+?)[.!?]?$`,
+    "iu",
+  ).exec(normalized);
+  const english = new RegExp(
+    `^${COMMAND_PREFIX_PATTERN}(?:${UPDATE_WRITE_VERB_PATTERN})(?:\\s+\\S+){0,2}\\s+${TRANSLATION_VALUE_LABEL_PATTERN}(?:\\s+(?:of|for))?\\s+(?<entry>.+?)\\s+from\\s+(?<old>.+?)\\s+to\\s+(?<body>.+?)[.!?]?$`,
+    "iu",
+  ).exec(normalized);
+  const match = russianOwner || russianFrom || english;
+  if (!match?.groups?.entry || !match.groups.old || !match.groups.body) return null;
+  const withContext = parseContextSuffix(match.groups.body);
+  return {
+    entry: match.groups.entry,
+    oldTranslation: match.groups.old,
+    translation: withContext.value,
+    context: withContext.context,
+  };
+}
+
+function optionalCommandValueMatches(actual: string | undefined, expected: string | undefined) {
+  return actual === undefined
+    ? expected === undefined
+    : exactCommandValue(actual, expected || "");
+}
+
+function isExplicitVocabularyWriteOperation(
+  message: string,
+  operation: VocabularyWriteOperation,
+) {
+  const normalized = normalizedLiteral(message);
+  if (
+    !normalized
+    || NEGATED_WRITE_VERB.test(normalized)
+    || REVOKED_WRITE_COMMAND.test(normalized)
+    || TRAILING_REVOKED_WRITE_COMMAND.test(normalized)
+  ) {
+    return false;
+  }
+  if (operation === "add_entry") {
+    const ambiguousPracticeAdd = DIRECT_ADD_COMMAND.test(normalized)
+      && PRACTICE_ADD_DESTINATION.test(normalized)
+      && !DICTIONARY_ADD_DESTINATION.test(normalized);
+    return DIRECT_ADD_ENTRY_COMMAND.test(normalized) && !ambiguousPracticeAdd;
+  }
+  return operation === "add_meaning"
+    ? DIRECT_ADD_MEANING_COMMAND.test(normalized)
+    : DIRECT_UPDATE_MEANING_COMMAND.test(normalized);
 }
 
 export function isExplicitVocabularyWriteRequest(message: string) {
@@ -253,7 +422,9 @@ export function isExplicitVocabularyWriteRequest(message: string) {
   return Boolean(normalized)
     && DIRECT_VOCABULARY_WRITE_COMMAND.test(normalized)
     && !ambiguousPracticeAdd
-    && !NEGATED_WRITE_VERB.test(normalized);
+    && !NEGATED_WRITE_VERB.test(normalized)
+    && !REVOKED_WRITE_COMMAND.test(normalized)
+    && !TRAILING_REVOKED_WRITE_COMMAND.test(normalized);
 }
 
 export function createAiVocabularyToolHandlers(input: {
@@ -272,11 +443,14 @@ export function createAiVocabularyToolHandlers(input: {
       : { ok: false, error: "tool_budget_exceeded" };
   }
 
-  function authorizeWrite(values: readonly string[]): ToolPolicyError | null {
-    if (!isExplicitVocabularyWriteRequest(currentUserMessage)) {
+  function authorizeWrite(
+    operation: VocabularyWriteOperation,
+    semanticValuesMatch = true,
+  ): ToolPolicyError | null {
+    if (!isExplicitVocabularyWriteOperation(currentUserMessage, operation)) {
       return { ok: false, error: "explicit_user_command_required" };
     }
-    if (!valuesAreExplicit(currentUserMessage, values)) {
+    if (!semanticValuesMatch) {
       return { ok: false, error: "explicit_values_required" };
     }
     return null;
@@ -329,11 +503,14 @@ export function createAiVocabularyToolHandlers(input: {
       if (!text || translation === null || context === null) {
         return { ok: false, error: "invalid_input" };
       }
-      const authorization = authorizeWrite([
-        text,
-        ...(translation ? [translation] : []),
-        ...(context ? [context] : []),
-      ]);
+      const commands = parseAddEntryCommands(currentUserMessage);
+      const authorization = authorizeWrite("add_entry", commands.some((command) => (
+        exactCommandValue(command.text, text)
+        && (translation
+          ? exactCommandValue(command.translation, translation)
+          : command.translation === undefined)
+        && optionalCommandValueMatches(command.context, context)
+      )));
       if (authorization) return authorization;
       const plan = await mutationPlanner.planAddEntry(userId, {
         text,
@@ -360,16 +537,17 @@ export function createAiVocabularyToolHandlers(input: {
       if (!phraseId || !translation || context === null) {
         return { ok: false, error: "invalid_input" };
       }
-      const authorization = authorizeWrite([
-        translation,
-        ...(context ? [context] : []),
-      ]);
-      if (authorization) return authorization;
+      const command = parseAddMeaningCommand(currentUserMessage);
+      const operationAuthorization = authorizeWrite("add_meaning", Boolean(command)
+        && exactCommandValue(command?.translation, translation)
+        && optionalCommandValueMatches(command?.context, context));
+      if (operationAuthorization) return operationAuthorization;
       const entry = await repository.getEntry(userId, phraseId);
       if (!entry) return { ok: false, error: "invalid_input" };
-      if (!valuesAreExplicit(currentUserMessage, [entry.text])) {
-        return { ok: false, error: "explicit_values_required" };
-      }
+      const valueAuthorization = authorizeWrite("add_meaning", Boolean(command)
+        && exactCommandValue(command?.entry, entry.text)
+      );
+      if (valueAuthorization) return valueAuthorization;
       const plan = await mutationPlanner.planAddMeaning(userId, {
         phraseId,
         translation,
@@ -386,7 +564,7 @@ export function createAiVocabularyToolHandlers(input: {
     >> {
       const budgetError = reserveToolCall();
       if (budgetError) return budgetError;
-      const meaningId = cleanSingleLine(meaning.meaningId, 120);
+      const meaningId = cleanSingleLine(meaning.meaningId, 140);
       const translation = cleanSingleLine(
         meaning.translation,
         AI_CHAT_LIMITS.meaningCharacters,
@@ -395,19 +573,20 @@ export function createAiVocabularyToolHandlers(input: {
       if (!meaningId || !translation || context === null) {
         return { ok: false, error: "invalid_input" };
       }
-      const authorization = authorizeWrite([
-        translation,
-        ...(context ? [context] : []),
-      ]);
-      if (authorization) return authorization;
+      const operationAuthorization = authorizeWrite("update_meaning");
+      if (operationAuthorization) return operationAuthorization;
       const entry = await repository.getEntryForMeaning(userId, meaningId);
       if (!entry) return { ok: false, error: "mutation_conflict" };
-      if (!valuesAreExplicit(currentUserMessage, [
-        entry.text,
-        entry.selectedMeaning.translation,
-      ])) {
-        return { ok: false, error: "explicit_values_required" };
-      }
+      const command = parseUpdateMeaningCommand(currentUserMessage);
+      const valueAuthorization = authorizeWrite("update_meaning", Boolean(command)
+        && exactCommandValue(command?.entry, entry.text)
+        && exactCommandValue(
+          command?.oldTranslation,
+          entry.selectedMeaning.translation,
+        )
+        && exactCommandValue(command?.translation, translation)
+        && optionalCommandValueMatches(command?.context, context));
+      if (valueAuthorization) return valueAuthorization;
       const plan = await mutationPlanner.planUpdateMeaning(userId, {
         meaningId,
         phraseId: entry.phraseId,
@@ -517,11 +696,11 @@ export function createAiVocabularyTools(
       }),
     }),
     update_vocabulary_meaning: tool({
-      description: "Update one personal meaning owned by the signed-in learner only on an explicit current-turn user command that names the affected word or phrase and its current translation. Never update the legacy/shared meaning. Pass only new translation/context values literally supplied by the user.",
+      description: "Update one learner-owned meaning only on an explicit current-turn user command that names the affected word or phrase and its current translation. A legacy meaning ID is updateable only when the read tool scoped it to the learner's own custom entry; shared preset meanings stay immutable. Pass only new translation/context values literally supplied by the user.",
       inputSchema: jsonSchema<UpdateVocabularyMeaningInput>({
         type: "object",
         properties: {
-          meaningId: { type: "string", minLength: 1, maxLength: 120 },
+          meaningId: { type: "string", minLength: 1, maxLength: 140 },
           translation: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.meaningCharacters },
           context: { type: "string", maxLength: AI_CHAT_LIMITS.contextCharacters },
         },

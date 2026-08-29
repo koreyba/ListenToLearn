@@ -22,10 +22,16 @@ function apiError(payload: ApiError, fallback: string) {
   switch (payload.error?.code) {
     case "not_configured": return "AI generation is not configured.";
     case "provider_timeout": return "The model timed out. Retry the same message.";
+    case "provider_rate_limited": return "The AI usage limit has been reached. Try again later.";
+    case "turn_in_progress": return "Another message is still being answered in this chat.";
     case "provider_failed": return "The model could not answer. Retry the same message.";
     case "conflict": return "This turn is already being processed. Reopen the chat.";
     default: return fallback;
   }
+}
+
+function generationFailureMessage(errorCode: string | null | undefined) {
+  return apiError({ error: { code: errorCode || undefined } }, "The response failed.");
 }
 
 async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
@@ -115,7 +121,7 @@ function ChatConversation({
               {text ? <span>{text}</span> : !failed ? <span>Preparing a response…</span> : null}
               {failed && (
                 <div className="ai-chat-message-failure" role="alert">
-                  <span>The response failed.</span>
+                  <span>{generationFailureMessage(message.metadata?.errorCode)}</span>
                   <button
                     disabled={busy || !generationConfigured}
                     onClick={() => void retry(message.metadata!.clientMessageId)}

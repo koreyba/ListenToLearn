@@ -1,7 +1,14 @@
-import { stepCountIs, streamText, toUIMessageStream, type ToolSet } from "ai";
+import {
+  stepCountIs,
+  streamText,
+  toUIMessageStream,
+  type TextStreamPart,
+  type ToolSet,
+} from "ai";
 import { AI_CHAT_ERROR_CODES, type AiChatErrorCode } from "./contracts.ts";
 import type { AiChatPrompt } from "./prompt.ts";
 import {
+  extractAiChatOpenRouterTelemetry,
   mapAiChatRuntimeFailure,
   normalizeAiChatAssistantText,
   type AiChatRuntime,
@@ -15,6 +22,10 @@ export type AiChatGenerationUsage = {
   inputTokens: number | null;
   outputTokens: number | null;
   totalTokens: number | null;
+  configuredModel: string;
+  routedProviders: string[];
+  cost: number | null;
+  upstreamInferenceCost: number | null;
 };
 
 export type AiChatGenerationRepository = {
@@ -50,6 +61,85 @@ const defaultDependencies: AiChatGenerationDependencies = {
   toUIMessageStream,
 };
 
+function publicTokenCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function publicAiChatProviderStream(stream: ReadableStream<TextStreamPart<ToolSet>>) {
+  const publicTextIds = new Map<string, string>();
+  let nextTextId = 0;
+  const publicTextId = (providerTextId: string) => {
+    const existing = publicTextIds.get(providerTextId);
+    if (existing) return existing;
+    nextTextId += 1;
+    const created = `text-${nextTextId}`;
+    publicTextIds.set(providerTextId, created);
+    return created;
+  };
+
+  return stream.pipeThrough(new TransformStream<
+    TextStreamPart<ToolSet>,
+    TextStreamPart<ToolSet>
+  >({
+    transform(part, controller) {
+      switch (part.type) {
+        case "start":
+          controller.enqueue({ type: "start" });
+          return;
+        case "text-start":
+          controller.enqueue({ type: "text-start", id: publicTextId(part.id) });
+          return;
+        case "text-delta":
+          controller.enqueue({
+            type: "text-delta",
+            id: publicTextId(part.id),
+            text: part.text,
+          });
+          return;
+        case "text-end":
+          controller.enqueue({ type: "text-end", id: publicTextId(part.id) });
+          return;
+        case "finish":
+          controller.enqueue({
+            type: "finish",
+            finishReason: part.finishReason,
+            rawFinishReason: undefined,
+            totalUsage: {
+              inputTokens: publicTokenCount(part.totalUsage.inputTokens),
+              inputTokenDetails: {
+                noCacheTokens: publicTokenCount(part.totalUsage.inputTokenDetails.noCacheTokens),
+                cacheReadTokens: publicTokenCount(part.totalUsage.inputTokenDetails.cacheReadTokens),
+                cacheWriteTokens: publicTokenCount(part.totalUsage.inputTokenDetails.cacheWriteTokens),
+              },
+              outputTokens: publicTokenCount(part.totalUsage.outputTokens),
+              outputTokenDetails: {
+                textTokens: publicTokenCount(part.totalUsage.outputTokenDetails.textTokens),
+                reasoningTokens: publicTokenCount(
+                  part.totalUsage.outputTokenDetails.reasoningTokens,
+                ),
+              },
+              totalTokens: publicTokenCount(part.totalUsage.totalTokens),
+              raw: undefined,
+            },
+          });
+          return;
+        case "error":
+          controller.enqueue({ type: "error", error: part.error });
+          return;
+        case "abort":
+          controller.enqueue({ type: "abort" });
+          return;
+        default:
+          // Tool, reasoning, source, file, custom, step, and raw chunks are
+          // server-only. The browser receives only the assistant's final text.
+          return;
+      }
+    },
+  }));
+}
+
 function withConsumerCancellation<Chunk>(
   stream: ReadableStream<Chunk>,
   onCancel: () => Promise<void>,
@@ -79,11 +169,17 @@ function normalizeTokenCount(value: number | undefined): number | null {
     : null;
 }
 
-function normalizeModelId(value: string, fallback: string): string {
-  const model = value.trim();
-  return model && model.length <= 240 && /^[a-z0-9._:/-]+$/iu.test(model)
-    ? model
-    : fallback;
+function normalizeModelId(value: unknown, fallback: string): string {
+  const model = typeof value === "string" ? value.trim() : "";
+  if (model && model.length <= 240 && /^@?[a-z0-9][a-z0-9._:/-]*$/iu.test(model)) {
+    return model;
+  }
+  const safeFallback = fallback.trim();
+  return safeFallback
+    && safeFallback.length <= 240
+    && /^@?[a-z0-9][a-z0-9._:/-]*$/iu.test(safeFallback)
+    ? safeFallback
+    : "unknown";
 }
 
 export function startAiChatGeneration(
@@ -135,22 +231,26 @@ export function startAiChatGeneration(
     prepareStep: ({ stepNumber }) => stepNumber >= 4
       ? { activeTools: [], toolChoice: "none" }
       : undefined,
-    onEnd: async ({ text, model, usage }) => {
+    onEnd: async ({ text, usage, steps, finalStep }) => {
       const normalizedText = normalizeAiChatAssistantText(text);
       if (!normalizedText.ok) {
         await failPendingAssistant(normalizedText.error.code);
         return;
       }
+      const configuredModel = normalizeModelId(input.runtime.provenance.model, "unknown");
+      const telemetry = extractAiChatOpenRouterTelemetry(steps || []);
       await finalizeOnce(
         () => input.repository.completePendingAssistant({
           assistantId: input.pendingAssistant.id,
           text: normalizedText.value,
           provider: input.runtime.provenance.provider,
-          model: normalizeModelId(model.modelId, input.runtime.provenance.model),
+          model: normalizeModelId(finalStep?.response?.modelId, configuredModel),
           usage: {
             inputTokens: normalizeTokenCount(usage.inputTokens),
             outputTokens: normalizeTokenCount(usage.outputTokens),
             totalTokens: normalizeTokenCount(usage.totalTokens),
+            configuredModel,
+            ...telemetry,
           },
         }),
       );
@@ -164,7 +264,7 @@ export function startAiChatGeneration(
   });
 
   const uiStream = dependencies.toUIMessageStream({
-    stream: result.stream,
+    stream: publicAiChatProviderStream(result.stream),
     generateMessageId: () => input.pendingAssistant.id,
     onError: (error) => mapAiChatRuntimeFailure(error).code,
     sendReasoning: false,

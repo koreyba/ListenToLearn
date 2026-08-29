@@ -274,6 +274,10 @@ test("trace schema models attempts, invocations, and mutation receipts separatel
     columns: ["assistant_message_id"],
     unique: true,
   });
+  assert.deepEqual(indexMap(attempts).get("idx_ai_chat_assistant_attempts_one_pending_chat"), {
+    columns: ["chat_id"],
+    unique: true,
+  });
   assert.deepEqual(indexMap(receipts).get("idx_ai_chat_tool_receipts_message_operation_target"), {
     columns: ["user_message_id", "operation", "target_key"],
     unique: true,

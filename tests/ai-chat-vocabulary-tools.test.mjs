@@ -105,7 +105,7 @@ function createHarness(currentUserMessage) {
     repository,
     mutationPlanner,
   });
-  return { calls, executor, handlers, repositoryResults, savedEntry, scope };
+  return { calls, executor, handlers, repository, repositoryResults, savedEntry, scope };
 }
 
 test("write authorization recognizes explicit commands and rejects practice or negation", () => {
@@ -137,8 +137,86 @@ test("write authorization recognizes explicit commands and rejects practice or n
     "Add the word run to this sentence.",
     "Добавь слово run в это предложение.",
     "Добавь фразу run в следующий пример.",
+    "Обнови перевод run с управлять на руководить — не делай этого.",
+    "Update the translation of run from manage to lead — cancel that.",
+    "Обнови перевод run с управлять на руководить — не выполняй это.",
+    "Обнови перевод run с управлять на руководить — забудь об этом.",
+    "Update the translation of run from manage to lead — ignore that instruction.",
+    "Update the translation of run from manage to lead — disregard this instruction.",
   ]) {
     assert.equal(toolsModule.isExplicitVocabularyWriteRequest(message), false, message);
+  }
+});
+
+test("write handlers bind the requested operation and semantic value roles", async () => {
+  const swappedEntry = createHarness(
+    "Добавь слово serendipity — счастливая случайность.",
+  );
+  assert.deepEqual(await swappedEntry.handlers.addVocabularyEntry({
+    text: "счастливая случайность",
+    translation: "serendipity",
+  }, swappedEntry.scope), { ok: false, error: "explicit_values_required" });
+  assert.deepEqual(swappedEntry.calls, []);
+
+  const syntaxAsEntry = createHarness(
+    "Добавь слово serendipity — счастливая случайность.",
+  );
+  assert.deepEqual(await syntaxAsEntry.handlers.addVocabularyEntry({
+    text: "слово",
+    translation: "serendipity",
+  }, syntaxAsEntry.scope), { ok: false, error: "explicit_values_required" });
+  assert.deepEqual(syntaxAsEntry.calls, []);
+
+  const swappedMeaning = createHarness("Добавь к run значение управлять.");
+  assert.deepEqual(await swappedMeaning.handlers.addVocabularyMeaning({
+    phraseId: "phrase-run",
+    translation: "run",
+  }, swappedMeaning.scope), { ok: false, error: "explicit_values_required" });
+  assert.deepEqual(swappedMeaning.calls, []);
+
+  const wrongOperation = createHarness("Добавь слово run — управлять.");
+  assert.deepEqual(await wrongOperation.handlers.updateVocabularyMeaning({
+    meaningId: "meaning-owned",
+    translation: "run",
+  }, wrongOperation.scope), { ok: false, error: "explicit_user_command_required" });
+  assert.deepEqual(wrongOperation.calls, []);
+
+  const syntaxAsTranslation = createHarness(
+    "Обнови перевод run с управлять на руководить.",
+  );
+  assert.deepEqual(await syntaxAsTranslation.handlers.updateVocabularyMeaning({
+    meaningId: "meaning-owned",
+    translation: "на",
+  }, syntaxAsTranslation.scope), { ok: false, error: "explicit_values_required" });
+  assert.deepEqual(syntaxAsTranslation.calls, [{
+    method: "getEntryForMeaning",
+    userId: "user-a",
+    meaningId: "meaning-owned",
+  }]);
+
+  const revoked = createHarness(
+    "Обнови перевод run с управлять на руководить — не делай этого.",
+  );
+  assert.deepEqual(await revoked.handlers.updateVocabularyMeaning({
+    meaningId: "meaning-owned",
+    translation: "руководить",
+  }, revoked.scope), { ok: false, error: "explicit_user_command_required" });
+  assert.deepEqual(revoked.calls, []);
+
+  for (const message of [
+    "Обнови перевод run с управлять на руководить — не выполняй это.",
+    "Обнови перевод run с управлять на руководить — забудь об этом.",
+    "Update the translation of run from manage to lead — ignore that instruction.",
+  ]) {
+    const arbitraryRevocation = createHarness(message);
+    assert.deepEqual(await arbitraryRevocation.handlers.updateVocabularyMeaning({
+      meaningId: "meaning-owned",
+      translation: "руководить",
+    }, arbitraryRevocation.scope), {
+      ok: false,
+      error: "explicit_user_command_required",
+    });
+    assert.deepEqual(arbitraryRevocation.calls, []);
   }
 });
 
@@ -173,6 +251,72 @@ test("read handlers bind identity on the server and return bounded vocabulary", 
     { method: "recent", userId: "user-a", limit: 10 },
     { method: "search", userId: "user-a", query: "run", limit: 4 },
   ]);
+});
+
+test("tool reads scope legacy custom meanings while preset legacy stays immutable", async () => {
+  const harness = createHarness("Покажи последние слова.");
+  const custom = entry({
+    phraseId: "phrase-custom",
+    text: "break even",
+    sourceType: "custom",
+    meanings: [{
+      id: "legacy",
+      source: "legacy",
+      translation: "окупаться",
+      context: "the business breaks even",
+    }],
+  });
+  const preset = entry();
+  harness.repositoryResults.splice(0, harness.repositoryResults.length, custom, preset);
+
+  const result = await harness.handlers.getRecentVocabulary({ limit: 5 });
+  assert.equal(result.ok, true);
+  assert.equal(result.entries[0].meanings[0].id, "legacy:phrase-custom");
+  assert.equal(result.entries[1].meanings[0].id, "legacy");
+});
+
+test("explicit update can target an owner-scoped legacy custom meaning", async () => {
+  const harness = createHarness(
+    "Исправь у break even перевод окупаться на выходить в ноль.",
+  );
+  harness.repository.getEntryForMeaning = async (userId, meaningId) => {
+    harness.calls.push({ method: "getEntryForMeaning", userId, meaningId });
+    return meaningId === "legacy:phrase-custom"
+      ? {
+          ...entry({
+            phraseId: "phrase-custom",
+            text: "break even",
+            sourceType: "custom",
+          }),
+          selectedMeaning: {
+            id: "legacy:phrase-custom",
+            source: "legacy",
+            translation: "окупаться",
+            context: "the business breaks even",
+          },
+        }
+      : null;
+  };
+
+  assert.equal((await harness.handlers.updateVocabularyMeaning({
+    meaningId: "legacy:phrase-custom",
+    translation: "выходить в ноль",
+  }, harness.scope)).ok, true);
+  assert.deepEqual(harness.calls, [{
+    method: "getEntryForMeaning",
+    userId: "user-a",
+    meaningId: "legacy:phrase-custom",
+  }, {
+    method: "updateMeaning",
+    userId: "user-a",
+    input: {
+      meaningId: "legacy:phrase-custom",
+      phraseId: "phrase-custom",
+      expectedTranslation: "окупаться",
+      expectedContext: "the business breaks even",
+      translation: "выходить в ноль",
+    },
+  }]);
 });
 
 test("find handler enforces the escaped D1 LIKE pattern byte budget for ASCII and Unicode", async () => {

@@ -19,7 +19,10 @@ description: Implemented chat-only tools, attempts, ledger, and mutation receipt
 - `lib/ai-chat/tool-trace.ts`: durable invocation registration, execution ledger,
   atomic mutation receipt commit, hash conflict, and replay.
 - `lib/ai-chat/service.ts`, `generation.ts`, `prompt.ts`, `repository.ts`: tool-aware
-  bounded generation, canonical history, distinct attempts, fencing, and retries.
+  bounded generation, canonical history, distinct attempts, per-chat single-flight,
+  public stream allowlisting, fencing, and retries.
+- `lib/ai-chat/http.ts`, `client.ts`, chat routes: explicit public DTOs plus bounded
+  account chat list and message history.
 - `lib/ai-chat/practice-context.ts`: immutable provider-safe per-turn snapshots,
   bounded to the 48,000-character target-data budget.
 - `app/api/phrases/route.ts`: preset fallback translations remain personal; manual
@@ -32,6 +35,10 @@ description: Implemented chat-only tools, attempts, ledger, and mutation receipt
   ASCII-`NOCASE` duplicate merge, reference transfer, and per-owner uniqueness.
 - `drizzle/0018_jittery_the_liberteens.sql`: assistant attempts, tool calls, and
   mutation receipts.
+- `drizzle/0019_chat_turn_single_flight.sql`: deterministic pending-attempt repair
+  and one-pending-attempt-per-chat uniqueness.
+- `lib/auth.ts`, `worker/index.ts`: cheap ordinary user ensure and explicit atomic
+  legacy-owner migration on login/session bootstrap, outside AI generation.
 
 ## Actual Tool Contracts
 
@@ -64,8 +71,11 @@ The compatibility target contract accepts at most 12 saved or ad-hoc entries wit
 one whole-array `PATCH`; the chat-only browser does not render these controls.
 
 New/unsaved entries begin in `to_learn`; adding a duplicate preserves any active
-status. Preset legacy fields cannot be changed. An owner-custom empty legacy
-translation can be filled; other additions are normalized personal meanings.
+status. Every new supplied translation is a normalized owner-scoped personal
+meaning, including the first translation of a new custom entry. Preset legacy
+fields cannot be changed. Historical owner-custom legacy fields are exposed with a
+phrase-scoped ID; an authorized CAS update creates/updates a personal meaning and
+clears those legacy fields atomically.
 
 ## Deterministic New Chat
 
@@ -76,6 +86,12 @@ synthetic user row, attempt, tool call, provider/model, or usage. When canonical
 history is prepared for a later model turn, that opening alone is escaped and
 wrapped in `UNTRUSTED_VOCABULARY_OPENING` markers.
 
+Chat creation is capped at 100 chats per account. Listing returns at most 100
+summaries; detail returns the latest 200 messages in sequence order. Model history
+is independently capped at 40 complete messages/32,000 characters. Public DTOs
+remove practice snapshots and provider/model/usage fields and never expose attempts,
+tool calls, or receipts.
+
 ## Attempt and Tool Persistence
 
 `beginTurn` batches a stable user message, stable assistant message, attempt 1, and
@@ -83,11 +99,13 @@ chat timestamp. The user row also stores a provider-safe snapshot of the current
 practice targets/meaning mode, bounded to 12 targets and 48,000 JSON characters. A
 retry keeps both messages and that original snapshot, marks an abandoned pending
 attempt expired when necessary, and inserts attempt `N+1`; the attempt identity and
-number are never reused. A partial unique index enforces one pending attempt per
-assistant. Finish, failure, and tool registration all require the exact current
-pending attempt with a live `lease_expires_at`, which fences late callbacks. Tool
-terminal updates and receipt insert/commit/replay use the same pending-plus-live-
-lease predicate.
+number are never reused. Migration 0019 expires duplicate pending attempts, repairs
+their assistant rows, and installs a partial unique index enforcing one pending
+attempt per chat. A new turn first repairs an expired lease; a fresh competing turn
+returns `turn_in_progress`. Finish, failure, and tool registration all require the
+exact current pending attempt with a live `lease_expires_at`, which fences late
+callbacks. Tool terminal updates and receipt insert/commit/replay use the same
+pending-plus-live-lease predicate.
 
 `beginTurn` and retry allocate fresh message/attempt IDs before their batches. On
 an ambiguous post-commit D1 error, exact-ID readback returns `created` or `retrying`
@@ -106,8 +124,9 @@ The executor batches domain statements, guarded durable receipt, and the call's
 `committed` update. The unique receipt key is
 `(user_message_id, operation, target_key)`. Same hash replays; different hash
 rejects; equivalent concurrent or ambiguous-post-commit retries converge on the
-single receipt. A transient failure before batch execution is retried once after
-checking receipt and attempt state; an unexplained second failure records
+single receipt. Any batch error triggers read-only classification: matching receipt
+recovery/replay, stale-attempt rejection, then an owner/entity/old-value CAS check.
+The mutation batch is not submitted a second time; an unclassified failure records
 `operation_failed`.
 
 Entry receipt target keys use NFKC/whitespace cleanup plus ASCII-only `A-Z` folding
@@ -116,20 +135,27 @@ to match SQLite `NOCASE`. Non-ASCII case variants intentionally keep distinct ke
 Migration 0017 selects the earliest owner-custom ASCII-`NOCASE` entry as canonical,
 merges legacy fields/progress, moves or deduplicates meanings/examples, rewrites
 saved-video origins and chat practice/selected-meaning references, then deletes
-redundant phrases and creates the partial unique index.
+redundant phrases and creates the partial unique index. Duplicate meaning collapse
+preserves deterministic non-empty translation/context and the latest `updated_at`.
 
 ## Bounds and Failure Handling
 
 The AI SDK uses `stepCountIs(5)` and disables tools from step 4 onward; handlers
 allow two total tool invocations. A separate provider-adapter fence rejects the
 third and later calls before trace persistence. This reserves headroom below D1
-Free's 50-query Worker-invocation budget: the instrumented cold full-turn envelope
-is 45 statements for two new-entry writes and 47 when one committed write needs
-ambiguous-response recovery. Provider
-output includes at most six meanings. The complete successful tool result is compacted to at most
+Free's 50-query Worker-invocation budget. Instrumented full-invocation envelopes
+are 34 statements for two maximum reads, 42 for two cold worst-case writes, 44 with
+one ambiguous committed write, 45 for a fully rolled-back mutation, and 47 for
+rollback followed by ambiguous commit. Maximum 12-target chat creation with an
+ambiguous committed response recovers at 49/50 statements. Provider output includes
+at most six meanings. The complete successful tool result is compacted to at most
 7,800 JSON characters by dropping extra meanings and then contexts, with
 `meaningCount`, `meaningsTruncated`, and `detailsTruncated`. Tool trace args/results
 remain limited to 4,096/8,192 canonical JSON characters.
+
+`GET /api/ai/meanings` is independently bounded to 50 personal meanings plus an
+optional legacy meaning; `meaningCount` preserves the full visible count and
+`meaningsTruncated` makes personal-meaning truncation explicit.
 
 Existing chat limits remain 16,384 request bytes, 4,000 message characters,
 40/32,000 canonical history messages/characters, 800 output tokens, 20-second
@@ -137,14 +163,26 @@ timeout, and 30-second attempt lease. Abort, cancellation, provider failure, and
 empty output fail the current attempt with a safe code. A retry of an older turn
 loads only messages before that turn and can replay committed receipts.
 
+The browser stream receives only allowlisted start/text/finish/error/abort chunks;
+text IDs are remapped and raw finish/provider data is removed. Tool, reasoning,
+source, file, custom, step, request, warning, and raw chunks stay server-side.
+Provider HTTP 429 maps to `provider_rate_limited`.
+
+Terminal persistence keeps configured model/preset separately from the sanitized
+actual routed model. Internal usage stores only token totals, unique bounded routed
+provider names, and finite nonnegative OpenRouter-reported cost/upstream-cost sums
+across steps. Raw provider metadata, reasoning, tool inputs, and response bodies are
+never copied into usage storage or the browser stream.
+
 ## Validation Evidence
 
-Fresh on 2026-08-29, `npm test` passed the full repository suite 440/440 and included
-the production build. The review-focused targeted suite passed 90/90 and typecheck
-passed before that final gate. Lifecycle feature lint passes for the reconciled
-docs. Full lint passes with zero errors and two warnings in generated
-`worker-configuration.d.ts`. Final review closure and live authenticated OpenRouter
-tool behavior remain unproven for this revision.
+Fresh verification on 2026-08-29 passes: production build plus 466/466 repository
+tests, typecheck, full lint with zero errors and two generated-file warnings,
+Drizzle check, lifecycle lint, and diff check. Current-diff review found no
+unresolved code issue. Live authenticated OpenRouter tool behavior remains
+unproven for this revision.
 
-No production deployment, remote migration, commit, push, or production secret
-change is claimed here.
+The branch has a PR preview, but its already-applied 0017 is older than the corrected
+file in this revision; preview re-baseline or an accepted forward migration is
+required. Preview application of 0019 is not claimed. No production deployment,
+production migration, or production secret change is claimed here.

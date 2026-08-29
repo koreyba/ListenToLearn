@@ -14,6 +14,8 @@ test("signed-in chat uses AI SDK useChat with the compact canonical transport", 
   assert.match(source, /\/api\/ai\/chats\/\$\{chat\.id\}\/messages/);
   assert.match(source, /sendMessage\(/);
   assert.match(source, /Retry/);
+  assert.match(source, /provider_rate_limited/);
+  assert.match(source, /turn_in_progress/);
   assert.doesNotMatch(source, /dangerouslySetInnerHTML/);
 });
 

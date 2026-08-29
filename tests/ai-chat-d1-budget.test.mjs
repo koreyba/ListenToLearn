@@ -10,6 +10,7 @@ import {
   hashAppSessionToken,
   resolveAppSession,
 } from "../lib/app-session.ts";
+import { createChatWithVocabularyOpening } from "../lib/ai-chat/chat-creation.ts";
 import { createAiChatRepository } from "../lib/ai-chat/repository.ts";
 import { prepareAiChatGeneration } from "../lib/ai-chat/service.ts";
 import {
@@ -88,6 +89,7 @@ class CountingSQLiteD1Database {
     this.database = database;
     this.counter = { count: 0 };
     this.throwAfterNextBatchCommit = false;
+    this.throwAfterNextBatchRollback = false;
   }
 
   get statementCount() {
@@ -103,11 +105,18 @@ class CountingSQLiteD1Database {
   }
 
   async batch(statements) {
+    const isMutationBatch = statements.some((statement) => (
+      statement.sql.includes("INSERT INTO ai_chat_tool_mutation_receipts")
+    ));
     this.database.exec("BEGIN IMMEDIATE");
     let results;
     try {
       // D1 Free counts every statement in a batch, not the batch call itself.
       results = statements.map((statement) => statement.execute());
+      if (this.throwAfterNextBatchRollback && isMutationBatch) {
+        this.throwAfterNextBatchRollback = false;
+        throw new Error("Simulated rollback after all D1 batch statements.");
+      }
       this.database.exec("COMMIT");
     } catch (error) {
       this.database.exec("ROLLBACK");
@@ -176,8 +185,45 @@ async function ensureUserOnColdPath(database) {
   `).bind(USER.subject, USER.email, USER.name, now, now).run();
 }
 
-async function runWorstCaseColdTurn({ ambiguousCommit = false } = {}) {
+async function runWorstCaseColdTurn({ ambiguousCommit = false, scenario = "writes" } = {}) {
   const fixture = await createFixture();
+  if (scenario === "reads") {
+    for (let index = 0; index < 10; index += 1) {
+      fixture.sqlite.prepare(`
+        INSERT INTO phrases (
+          id, text, pattern, translation, context, source_type, owner_id, status,
+          created_at, updated_at
+        ) VALUES (?, ?, '', ?, '', 'custom', 'user-a', 'pick', ?, ?)
+      `).run(
+        `phrase-read-${index}`,
+        `word ${index}`,
+        `перевод ${index}`,
+        `2026-08-29T10:00:${String(index).padStart(2, "0")}.000Z`,
+        `2026-08-29T10:00:${String(index).padStart(2, "0")}.000Z`,
+      );
+      fixture.sqlite.prepare(`
+        INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
+        VALUES ('user-a', ?, 'to_learn', ?, ?)
+      `).run(
+        `phrase-read-${index}`,
+        `2026-08-29T10:00:${String(index).padStart(2, "0")}.000Z`,
+        `2026-08-29T10:00:${String(index).padStart(2, "0")}.000Z`,
+      );
+      fixture.sqlite.prepare(`
+        INSERT INTO phrase_meanings (
+          id, user_id, phrase_id, translation, normalized_translation, context,
+          created_at, updated_at
+        ) VALUES (?, 'user-a', ?, ?, ?, '', ?, ?)
+      `).run(
+        `meaning-read-${index}`,
+        `phrase-read-${index}`,
+        `значение ${index}`,
+        `значение ${index}`,
+        `2026-08-29T10:00:${String(index).padStart(2, "0")}.000Z`,
+        `2026-08-29T10:00:${String(index).padStart(2, "0")}.000Z`,
+      );
+    }
+  }
   fixture.database.resetStatementCount();
 
   const resolved = await resolveAppSession(new Request("https://unmumble.online/", {
@@ -193,7 +239,10 @@ async function runWorstCaseColdTurn({ ambiguousCommit = false } = {}) {
   const generation = await prepareAiChatGeneration({
     userId: USER.subject,
     chatId: "chat-a",
-    message: { clientMessageId: "turn-budget", content: USER_COMMAND },
+    message: {
+      clientMessageId: "turn-budget",
+      content: scenario === "reads" ? "Покажи последние десять слов." : USER_COMMAND,
+    },
     serverConfig: { apiKey: "test", model: "test/model" },
     chatRepository: fixture.chatRepository,
     vocabularyRepository: fixture.vocabularyRepository,
@@ -231,23 +280,40 @@ async function runWorstCaseColdTurn({ ambiguousCommit = false } = {}) {
     messages: [],
     abortSignal: new AbortController().signal,
   });
-  if (ambiguousCommit) fixture.database.throwAfterNextBatchCommit = true;
-  assert.deepEqual(await vocabularyTools.add_vocabulary_entry.execute({
-    text: "uncanny",
-    translation: "странный",
-  }, toolOptions("add-uncanny")), {
-    ok: true,
-    saved: true,
-    text: "uncanny",
-  });
-  assert.deepEqual(await vocabularyTools.add_vocabulary_entry.execute({
-    text: "break even",
-    translation: "окупаться",
-  }, toolOptions("add-break-even")), {
-    ok: true,
-    saved: true,
-    text: "break even",
-  });
+  if (scenario === "writes" || scenario === "rollback") {
+    if (ambiguousCommit && scenario !== "rollback") {
+      fixture.database.throwAfterNextBatchCommit = true;
+    }
+    if (scenario === "rollback") fixture.database.throwAfterNextBatchRollback = true;
+    const firstWrite = await vocabularyTools.add_vocabulary_entry.execute({
+      text: "uncanny",
+      translation: "странный",
+    }, toolOptions("add-uncanny"));
+    assert.deepEqual(firstWrite, scenario === "rollback"
+      ? { ok: false, error: "operation_failed" }
+      : { ok: true, saved: true, text: "uncanny" });
+    if (scenario === "rollback") {
+      assert.equal(fixture.database.throwAfterNextBatchRollback, false);
+      if (ambiguousCommit) fixture.database.throwAfterNextBatchCommit = true;
+    }
+    assert.deepEqual(await vocabularyTools.add_vocabulary_entry.execute({
+      text: "break even",
+      translation: "окупаться",
+    }, toolOptions("add-break-even")), {
+      ok: true,
+      saved: true,
+      text: "break even",
+    });
+  } else {
+    for (const toolCallId of ["read-recent-1", "read-recent-2"]) {
+      const result = await vocabularyTools.get_recent_vocabulary.execute(
+        { limit: 10 },
+        toolOptions(toolCallId),
+      );
+      assert.equal(result.ok, true);
+      assert.equal(result.entries.length, 10);
+    }
+  }
 
   const countBeforeRejectedCall = fixture.database.statementCount;
   assert.deepEqual(await vocabularyTools.get_recent_vocabulary.execute(
@@ -268,23 +334,125 @@ async function runWorstCaseColdTurn({ ambiguousCommit = false } = {}) {
   assert.equal(fixture.sqlite.prepare(
     "SELECT COUNT(*) AS count FROM ai_chat_tool_calls",
   ).get().count, 2);
-  assert.equal(fixture.sqlite.prepare(`
-    SELECT COUNT(*) AS count FROM phrases
-    WHERE owner_id = 'user-a' AND text IN ('uncanny', 'break even')
-  `).get().count, 2);
+  if (scenario === "writes" || scenario === "rollback") {
+    assert.deepEqual(fixture.sqlite.prepare(`
+      SELECT text FROM phrases
+      WHERE owner_id = 'user-a' AND text IN ('uncanny', 'break even')
+      ORDER BY text
+    `).all().map((row) => row.text), scenario === "rollback"
+      ? ["break even"]
+      : ["break even", "uncanny"]);
+  }
   return fixture;
 }
 
 test("a cold worst-case two-write turn stays within D1 Free's statement limit", async () => {
   const fixture = await runWorstCaseColdTurn();
-  assert.equal(fixture.database.statementCount, 45);
+  assert.equal(fixture.database.statementCount, 42);
   assert.ok(fixture.database.statementCount <= 50);
   fixture.sqlite.close();
 });
 
 test("one ambiguous committed write still leaves D1 Free headroom", async () => {
   const fixture = await runWorstCaseColdTurn({ ambiguousCommit: true });
+  assert.equal(fixture.database.statementCount, 44);
+  assert.ok(fixture.database.statementCount <= 50);
+  fixture.sqlite.close();
+});
+
+test("a fully executed rolled-back mutation stays within D1 Free's statement limit", async () => {
+  const fixture = await runWorstCaseColdTurn({ scenario: "rollback" });
+  assert.equal(fixture.database.statementCount, 45);
+  assert.ok(fixture.database.statementCount <= 50);
+  fixture.sqlite.close();
+});
+
+test("two maximum recent-vocabulary reads leave room for terminal persistence", async () => {
+  const fixture = await runWorstCaseColdTurn({ scenario: "reads" });
+  assert.equal(fixture.database.statementCount, 34);
+  assert.ok(fixture.database.statementCount <= 50);
+  fixture.sqlite.close();
+});
+
+test("rollback followed by an ambiguous commit stays within D1 Free", async () => {
+  const fixture = await runWorstCaseColdTurn({
+    scenario: "rollback",
+    ambiguousCommit: true,
+  });
   assert.equal(fixture.database.statementCount, 47);
   assert.ok(fixture.database.statementCount <= 50);
+  assert.deepEqual(fixture.sqlite.prepare(`
+    SELECT provider_tool_call_id, status, error_code
+    FROM ai_chat_tool_calls ORDER BY created_at, id
+  `).all().map((row) => ({ ...row })), [{
+    provider_tool_call_id: "add-uncanny",
+    status: "failed",
+    error_code: "operation_failed",
+  }, {
+    provider_tool_call_id: "add-break-even",
+    status: "committed",
+    error_code: null,
+  }]);
+  assert.equal(fixture.sqlite.prepare(
+    "SELECT COUNT(*) AS count FROM ai_chat_tool_mutation_receipts",
+  ).get().count, 1);
+  fixture.sqlite.close();
+});
+
+test("ambiguous max-target chat creation recovers within D1 Free's statement limit", async () => {
+  const fixture = await createFixture();
+  const targets = [];
+  for (let index = 0; index < 12; index += 1) {
+    const phraseId = `create-phrase-${index}`;
+    const meaningId = `create-meaning-${index}`;
+    const timestamp = `2026-08-29T09:00:${String(index).padStart(2, "0")}.000Z`;
+    fixture.sqlite.prepare(`
+      INSERT INTO phrases (
+        id, text, pattern, translation, context, source_type, owner_id, status,
+        created_at, updated_at
+      ) VALUES (?, ?, '', '', '', 'custom', 'user-a', 'pick', ?, ?)
+    `).run(phraseId, `selected target ${index}`, timestamp, timestamp);
+    fixture.sqlite.prepare(`
+      INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
+      VALUES ('user-a', ?, 'to_learn', ?, ?)
+    `).run(phraseId, timestamp, timestamp);
+    fixture.sqlite.prepare(`
+      INSERT INTO phrase_meanings (
+        id, user_id, phrase_id, translation, normalized_translation, context,
+        created_at, updated_at
+      ) VALUES (?, 'user-a', ?, ?, ?, '', ?, ?)
+    `).run(meaningId, phraseId, `meaning ${index}`, `meaning ${index}`, timestamp, timestamp);
+    targets.push({
+      source: "saved",
+      phraseId,
+      meaningMode: "selected",
+      selectedMeaningId: meaningId,
+    });
+  }
+  fixture.database.resetStatementCount();
+
+  const resolved = await resolveAppSession(new Request("https://unmumble.online/", {
+    headers: { Cookie: `${APP_SESSION_COOKIE}=${SESSION_TOKEN}` },
+  }), d1AppSessionStore(fixture.database), {
+    now: new Date("2026-08-29T10:00:00.000Z"),
+  });
+  assert.deepEqual(resolved, USER);
+  await ensureUserOnColdPath(fixture.database);
+  fixture.database.throwAfterNextBatchCommit = true;
+
+  const chat = await createChatWithVocabularyOpening({
+    chatRepository: fixture.chatRepository,
+    vocabularyRepository: fixture.vocabularyRepository,
+    userId: USER.subject,
+    targets,
+  });
+
+  assert.equal(chat.targets.length, 12);
+  assert.equal(chat.messages.length, 1);
+  assert.equal(fixture.database.statementCount, 49);
+  assert.ok(fixture.database.statementCount <= 50);
+  assert.equal(fixture.sqlite.prepare(
+    "SELECT COUNT(*) AS count FROM ai_chats WHERE user_id = 'user-a'",
+  ).get().count, 2);
   fixture.sqlite.close();
 });

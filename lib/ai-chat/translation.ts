@@ -11,7 +11,12 @@ export type AiSelectionTranslationResult =
   | {
       ok: false;
       error: {
-        code: "not_configured" | "provider_timeout" | "provider_failed" | "empty_response";
+        code:
+          | "not_configured"
+          | "provider_timeout"
+          | "provider_rate_limited"
+          | "provider_failed"
+          | "empty_response";
         status: number;
       };
     };

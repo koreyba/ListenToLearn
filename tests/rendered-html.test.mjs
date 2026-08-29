@@ -445,7 +445,8 @@ test("learning phrases persist and render their translation", async () => {
     "utf8",
   );
   assert.match(route, /createVocabularyRepository\(db\)\.addEntry/);
-  assert.match(repository, /WHERE id = \? AND owner_id = \? AND translation = ''/);
+  assert.match(repository, /createVocabularyMutationPlanner/);
+  assert.match(repository, /await db\.batch\(plan\.statements\)/);
   assert.match(route, /translateEnglishToRussian/);
   assert.match(route, /optionalTranslationForPhrase/);
   assert.match(route, /translationPending/);

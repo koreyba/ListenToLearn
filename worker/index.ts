@@ -11,7 +11,7 @@ import {
   resolveAppSession,
   revokeAppSession,
 } from "@/lib/app-session";
-import { ensureUser } from "@/lib/auth";
+import { ensureUser, migrateLegacyOwnerData } from "@/lib/auth";
 import { d1AppSessionStore } from "@/lib/d1-app-sessions";
 import { guestLoginRedirect, isPublicGuestRequest } from "@/lib/guest-access";
 import { AUTHENTICATED_USER_HEADER, encodeUserContext } from "@/lib/user-context";
@@ -174,6 +174,7 @@ const worker = {
       if (!identity) return unauthorizedResponse();
       try {
         await ensureUser(identity);
+        await migrateLegacyOwnerData(identity);
         const issued = await issueAppSession(request, identity, sessionStore);
         const responseHeaders = new Headers({
           "Cache-Control": "no-store",
@@ -191,6 +192,7 @@ const worker = {
     if (pathname === "/api/session" && (request.method === "GET" || request.method === "HEAD")) {
       try {
         const identity = await resolveAppSession(request, sessionStore);
+        if (identity) await migrateLegacyOwnerData(identity);
         const response = optionalSessionResponse(identity);
         if (request.method === "HEAD") {
           return new Response(null, { status: response.status, headers: response.headers });

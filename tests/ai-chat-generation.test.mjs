@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { toUIMessageStream } from "ai";
 
 const generationModule = await import("../lib/ai-chat/generation.ts").catch(() => ({}));
 
@@ -107,7 +108,8 @@ test("generation streams only canonical server prompt with a stable assistant id
     activeTools: [],
     toolChoice: "none",
   });
-  assert.equal(harness.calls.toUIMessageStream.stream, harness.providerStream);
+  assert.notEqual(harness.calls.toUIMessageStream.stream, harness.providerStream);
+  assert.equal(harness.calls.toUIMessageStream.stream instanceof ReadableStream, true);
   assert.equal(harness.calls.toUIMessageStream.generateMessageId(), "assistant-stable-id");
   assert.equal(
     harness.calls.toUIMessageStream.onError(new Error("secret upstream body")),
@@ -119,8 +121,123 @@ test("generation streams only canonical server prompt with a stable assistant id
     ),
     "provider_timeout",
   );
+  assert.equal(
+    harness.calls.toUIMessageStream.onError(
+      Object.assign(new Error("private quota detail"), { statusCode: 429 }),
+    ),
+    "provider_rate_limited",
+  );
   assert.equal(harness.calls.toUIMessageStream.sendReasoning, false);
   assert.equal(harness.calls.toUIMessageStream.sendSources, false);
+});
+
+test("browser stream exposes only assistant text and stable public failures", async () => {
+  const harness = createHarness();
+  const privateChunks = [
+    { type: "start" },
+    {
+      type: "start-step",
+      request: { body: "PRIVATE_PROVIDER_REQUEST" },
+      warnings: [{ type: "other", message: "PRIVATE_WARNING" }],
+    },
+    {
+      type: "error",
+      error: new Error("PRIVATE_PROVIDER_ERROR_BODY"),
+    },
+    {
+      type: "tool-call",
+      toolCallId: "PRIVATE_TOOL_CALL_ID",
+      toolName: "find_vocabulary",
+      input: { query: "PRIVATE_VOCABULARY_QUERY" },
+    },
+    {
+      type: "tool-result",
+      toolCallId: "PRIVATE_TOOL_CALL_ID",
+      toolName: "find_vocabulary",
+      input: { query: "PRIVATE_VOCABULARY_QUERY" },
+      output: { entries: [{ text: "PRIVATE_VOCABULARY_RESULT" }] },
+    },
+    {
+      type: "text-start",
+      id: "text-1",
+      providerMetadata: { openrouter: { trace: "PRIVATE_PROVIDER_METADATA" } },
+    },
+    {
+      type: "text-delta",
+      id: "text-1",
+      text: "Safe answer",
+      providerMetadata: { openrouter: { trace: "PRIVATE_PROVIDER_METADATA" } },
+    },
+    {
+      type: "text-end",
+      id: "text-1",
+      providerMetadata: { openrouter: { trace: "PRIVATE_PROVIDER_METADATA" } },
+    },
+    {
+      type: "finish-step",
+      response: { id: "PRIVATE_RESPONSE_ID", modelId: "private/model", timestamp: new Date(0) },
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+      performance: {},
+      finishReason: "stop",
+      rawFinishReason: "PRIVATE_FINISH_REASON",
+      providerMetadata: { openrouter: { trace: "PRIVATE_PROVIDER_METADATA" } },
+    },
+    {
+      type: "finish",
+      finishReason: "stop",
+      rawFinishReason: "PRIVATE_FINISH_REASON",
+      totalUsage: {
+        inputTokens: 1,
+        inputTokenDetails: {
+          noCacheTokens: 1,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+        },
+        outputTokens: 1,
+        outputTokenDetails: { textTokens: 1, reasoningTokens: 0 },
+        totalTokens: 2,
+        raw: { private: "PRIVATE_RAW_USAGE" },
+      },
+    },
+  ];
+  const dependencies = {
+    streamText(options) {
+      harness.calls.streamText = options;
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            for (const chunk of privateChunks) controller.enqueue(chunk);
+            controller.close();
+          },
+        }),
+      };
+    },
+    toUIMessageStream,
+  };
+
+  const stream = generationModule.startAiChatGeneration(harness.input, dependencies);
+  const chunks = [];
+  for await (const chunk of stream) chunks.push(chunk);
+
+  const serialized = JSON.stringify(chunks);
+  assert.match(serialized, /Safe answer/u);
+  for (const privateValue of [
+    "PRIVATE_PROVIDER_REQUEST",
+    "PRIVATE_WARNING",
+    "PRIVATE_PROVIDER_ERROR_BODY",
+    "PRIVATE_TOOL_CALL_ID",
+    "PRIVATE_VOCABULARY_QUERY",
+    "PRIVATE_VOCABULARY_RESULT",
+    "PRIVATE_PROVIDER_METADATA",
+    "PRIVATE_RESPONSE_ID",
+    "PRIVATE_FINISH_REASON",
+    "PRIVATE_RAW_USAGE",
+    "providerMetadata",
+    "tool-input-available",
+    "tool-output-available",
+  ]) {
+    assert.doesNotMatch(serialized, new RegExp(privateValue, "u"));
+  }
 });
 
 test("consumer cancellation marks the pending assistant retryable", async () => {
@@ -134,15 +251,16 @@ test("consumer cancellation marks the pending assistant retryable", async () => 
   ]);
 });
 
-test("onEnd persists normalized plain text, provenance, and only token counts", async () => {
+test("onEnd persists the routed model and only privacy-safe aggregate telemetry", async () => {
   const harness = createHarness();
+  harness.input.runtime.provenance.model = "@preset/free-unmubme-test";
   generationModule.startAiChatGeneration(harness.input, harness.dependencies);
 
   await harness.calls.streamText.onEnd({
     text: "  First line\r\nSecond line  ",
     model: {
       provider: "openrouter.chat",
-      modelId: "  response/model  ",
+      modelId: "configured/model",
     },
     usage: {
       inputTokens: 12,
@@ -153,6 +271,39 @@ test("onEnd persists normalized plain text, provenance, and only token counts", 
       outputTokenDetails: { reasoningTokens: 3 },
     },
     providerMetadata: { openrouter: { private: "upstream-private-metadata" } },
+    steps: [
+      {
+        providerMetadata: {
+          openrouter: {
+            provider: "Google",
+            usage: {
+              cost: 0.001,
+              costDetails: { upstreamInferenceCost: 0.0005 },
+              private: "upstream-private-step-usage",
+            },
+            reasoning_details: [{ text: "upstream-private-reasoning" }],
+          },
+        },
+        toolCalls: [{ input: "upstream-private-tool-argument" }],
+      },
+      {
+        providerMetadata: {
+          openrouter: {
+            provider: "Fireworks AI",
+            usage: {
+              cost: 0.003,
+              costDetails: { upstreamInferenceCost: 0.002 },
+            },
+          },
+        },
+      },
+    ],
+    finalStep: {
+      response: {
+        modelId: "  actual/routed-model  ",
+        body: "upstream-private-response-body",
+      },
+    },
   });
 
   assert.deepEqual(harness.calls.completions, [
@@ -160,11 +311,15 @@ test("onEnd persists normalized plain text, provenance, and only token counts", 
       assistantId: "assistant-stable-id",
       text: "First line\nSecond line",
       provider: "openrouter",
-      model: "response/model",
+      model: "actual/routed-model",
       usage: {
         inputTokens: 12,
         outputTokens: 7,
         totalTokens: 19,
+        configuredModel: "@preset/free-unmubme-test",
+        routedProviders: ["Google", "Fireworks AI"],
+        cost: 0.004,
+        upstreamInferenceCost: 0.0025,
       },
     },
   ]);
@@ -203,6 +358,15 @@ test("onError and onAbort persist only stable failure codes", async () => {
     }),
   });
 
+  const rateLimitHarness = createHarness();
+  generationModule.startAiChatGeneration(
+    rateLimitHarness.input,
+    rateLimitHarness.dependencies,
+  );
+  await rateLimitHarness.calls.streamText.onError({
+    error: Object.assign(new Error("private quota detail"), { statusCode: 429 }),
+  });
+
   const timeoutHarness = createHarness();
   generationModule.startAiChatGeneration(
     timeoutHarness.input,
@@ -219,6 +383,9 @@ test("onError and onAbort persist only stable failure codes", async () => {
   assert.deepEqual(providerHarness.calls.failures, [
     { assistantId: "assistant-stable-id", errorCode: "provider_failed" },
   ]);
+  assert.deepEqual(rateLimitHarness.calls.failures, [
+    { assistantId: "assistant-stable-id", errorCode: "provider_rate_limited" },
+  ]);
   assert.deepEqual(timeoutHarness.calls.failures, [
     { assistantId: "assistant-stable-id", errorCode: "provider_timeout" },
   ]);
@@ -228,6 +395,7 @@ test("onError and onAbort persist only stable failure codes", async () => {
   assert.equal(
     JSON.stringify([
       providerHarness.calls.failures,
+      rateLimitHarness.calls.failures,
       timeoutHarness.calls.failures,
       abortHarness.calls.failures,
     ]).includes("private"),

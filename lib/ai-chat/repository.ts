@@ -12,10 +12,14 @@ import {
 
 export const AI_CHAT_LEGACY_MEANING_ID = VOCABULARY_LEGACY_MEANING_ID;
 export const AI_CHAT_PENDING_LEASE_MS = AI_CHAT_LIMITS.upstreamTimeoutMs + 10_000;
+export const AI_CHAT_ACCOUNT_LIMIT = 100;
+export const AI_CHAT_LIST_LIMIT = 100;
+export const AI_CHAT_MESSAGE_LIST_LIMIT = 200;
 
 export type AiChatRepositoryErrorCode =
   | "not_found"
   | "conflict"
+  | "turn_in_progress"
   | "invalid_target"
   | "target_limit";
 
@@ -171,6 +175,37 @@ type TargetDraft = {
   meaningMode: AiChatMeaningMode;
   selectedMeaningId: string | null;
   selectedMeaningSnapshot: string;
+};
+
+type CreatedTargetDraft = TargetDraft & { id: string };
+
+type CreatedChatPayloadRow = {
+  chat_id: string;
+  chat_title: string;
+  explanation_language: string;
+  chat_created_at: string;
+  chat_updated_at: string;
+  target_id: string | null;
+  target_phrase_id: string | null;
+  target_text_snapshot: string | null;
+  target_meaning_mode: AiChatMeaningMode | null;
+  target_selected_meaning_id: string | null;
+  target_selected_meaning_snapshot: string | null;
+  target_created_at: string | null;
+  target_updated_at: string | null;
+  message_id: string | null;
+  message_role: "user" | "assistant" | null;
+  message_sequence: number | null;
+  message_content: string | null;
+  message_status: "complete" | "pending" | "failed" | null;
+  message_practice_context_json: string | null;
+  message_client_message_id: string | null;
+  message_provider: string | null;
+  message_model: string | null;
+  message_usage_json: string | null;
+  message_error_code: string | null;
+  message_created_at: string | null;
+  message_updated_at: string | null;
 };
 
 function repositoryError(code: AiChatRepositoryErrorCode, message: string): never {
@@ -396,11 +431,162 @@ export function createAiChatRepository(
     );
   }
 
+  function createTargetInsert(
+    userId: string,
+    chatId: string,
+    target: CreatedTargetDraft,
+    timestamp: string,
+  ) {
+    return db.prepare(`
+      INSERT INTO ai_chat_practice_items (
+        id, chat_id, phrase_id, text_snapshot, meaning_mode, selected_meaning_id,
+        selected_meaning_snapshot, created_at, updated_at
+      )
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?
+      WHERE EXISTS (
+        SELECT 1 FROM ai_chats WHERE id = ? AND user_id = ?
+      )
+    `).bind(
+      target.id,
+      chatId,
+      target.phraseId,
+      target.text,
+      target.meaningMode,
+      target.selectedMeaningId,
+      target.selectedMeaningSnapshot,
+      timestamp,
+      timestamp,
+      chatId,
+      userId,
+    );
+  }
+
+  async function createdChatPayloadMatches(input: {
+    userId: string;
+    chatId: string;
+    title: string;
+    explanationLanguage: string;
+    timestamp: string;
+    targets: readonly CreatedTargetDraft[];
+    openingMessageId: string | null;
+    openingMessage: string;
+  }) {
+    const result = await db.prepare(`
+      SELECT
+        chats.id AS chat_id,
+        chats.title AS chat_title,
+        chats.explanation_language,
+        chats.created_at AS chat_created_at,
+        chats.updated_at AS chat_updated_at,
+        items.id AS target_id,
+        items.phrase_id AS target_phrase_id,
+        items.text_snapshot AS target_text_snapshot,
+        items.meaning_mode AS target_meaning_mode,
+        items.selected_meaning_id AS target_selected_meaning_id,
+        items.selected_meaning_snapshot AS target_selected_meaning_snapshot,
+        items.created_at AS target_created_at,
+        items.updated_at AS target_updated_at,
+        messages.id AS message_id,
+        messages.role AS message_role,
+        messages.sequence AS message_sequence,
+        messages.content AS message_content,
+        messages.status AS message_status,
+        messages.practice_context_json AS message_practice_context_json,
+        messages.client_message_id AS message_client_message_id,
+        messages.provider AS message_provider,
+        messages.model AS message_model,
+        messages.usage_json AS message_usage_json,
+        messages.error_code AS message_error_code,
+        messages.created_at AS message_created_at,
+        messages.updated_at AS message_updated_at
+      FROM ai_chats AS chats
+      LEFT JOIN ai_chat_practice_items AS items ON items.chat_id = chats.id
+      LEFT JOIN ai_chat_messages AS messages ON messages.chat_id = chats.id
+      WHERE chats.id = ? AND chats.user_id = ?
+    `).bind(input.chatId, input.userId).all<CreatedChatPayloadRow>();
+    if (!result.results.length) return false;
+
+    const targetRows = new Map<string, CreatedChatPayloadRow>();
+    const messageRows = new Map<string, CreatedChatPayloadRow>();
+    for (const row of result.results) {
+      if (
+        row.chat_id !== input.chatId
+        || row.chat_title !== input.title
+        || row.explanation_language !== input.explanationLanguage
+        || row.chat_created_at !== input.timestamp
+        || row.chat_updated_at !== input.timestamp
+      ) {
+        return false;
+      }
+      if (row.target_id) targetRows.set(row.target_id, row);
+      if (row.message_id) messageRows.set(row.message_id, row);
+    }
+    if (targetRows.size !== input.targets.length) return false;
+    for (const target of input.targets) {
+      const row = targetRows.get(target.id);
+      if (
+        !row
+        || row.target_phrase_id !== target.phraseId
+        || row.target_text_snapshot !== target.text
+        || row.target_meaning_mode !== target.meaningMode
+        || row.target_selected_meaning_id !== target.selectedMeaningId
+        || row.target_selected_meaning_snapshot !== target.selectedMeaningSnapshot
+        || row.target_created_at !== input.timestamp
+        || row.target_updated_at !== input.timestamp
+      ) {
+        return false;
+      }
+    }
+
+    if (!input.openingMessageId) return messageRows.size === 0;
+    if (messageRows.size !== 1) return false;
+    const message = messageRows.get(input.openingMessageId);
+    return Boolean(
+      message
+      && message.message_role === "assistant"
+      && Number(message.message_sequence) === 1
+      && message.message_content === input.openingMessage
+      && message.message_status === "complete"
+      && message.message_practice_context_json === "[]"
+      && message.message_client_message_id === `opening:${input.chatId}`
+      && message.message_provider === null
+      && message.message_model === null
+      && message.message_usage_json === null
+      && message.message_error_code === null
+      && message.message_created_at === input.timestamp
+      && message.message_updated_at === input.timestamp
+    );
+  }
+
   async function readCurrentPracticeItems(
     userId: string,
     chatId: string,
   ): Promise<AiChatPracticeItem[]> {
     const result = await db.prepare(`
+      WITH owned_items AS (
+        SELECT items.*, items.rowid AS item_rowid
+        FROM ai_chat_practice_items AS items
+        JOIN ai_chats AS chats ON chats.id = items.chat_id
+        WHERE items.chat_id = ? AND chats.user_id = ?
+      ),
+      ranked_meanings AS (
+        SELECT
+          meanings.id,
+          meanings.phrase_id,
+          meanings.translation,
+          meanings.context,
+          ROW_NUMBER() OVER (
+            PARTITION BY meanings.phrase_id
+            ORDER BY meanings.created_at, meanings.id
+          ) AS meaning_rank
+        FROM phrase_meanings AS meanings
+        WHERE meanings.user_id = ?
+          AND EXISTS (
+            SELECT 1
+            FROM owned_items
+            WHERE owned_items.phrase_id = meanings.phrase_id
+          )
+      )
       SELECT
         items.id AS item_id,
         items.phrase_id,
@@ -415,14 +601,24 @@ export function createAiChatRepository(
         meanings.id AS meaning_id,
         meanings.translation AS meaning_translation,
         meanings.context AS meaning_context
-      FROM ai_chat_practice_items AS items
-      JOIN ai_chats AS chats ON chats.id = items.chat_id
+      FROM owned_items AS items
       LEFT JOIN phrases ON phrases.id = items.phrase_id
-      LEFT JOIN phrase_meanings AS meanings
-        ON meanings.phrase_id = items.phrase_id AND meanings.user_id = ?
-      WHERE items.chat_id = ? AND chats.user_id = ?
-      ORDER BY items.created_at, items.rowid, meanings.created_at, meanings.rowid
-    `).bind(userId, chatId, userId).all<PracticeItemRow>();
+      LEFT JOIN ranked_meanings AS meanings
+        ON meanings.phrase_id = items.phrase_id
+        AND (
+          (
+            items.meaning_mode = 'selected'
+            AND meanings.id = items.selected_meaning_id
+          )
+          OR (
+            items.meaning_mode <> 'selected'
+            AND meanings.meaning_rank
+              + CASE WHEN TRIM(COALESCE(phrases.translation, '')) <> '' THEN 1 ELSE 0 END
+              <= ?
+          )
+        )
+      ORDER BY items.created_at, items.item_rowid, meanings.meaning_rank
+    `).bind(chatId, userId, userId, AI_CHAT_LIMITS.meaningsPerTarget).all<PracticeItemRow>();
 
     const targets: AiChatPracticeItem[] = [];
     const byId = new Map<string, AiChatPracticeItem>();
@@ -497,24 +693,42 @@ export function createAiChatRepository(
   async function listMessages(userId: string, chatId: string) {
     const result = await db.prepare(`
       SELECT
-        messages.id,
-        messages.role,
-        messages.sequence,
-        messages.content,
-        messages.status,
-        messages.practice_context_json,
-        messages.client_message_id,
-        messages.provider,
-        messages.model,
-        messages.usage_json,
-        messages.error_code,
-        messages.created_at,
-        messages.updated_at
-      FROM ai_chat_messages AS messages
-      JOIN ai_chats AS chats ON chats.id = messages.chat_id
-      WHERE messages.chat_id = ? AND chats.user_id = ?
-      ORDER BY messages.sequence
-    `).bind(chatId, userId).all<MessageRow>();
+        bounded.id,
+        bounded.role,
+        bounded.sequence,
+        bounded.content,
+        bounded.status,
+        bounded.practice_context_json,
+        bounded.client_message_id,
+        bounded.provider,
+        bounded.model,
+        bounded.usage_json,
+        bounded.error_code,
+        bounded.created_at,
+        bounded.updated_at
+      FROM (
+        SELECT
+          messages.id,
+          messages.role,
+          messages.sequence,
+          messages.content,
+          messages.status,
+          messages.practice_context_json,
+          messages.client_message_id,
+          messages.provider,
+          messages.model,
+          messages.usage_json,
+          messages.error_code,
+          messages.created_at,
+          messages.updated_at
+        FROM ai_chat_messages AS messages
+        JOIN ai_chats AS chats ON chats.id = messages.chat_id
+        WHERE messages.chat_id = ? AND chats.user_id = ?
+        ORDER BY messages.sequence DESC
+        LIMIT ?
+      ) AS bounded
+      ORDER BY bounded.sequence
+    `).bind(chatId, userId, AI_CHAT_MESSAGE_LIST_LIMIT).all<MessageRow>();
     return result.results.map(mapMessage);
   }
 
@@ -596,7 +810,8 @@ export function createAiChatRepository(
       FROM ai_chats AS chats
       WHERE chats.user_id = ?
       ORDER BY chats.updated_at DESC, chats.id DESC
-    `).bind(userId).all<ChatRow>();
+      LIMIT ?
+    `).bind(userId, AI_CHAT_LIST_LIMIT).all<ChatRow>();
     return result.results.map(mapChat);
   }
 
@@ -612,36 +827,83 @@ export function createAiChatRepository(
     const timestamp = now();
     const chatId = createId("chat");
     const language = truncateCharacters(cleanSingleLine(input.explanationLanguage || "ru"), 35) || "ru";
+    const title = deriveTitle(targets);
     const openingMessage = input.openingMessage === undefined
       ? ""
       : cleanContext(input.openingMessage);
     if ([...openingMessage].length > AI_CHAT_LIMITS.messageCharacters) {
       repositoryError("invalid_target", "Opening message is too long.");
     }
+    const createdTargets = targets.map((target): CreatedTargetDraft => ({
+      id: createId("target"),
+      ...target,
+    }));
+    const openingMessageId = openingMessage ? createId("message") : null;
     const statements = [
       db.prepare(`
         INSERT INTO ai_chats (
           id, user_id, title, explanation_language, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?)
-      `).bind(chatId, userId, deriveTitle(targets), language, timestamp, timestamp),
-      ...targets.map((target) => targetInsert(chatId, target, timestamp)),
+        )
+        SELECT ?, ?, ?, ?, ?, ?
+        WHERE (
+          SELECT COUNT(*) FROM ai_chats WHERE user_id = ?
+        ) < ?
+      `).bind(
+        chatId,
+        userId,
+        title,
+        language,
+        timestamp,
+        timestamp,
+        userId,
+        AI_CHAT_ACCOUNT_LIMIT,
+      ),
+      ...createdTargets.map((target) => createTargetInsert(userId, chatId, target, timestamp)),
     ];
     if (openingMessage) {
       statements.push(db.prepare(`
         INSERT INTO ai_chat_messages (
           id, chat_id, role, sequence, content, status, practice_context_json,
           client_message_id, provider, model, usage_json, error_code, created_at, updated_at
-        ) VALUES (?, ?, 'assistant', 1, ?, 'complete', '[]', ?, NULL, NULL, NULL, NULL, ?, ?)
+        )
+        SELECT ?, ?, 'assistant', 1, ?, 'complete', '[]', ?,
+          NULL, NULL, NULL, NULL, ?, ?
+        WHERE EXISTS (
+          SELECT 1 FROM ai_chats WHERE id = ? AND user_id = ?
+        )
       `).bind(
-        createId("message"),
+        openingMessageId,
         chatId,
         openingMessage,
         `opening:${chatId}`,
         timestamp,
         timestamp,
+        chatId,
+        userId,
       ));
     }
-    await db.batch(statements);
+    let results: D1Result<unknown>[];
+    try {
+      results = await db.batch(statements);
+    } catch (error) {
+      const exactPayloadCommitted = await createdChatPayloadMatches({
+        userId,
+        chatId,
+        title,
+        explanationLanguage: language,
+        timestamp,
+        targets: createdTargets,
+        openingMessageId,
+        openingMessage,
+      });
+      if (!exactPayloadCommitted) throw error;
+      const recovered = await getChat(userId, chatId);
+      if (!recovered) repositoryError("conflict", "Chat could not be recovered.");
+      return recovered;
+    }
+    if (Number(results[0]?.meta.changes || 0) !== 1) {
+      repositoryError("conflict", "Chat account limit reached.");
+    }
     const chat = await getChat(userId, chatId);
     if (!chat) repositoryError("conflict", "Chat could not be persisted.");
     return chat;
@@ -655,8 +917,7 @@ export function createAiChatRepository(
     await requireOwnedChat(userId, chatId);
     const targets = await resolveTargets(userId, inputs);
     const timestamp = now();
-    await db.batch([
-      db.prepare(`
+    await db.batch([db.prepare(`
         DELETE FROM ai_chat_practice_items
         WHERE chat_id = ?
           AND EXISTS (
@@ -892,6 +1153,36 @@ export function createAiChatRepository(
     const assistantMessageId = createId("message");
     const attemptId = createId("attempt");
     const leaseExpiresAt = attemptLeaseExpiresAt(timestamp);
+    const expired = await db.prepare(`
+      UPDATE ai_chat_assistant_attempts
+      SET status = 'expired', error_code = 'provider_timeout',
+          updated_at = ?, completed_at = ?
+      WHERE user_id = ? AND chat_id = ? AND status = 'pending'
+        AND lease_expires_at <= ?
+    `).bind(timestamp, timestamp, userId, chatId, timestamp).run();
+    if (Number(expired.meta?.changes || 0) > 0) {
+      await db.prepare(`
+        UPDATE ai_chat_messages
+        SET status = 'failed', error_code = 'provider_timeout', updated_at = ?
+        WHERE chat_id = ? AND role = 'assistant' AND status = 'pending'
+          AND EXISTS (
+            SELECT 1
+            FROM ai_chat_assistant_attempts AS attempts
+            WHERE attempts.assistant_message_id = ai_chat_messages.id
+              AND attempts.user_id = ?
+              AND attempts.chat_id = ?
+              AND attempts.status = 'expired'
+              AND attempts.error_code = 'provider_timeout'
+              AND attempts.completed_at = ?
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM ai_chat_assistant_attempts AS active
+            WHERE active.assistant_message_id = ai_chat_messages.id
+              AND active.status = 'pending'
+          )
+      `).bind(timestamp, chatId, userId, chatId, timestamp).run();
+    }
     try {
       await db.batch([
         db.prepare(`
@@ -951,7 +1242,19 @@ export function createAiChatRepository(
       ]);
     } catch (error) {
       const raced = await findTurn(userId, chatId, input.clientMessageId);
-      if (!raced) throw error;
+      if (!raced) {
+        const active = await db.prepare(`
+          SELECT 1 AS active
+          FROM ai_chat_assistant_attempts AS attempts
+          JOIN ai_chats AS chats ON chats.id = attempts.chat_id
+          WHERE attempts.user_id = ? AND attempts.chat_id = ?
+            AND attempts.status = 'pending' AND attempts.lease_expires_at > ?
+            AND chats.user_id = ?
+          LIMIT 1
+        `).bind(userId, chatId, timestamp, userId).first<{ active: number }>();
+        if (active) repositoryError("turn_in_progress", "Another turn is already running.");
+        throw error;
+      }
       if (
         raced.user.id === userMessageId
         && raced.assistant.id === assistantMessageId
@@ -993,7 +1296,7 @@ export function createAiChatRepository(
       return { state: "existing", ...existing } satisfies AiChatTurn;
     }
     const usageJson = input.usage == null ? null : JSON.stringify(input.usage);
-    await db.batch([
+    const completionStatements = [
       db.prepare(`
         UPDATE ai_chat_messages
         SET content = ?, status = 'complete', provider = ?, model = ?, usage_json = ?,
@@ -1062,10 +1365,50 @@ export function createAiChatRepository(
             WHERE id = ? AND status = 'complete' AND updated_at = ?
           )
       `).bind(timestamp, chatId, userId, input.attemptId, timestamp),
-    ]);
-    const completed = await findTurn(userId, chatId, clientMessageId);
-    if (!completed) repositoryError("conflict", "Turn completion could not be persisted.");
-    return { state: "existing", ...completed } satisfies AiChatTurn;
+    ];
+    let results: D1Result<unknown>[];
+    try {
+      results = await db.batch(completionStatements);
+    } catch (error) {
+      const completed = await findTurn(userId, chatId, clientMessageId);
+      if (
+        completed?.assistant.status === "complete"
+        && completed.attempt?.id === input.attemptId
+        && completed.attempt.status === "complete"
+      ) {
+        return { state: "existing", ...completed } satisfies AiChatTurn;
+      }
+      throw error;
+    }
+    if (
+      Number(results[0]?.meta.changes || 0) !== 1
+      || Number(results[1]?.meta.changes || 0) !== 1
+    ) {
+      const raced = await findTurn(userId, chatId, clientMessageId);
+      if (!raced) repositoryError("conflict", "Turn completion could not be persisted.");
+      return { state: "existing", ...raced } satisfies AiChatTurn;
+    }
+    return {
+      state: "existing",
+      user: existing.user,
+      assistant: {
+        ...existing.assistant,
+        content: input.content,
+        status: "complete",
+        provider: input.provider,
+        model: input.model,
+        usage: input.usage ?? null,
+        errorCode: null,
+        updatedAt: timestamp,
+      },
+      attempt: existing.attempt
+        ? {
+            ...existing.attempt,
+            status: "complete",
+            updatedAt: timestamp,
+          }
+        : null,
+    } satisfies AiChatTurn;
   }
 
   async function failTurn(

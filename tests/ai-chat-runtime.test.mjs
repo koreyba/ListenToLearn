@@ -69,6 +69,71 @@ test("configured runtime exposes the bounded generation settings", () => {
   );
 });
 
+test("OpenRouter telemetry keeps only safe provider names and finite nonnegative cost totals", () => {
+  assert.equal(typeof runtimeModule.extractAiChatOpenRouterTelemetry, "function");
+  const telemetry = runtimeModule.extractAiChatOpenRouterTelemetry([
+    {
+      providerMetadata: {
+        openrouter: {
+          provider: "  Google  ",
+          usage: {
+            cost: 0.001,
+            costDetails: { upstreamInferenceCost: 0.0005 },
+            privateUsage: "PRIVATE_USAGE_DETAIL",
+          },
+          reasoning_details: [{ text: "PRIVATE_REASONING" }],
+        },
+      },
+    },
+    {
+      providerMetadata: {
+        openrouter: {
+          provider: "Evil\nAuthorization: Bearer PRIVATE_SECRET",
+          usage: {
+            cost: -1,
+            costDetails: { upstreamInferenceCost: Number.NaN },
+          },
+        },
+      },
+    },
+    {
+      providerMetadata: {
+        openrouter: {
+          provider: "Fireworks AI",
+          usage: {
+            cost: 0.003,
+            costDetails: { upstreamInferenceCost: 0.002 },
+          },
+        },
+        anotherProvider: { raw: "PRIVATE_OTHER_METADATA" },
+      },
+    },
+    {
+      providerMetadata: {
+        openrouter: {
+          provider: "Google",
+          usage: { cost: Number.POSITIVE_INFINITY },
+        },
+      },
+    },
+  ]);
+
+  assert.deepEqual(telemetry, {
+    routedProviders: ["Google", "Fireworks AI"],
+    cost: 0.004,
+    upstreamInferenceCost: 0.0025,
+  });
+  const serialized = JSON.stringify(telemetry);
+  for (const privateValue of [
+    "PRIVATE_USAGE_DETAIL",
+    "PRIVATE_REASONING",
+    "PRIVATE_SECRET",
+    "PRIVATE_OTHER_METADATA",
+  ]) {
+    assert.doesNotMatch(serialized, new RegExp(privateValue, "u"));
+  }
+});
+
 test("runtime failures map timeout and provider errors without leaking details", () => {
   const timeout = runtimeModule.mapAiChatRuntimeFailure(
     new Error("upstream body with server-secret"),
@@ -77,18 +142,28 @@ test("runtime failures map timeout and provider errors without leaking details",
   const sdkTimeout = runtimeModule.mapAiChatRuntimeFailure(
     new DOMException("20s timeout included private details", "TimeoutError"),
   );
-  const provider = runtimeModule.mapAiChatRuntimeFailure(
+  const rateLimited = runtimeModule.mapAiChatRuntimeFailure(
     Object.assign(new Error("Authorization: Bearer server-secret"), {
       responseBody: "private upstream response",
       statusCode: 429,
     }),
   );
+  const provider = runtimeModule.mapAiChatRuntimeFailure(
+    Object.assign(new Error("private upstream failure"), { statusCode: 503 }),
+  );
 
   assert.deepEqual(timeout, { code: "provider_timeout", status: 504 });
   assert.deepEqual(sdkTimeout, { code: "provider_timeout", status: 504 });
+  assert.deepEqual(rateLimited, { code: "provider_rate_limited", status: 429 });
   assert.deepEqual(provider, { code: "provider_failed", status: 502 });
-  assert.equal(JSON.stringify({ timeout, sdkTimeout, provider }).includes("server-secret"), false);
-  assert.equal(JSON.stringify({ timeout, sdkTimeout, provider }).includes("private"), false);
+  assert.equal(
+    JSON.stringify({ timeout, sdkTimeout, rateLimited, provider }).includes("server-secret"),
+    false,
+  );
+  assert.equal(
+    JSON.stringify({ timeout, sdkTimeout, rateLimited, provider }).includes("private"),
+    false,
+  );
 });
 
 test("assistant text normalization rejects an empty provider response", () => {

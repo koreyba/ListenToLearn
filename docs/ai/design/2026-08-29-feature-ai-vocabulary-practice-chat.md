@@ -37,6 +37,10 @@ Guests may render the sign-in boundary; generation and tools remain account-only
   `{ clientMessageId, content }` and streams the assistant response.
 - The browser cannot submit identity, history, roles, targets, model, tool names,
   arguments, results, receipts, or attempts.
+- Account storage and list output are capped at 100 chats. Detail returns the
+  latest 200 stored messages in ascending sequence order. The public detail mapper
+  removes per-turn practice snapshots and provider/model/usage fields; attempts,
+  ledger calls, and receipts never enter the chat DTO.
 - The visible UI contains chat list, `New Chat`, timeline, composer, send/retry, and
   essential states only. Compatibility target/meaning APIs and tables may remain,
   but the UI does not depend on them or preselect vocabulary from Library/Practice.
@@ -74,6 +78,10 @@ characters. The whole success result is at most 7,800 JSON characters: excess
 meanings are removed first, then meaning contexts are blanked if needed, with
 `meaningsTruncated` and `detailsTruncated` preserving honest metadata.
 
+The authenticated meaning-list endpoint separately returns at most 50 personal
+meanings plus an optional legacy meaning. Its `meaningCount` is the full visible
+total and `meaningsTruncated` discloses any omitted personal meanings.
+
 ## Write Tools and Authorization
 
 The model has `add_vocabulary_entry`, `add_vocabulary_meaning`, and
@@ -96,9 +104,12 @@ or concurrent edit fails the postcondition/conflict guard and becomes a traced
 
 There is no status tool. Mutation plans can initialize a new/`pick` entry as
 `to_learn`, but preserve every active status. Preset legacy fields are never
-updated; owner-custom empty legacy fields may be initialized, otherwise additions
-are user-owned `phrase_meanings`. Updating by meaning ID is personal/owner scoped
-and cannot target the `legacy` sentinel.
+updated. Every new supplied translation, including the first translation for a new
+custom entry, is written to owner-scoped `phrase_meanings`; new writes never seed
+`phrases.translation`. Historical owner-custom legacy fields remain readable through
+a phrase-scoped legacy meaning ID. An authorized CAS update promotes that value to
+a personal meaning and clears the old fields in the same guarded batch. Preset
+legacy meanings still cannot be updated.
 
 The existing manual phrase `PATCH` remains outside the agent tool boundary. For a
 preset phrase with no stored translation, it saves the resolved translation as the
@@ -109,9 +120,11 @@ status change in one D1 batch; shared preset fields remain immutable.
 
 `ai_chat_assistant_attempts` separates a logical assistant message from each
 generation run. Attempt ID and number are never reused; terminal attempts remain as
-history, and a partial unique index allows only one `pending` attempt per assistant
-message. The 30-second lease expires abandoned work. Finish/fail/tool SQL is fenced
-by the exact current attempt with both `status = pending` and an unexpired
+history. Migration 0019 repairs historical duplicate pending attempts and adds a
+partial unique index on `chat_id`, allowing only one `pending` attempt across a
+chat. The 30-second lease expires abandoned work; a fresh second turn returns
+`turn_in_progress`. Finish/fail/tool SQL is fenced by the exact current attempt with
+both `status = pending` and an unexpired
 `lease_expires_at`. The same lease predicate protects assistant terminal writes,
 tool registration/completion, receipt insertion, commit, and replay.
 
@@ -137,9 +150,9 @@ For a write, D1 executes domain statements, a postcondition-guarded receipt inse
 and the tool-call `committed` update in one `batch`. A false owner/status/entity
 postcondition aborts the batch. Concurrent equivalent writes converge on one
 receipt; an ambiguous error after commit is resolved by reading that receipt. A
-failure before execution is safe to retry once because the batch is idempotent and
-receipt guarded. If both attempts fail without a receipt or stale-attempt verdict,
-the ledger call ends with `operation_failed`.
+batch error is not retried blindly: readback first recovers a matching receipt,
+then detects an inactive/stale attempt, then classifies a proven CAS conflict. If
+none is observed, the ledger call ends with `operation_failed`.
 
 ## Turn and Retry Flow
 
@@ -152,9 +165,11 @@ the ledger call ends with `operation_failed`.
 3. Each tool call is registered and fenced before execution. The hard per-turn
    budget is two calls. A pre-trace adapter fence rejects call three onward without
    D1 trace work, leaving room under D1 Free's 50-query invocation limit. Counting
-   each batch statement, a cold turn with two new-entry writes uses 45 statements;
-   one ambiguous committed-write recovery raises that envelope to 47. Tools are
-   disabled for the final model step.
+   each batch statement, measured envelopes are 34 for two maximum reads, 42 for
+   two cold worst-case writes, 44 with one ambiguous committed write, 45 for a
+   fully rolled-back mutation, and 47 for rollback followed by ambiguous commit.
+   Maximum-size create-chat ambiguous recovery uses 49/50. Tools are disabled for
+   the final model step.
 4. Final text/usage completes only the current attempt and assistant row. Error,
    abort, cancellation, or timeout fails only that current attempt.
 5. Retry retains the same user, practice snapshot, and assistant message, expires
@@ -168,13 +183,21 @@ service to continue generation rather than return a false conflict.
 
 The provider timeout is 20 seconds and the pending lease is 30 seconds. Complete or
 fresh-pending duplicate client turns return conflict/existing state rather than
-starting another paid request; reuse with different user content is rejected.
+starting another paid request; reuse with different user content is rejected. A
+fresh pending attempt for any other turn in the same chat is also rejected.
+
+Provider stream data passes through a public allowlist: start, remapped text
+start/delta/end, sanitized finish, stable error, and abort. Tool, reasoning, source,
+file, custom, step, raw, request, warning, and provider metadata chunks are dropped.
+Provider 429 maps to `provider_rate_limited`; other upstream failures expose only
+stable public codes.
 
 ## Limits and Privacy
 
 Existing chat ceilings remain: 16,384 request bytes; 4,000 message characters;
-40 complete history messages/32,000 characters; 800 output tokens; 20-second
-provider timeout. Vocabulary limits are 10 read entries, 240 entry characters,
+100 chats per account/list response; latest 200 messages per detail; 40 complete
+model-history messages/32,000 characters; 800 output tokens; 20-second provider
+timeout. Vocabulary limits are 10 read entries, 240 entry characters,
 1,000 meaning/context characters, and six bounded provider meanings per entry. A
 successful compact read result is capped at 7,800 JSON characters. Practice target
 data is capped at 12 targets/48,000 characters. Tool trace JSON is limited to 4,096
@@ -192,8 +215,20 @@ Migration 0017 chooses the earliest owner-custom phrase under SQLite ASCII
 `NOCASE` as canonical, merges historical duplicates, and then creates the partial
 unique index. It preserves/rehomes progress, personal meanings, examples, saved
 video origins, and chat practice-item phrase/selected-meaning references; duplicate
-meaning/example rows converge deterministically. Unicode case variants stay
-separate by explicit contract.
+meaning/example rows converge deterministically. Before duplicate meanings are
+deleted, the canonical meaning preserves their non-empty translation/context and
+latest `updated_at`. Unicode case variants stay separate by explicit contract.
+
+Preview already executed an older 0017 body, so its schema history does not prove
+the corrected migration path. Preview must be re-baselined or an equivalent forward
+migration explicitly accepted; migration 0019 is not claimed as preview-applied.
+
+## Authentication Migration Boundary
+
+`ensureUser` is the normal one-statement user upsert. The historical legacy-owner
+transfer is a separate atomic, idempotent operation invoked during `/login` and
+`/api/session`, including existing-session bootstrap, never inside an AI generation
+request.
 
 ## Open Decisions
 

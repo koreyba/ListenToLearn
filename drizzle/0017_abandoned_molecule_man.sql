@@ -203,6 +203,45 @@ FROM phrase_meanings AS meaning
 JOIN `__migration_0017_phrase_members` AS membership
 	ON membership.member_id = meaning.phrase_id;
 --> statement-breakpoint
+UPDATE phrase_meanings AS canonical
+SET
+	translation = CASE
+		WHEN TRIM(canonical.translation) <> '' THEN canonical.translation
+		ELSE COALESCE((
+			SELECT member.translation
+			FROM phrase_meanings AS member
+			JOIN `__migration_0017_meaning_members` AS membership
+				ON membership.member_id = member.id
+			WHERE membership.canonical_id = canonical.id
+				AND TRIM(member.translation) <> ''
+			ORDER BY member.created_at, member.id
+			LIMIT 1
+		), '')
+	END,
+	context = CASE
+		WHEN TRIM(canonical.context) <> '' THEN canonical.context
+		ELSE COALESCE((
+			SELECT member.context
+			FROM phrase_meanings AS member
+			JOIN `__migration_0017_meaning_members` AS membership
+				ON membership.member_id = member.id
+			WHERE membership.canonical_id = canonical.id
+				AND TRIM(member.context) <> ''
+			ORDER BY member.created_at, member.id
+			LIMIT 1
+		), '')
+	END,
+	updated_at = COALESCE((
+		SELECT MAX(member.updated_at)
+		FROM phrase_meanings AS member
+		JOIN `__migration_0017_meaning_members` AS membership
+			ON membership.member_id = member.id
+		WHERE membership.canonical_id = canonical.id
+	), canonical.updated_at)
+WHERE canonical.id IN (
+	SELECT canonical_id FROM `__migration_0017_meaning_members`
+);
+--> statement-breakpoint
 UPDATE ai_chat_practice_items
 SET selected_meaning_id = (
 	SELECT canonical_id

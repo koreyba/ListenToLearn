@@ -568,7 +568,7 @@ test("PATCH commits preset meaning and status atomically", async () => {
   `).get().status, "to_learn");
 });
 
-test("PATCH keeps translation in an owned custom phrase and rejects a foreign custom phrase", async () => {
+test("PATCH stores an owned custom translation personally and rejects a foreign custom phrase", async () => {
   const { sqlite } = createFixture();
   seedPhrase(sqlite, {
     id: "custom-a",
@@ -616,7 +616,7 @@ test("PATCH keeps translation in an owned custom phrase and rejects a foreign cu
   `).all().map((row) => ({ ...row })), [
     {
       id: "custom-a",
-      translation: "окупаться",
+      translation: "",
       context: "owned context",
     },
     {
@@ -625,10 +625,15 @@ test("PATCH keeps translation in an owned custom phrase and rejects a foreign cu
       context: "foreign context",
     },
   ]);
-  assert.equal(sqlite.prepare(`
-    SELECT count(*) AS count FROM phrase_meanings
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT user_id, phrase_id, translation, context FROM phrase_meanings
     WHERE phrase_id IN ('custom-a', 'custom-b')
-  `).get().count, 0);
+  `).get() }, {
+    user_id: "user-a",
+    phrase_id: "custom-a",
+    translation: "окупаться",
+    context: "",
+  });
   assert.deepEqual(sqlite.prepare(`
     SELECT user_id, phrase_id, status FROM phrase_progress
     WHERE phrase_id IN ('custom-a', 'custom-b') ORDER BY phrase_id

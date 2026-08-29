@@ -73,13 +73,16 @@ export async function ensureUser(user: AuthenticatedUser) {
       updated_at = excluded.updated_at
     WHERE users.email <> excluded.email OR users.display_name <> excluded.display_name
   `).bind(user.subject, user.email, user.name, now, now).run();
+}
 
-  if (user.email !== LEGACY_OWNER_EMAIL || user.subject === LEGACY_OWNER_ID) return;
+export async function migrateLegacyOwnerData(user: AuthenticatedUser) {
+  if (user.email !== LEGACY_OWNER_EMAIL || user.subject === LEGACY_OWNER_ID) return false;
 
+  const db = getD1();
   const legacyOwner = await db.prepare("SELECT id FROM users WHERE id = ?")
     .bind(LEGACY_OWNER_ID)
     .first<{ id: string }>();
-  if (!legacyOwner) return;
+  if (!legacyOwner) return false;
 
   await db.batch([
     db.prepare(`
@@ -139,4 +142,5 @@ export async function ensureUser(user: AuthenticatedUser) {
     db.prepare("DELETE FROM integration_secrets WHERE user_id = ?").bind(LEGACY_OWNER_ID),
     db.prepare("DELETE FROM users WHERE id = ?").bind(LEGACY_OWNER_ID),
   ]);
+  return true;
 }

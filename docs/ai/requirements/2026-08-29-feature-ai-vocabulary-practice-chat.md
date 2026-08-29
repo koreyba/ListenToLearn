@@ -62,6 +62,9 @@ reverse translation, or answer checks.
   characters by pruning meanings and then contexts; `meaningsTruncated` and
   `detailsTruncated` disclose those losses. Stored vocabulary is untrusted data,
   never instructions.
+- `GET /api/ai/meanings?phraseId=...` returns at most 50 personal meanings plus an
+  optional legacy meaning. `meaningCount` reports the full visible total and
+  `meaningsTruncated` reports omitted personal meanings.
 
 ### Vocabulary writes
 
@@ -88,20 +91,30 @@ message, and generation-attempt identity are injected by the server.
 
 No agent tool can choose or update an active learning status. A genuinely new or
 previously unsaved `pick` entry is initialized in `to_learn` as part of adding it;
-an already active item's status is preserved exactly. Preset legacy translation and
-context remain immutable; user-specific additions use personal meanings.
+an already active item's status is preserved exactly. Every newly supplied user
+translation is stored as an owner-scoped personal meaning; new custom entries do
+not populate the legacy translation field. Preset legacy data remains immutable.
+An explicit update of a historical owner-custom legacy meaning atomically promotes
+it to a personal meaning and clears the owner-custom legacy fields.
 
 ### Conversation and retries
 
 - The browser submits only `{ clientMessageId, content }`; canonical history and
   tool context are loaded server-side.
+- An account can store at most 100 chats; the account list returns at most 100.
+  Chat detail returns the latest 200 stored messages in sequence order, while model
+  context remains the latest 40 complete messages within 32,000 characters.
+- Public chat DTOs omit practice snapshots, provider/model/usage data, attempts,
+  tool calls, and receipts.
 - The hidden compatibility context supports up to 12 saved or ad-hoc targets and
   the three meaning modes `all_saved`, `selected`, and `explore`. Replacing it is
   one exact atomic `PATCH`, not incremental `POST`/`DELETE`; the current chat UI
   exposes none of these controls.
 - One user message has one stable pending/complete/failed assistant message, while
   every retry creates a distinct immutable attempt identity and increasing attempt
-  number. At most one attempt for that assistant may be pending.
+  number. At most one attempt in the entire chat may be pending; a fresh concurrent
+  turn returns `turn_in_progress`, while an expired lease is repaired before a new
+  turn acquires the chat.
 - A stale attempt cannot execute a tool or finish/fail a newer attempt. Failed or
   expired turns are retryable; a repeated live/complete turn does not start another
   paid generation.
@@ -137,9 +150,10 @@ current chat-only UI.
 - Domain statements, postcondition-guarded receipt insertion, and the tool call's
   committed result are one D1 `batch`. A failed postcondition rolls back the whole
   mutation.
-- If that idempotent batch fails before execution, the executor checks for a
-  receipt/current attempt and retries once. An unexplained second failure terminates
-  the call as `operation_failed` without claiming success.
+- A mutation-batch error is never followed by a blind resubmission. The executor
+  checks, in order, for a committed receipt, an expired/stale attempt, and a proven
+  owner/entity/old-value CAS conflict. It recovers or replays only those observed
+  states; an unclassified failure terminates as `operation_failed`.
 - An equivalent retry/repeated call replays the stored receipt. The same receipt key
   with different canonical arguments is a conflict, not a second mutation.
 - A provider/stream failure after commit must not erase or duplicate the committed
@@ -159,15 +173,24 @@ current chat-only UI.
   30 seconds.
 - At most 2 tool calls per user turn and 5 model steps; tools are disabled for the
   final step. The hard two-call budget and pre-trace fence preserve headroom under
-  D1 Free's 50-query-per-Worker-invocation allowance: a cold full turn with two
-  worst-case new-entry writes consumes 45 statements, or 47 when one committed
-  write needs ambiguous-response recovery.
+  D1 Free's 50-query-per-Worker-invocation allowance. Instrumented envelopes are
+  34 statements for two maximum reads, 42 for two cold worst-case writes, 44 with
+  one ambiguous committed-write recovery, 45 for a fully rolled-back mutation, and
+  47 for rollback followed by ambiguous commit. Ambiguous recovery of maximum-size
+  chat creation uses 49 of 50 statements.
 - Tool trace arguments/results: 4,096/8,192 JSON characters.
 
 All routes require the application session, owner-scoped D1 access, exact-origin
 mutations, and `no-store`. Provider credentials, prompts, private vocabulary,
 messages, tool payloads/results, and upstream bodies must not appear in client
-responses or operational logs.
+responses or operational logs. The public provider stream is an explicit allowlist
+of lifecycle/text/finish/error/abort chunks; tool, reasoning, source, file, step,
+custom, raw, and provider metadata remain server-only. Provider HTTP 429 is exposed
+only as the stable `provider_rate_limited` code.
+
+Ordinary authenticated requests perform only the cheap user ensure. The one-time,
+atomic legacy-owner transfer is an explicit idempotent login/session-bootstrap path,
+outside AI generation, so it cannot consume the generation invocation's D1 budget.
 
 ## Success Criteria
 
@@ -194,8 +217,10 @@ responses or operational logs.
 
 ## Validation Status
 
-On 2026-08-29, the latest full repository gate passed 440/440 and included the
-production build; typecheck also passed. Full lint exits successfully with zero
-errors and two warnings in generated `worker-configuration.d.ts`. Lifecycle lint
-passes for these documents. Final review closure and authenticated live-provider
-smoke remain open.
+Fresh verification on 2026-08-29 passes: production build plus 466/466 repository
+tests, typecheck, Drizzle schema check, lifecycle lint, diff check, and full lint
+with zero errors (two generated-file warnings). Final current-diff review found no
+unresolved code issue. Authenticated live-provider smoke remains open. Preview
+already contains an older applied form of migration 0017; the corrected 0017 still
+requires an explicit preview re-baseline/acceptance decision before production,
+and preview application of 0019 is not yet claimed.

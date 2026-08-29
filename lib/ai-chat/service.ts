@@ -95,7 +95,11 @@ function repositoryFailure(error: unknown): { code: AiChatErrorCode; status: num
   if (error instanceof AiChatRepositoryError) {
     return {
       code: error.code,
-      status: error.code === "not_found" ? 404 : error.code === "conflict" ? 409 : 400,
+      status: error.code === "not_found"
+        ? 404
+        : error.code === "conflict" || error.code === "turn_in_progress"
+          ? 409
+          : 400,
     };
   }
   return { code: "internal_error", status: 500 };

@@ -68,6 +68,30 @@ test("AI selection translation returns stable configuration and provider failure
   );
   assert.deepEqual(failed, { ok: false, error: { code: "provider_failed", status: 502 } });
   assert.equal(JSON.stringify(failed).includes("private"), false);
+
+  const rateLimited = await translationModule.translateSelectionWithAi(
+    { text: "bank", context: "" },
+    { apiKey: "server-key", model: "configured/model" },
+    {
+      createRuntime: () => ({
+        ok: true,
+        value: {
+          model: {},
+          provenance: { provider: "openrouter", model: "configured/model" },
+          timeoutMs: 20_000,
+          maxOutputTokens: 800,
+        },
+      }),
+      generateText: async () => {
+        throw Object.assign(new Error("private quota body"), { statusCode: 429 });
+      },
+    },
+  );
+  assert.deepEqual(rateLimited, {
+    ok: false,
+    error: { code: "provider_rate_limited", status: 429 },
+  });
+  assert.equal(JSON.stringify(rateLimited).includes("private"), false);
 });
 
 test("AI translation route is authenticated, bounded, same-origin, and uncached", async () => {

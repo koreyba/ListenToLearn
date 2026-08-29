@@ -5,7 +5,11 @@ import {
   readAiMutationPayload,
   readCreateChatPayload,
 } from "@/lib/ai-chat/api-contracts";
-import { aiChatRouteErrorResponse, noStoreJson } from "@/lib/ai-chat/http";
+import {
+  aiChatRouteErrorResponse,
+  noStoreJson,
+  toPublicAiChatDetail,
+} from "@/lib/ai-chat/http";
 import { createChatWithVocabularyOpening } from "@/lib/ai-chat/chat-creation";
 import { createAiChatRepository } from "@/lib/ai-chat/repository";
 import { createVocabularyRepository } from "@/lib/vocabulary/repository";
@@ -38,7 +42,7 @@ export async function POST(request: Request) {
       userId: user.subject,
       targets: payload.value.targets,
     });
-    return noStoreJson({ chat }, { status: 201 });
+    return noStoreJson({ chat: toPublicAiChatDetail(chat) }, { status: 201 });
   } catch (error) {
     return aiChatRouteErrorResponse(error);
   }

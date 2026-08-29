@@ -26,6 +26,12 @@ function vocabularyUniquenessMigrationName() {
   return matches[0];
 }
 
+function chatSingleFlightMigrationName() {
+  const matches = migrationNames().filter((name) => name.startsWith("0019_"));
+  assert.equal(matches.length, 1, "exactly one append-only 0019 migration is required");
+  return matches[0];
+}
+
 function applyMigration(db, name) {
   db.exec(readFileSync(join(migrationsDir, name), "utf8"));
 }
@@ -226,20 +232,28 @@ test("0017 merges historical duplicates without losing learner-owned references"
     "historical-1",
   );
   assert.deepEqual(db.prepare(`
-    SELECT id, phrase_id FROM phrase_meanings ORDER BY id
+    SELECT id, phrase_id, translation, context, updated_at
+    FROM phrase_meanings ORDER BY id
   `).all().map((row) => ({ ...row })), [{
     id: "meaning-canonical",
     phrase_id: "historical-1",
+    translation: "бежать",
+    context: "run daily",
+    updated_at: "2026-08-29T10:01:00Z",
   }, {
     id: "meaning-unique",
     phrase_id: "historical-1",
+    translation: "управлять",
+    context: "run a company",
+    updated_at: "2026-08-29T10:02:00Z",
   }]);
   assert.deepEqual({ ...db.prepare(`
-    SELECT phrase_id, selected_meaning_id
+    SELECT phrase_id, selected_meaning_id, selected_meaning_snapshot
     FROM ai_chat_practice_items WHERE id = 'item-duplicate'
   `).get() }, {
     phrase_id: "historical-1",
     selected_meaning_id: "meaning-canonical",
+    selected_meaning_snapshot: "Бежать",
   });
   assert.equal(
     db.prepare(`
@@ -249,6 +263,59 @@ test("0017 merges historical duplicates without losing learner-owned references"
     `).get().count,
     1,
   );
+  assert.deepEqual(db.prepare("PRAGMA foreign_key_check").all(), []);
+});
+
+test("0019 repairs duplicate pending chat attempts before enforcing single-flight", () => {
+  const name = chatSingleFlightMigrationName();
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  for (const migration of migrationNames().filter((migration) => migration < name)) {
+    applyMigration(db, migration);
+  }
+  db.exec(`
+    INSERT INTO users (id, email, display_name, created_at, updated_at)
+    VALUES ('user-1', '', '', '2026-08-29T10:00:00Z', '2026-08-29T10:00:00Z');
+    INSERT INTO ai_chats (id, user_id, title, explanation_language, created_at, updated_at)
+    VALUES ('chat-1', 'user-1', '', 'ru', '2026-08-29T10:00:00Z', '2026-08-29T10:00:00Z');
+    INSERT INTO ai_chat_messages (
+      id, chat_id, role, sequence, content, status, practice_context_json,
+      client_message_id, created_at, updated_at
+    ) VALUES
+      ('user-old', 'chat-1', 'user', 1, 'Old', 'complete', '[]', 'old', '2026-08-29T10:00:00Z', '2026-08-29T10:00:00Z'),
+      ('assistant-old', 'chat-1', 'assistant', 2, '', 'pending', '[]', 'old', '2026-08-29T10:00:00Z', '2026-08-29T10:00:00Z'),
+      ('user-new', 'chat-1', 'user', 3, 'New', 'complete', '[]', 'new', '2026-08-29T10:01:00Z', '2026-08-29T10:01:00Z'),
+      ('assistant-new', 'chat-1', 'assistant', 4, '', 'pending', '[]', 'new', '2026-08-29T10:01:00Z', '2026-08-29T10:01:00Z');
+    INSERT INTO ai_chat_assistant_attempts (
+      id, user_id, chat_id, user_message_id, assistant_message_id,
+      attempt_number, status, lease_expires_at, created_at, updated_at
+    ) VALUES
+      ('attempt-old', 'user-1', 'chat-1', 'user-old', 'assistant-old', 1, 'pending',
+       '2026-08-29T10:02:00Z', '2026-08-29T10:00:00Z', '2026-08-29T10:00:00Z'),
+      ('attempt-new', 'user-1', 'chat-1', 'user-new', 'assistant-new', 1, 'pending',
+       '2026-08-29T10:03:00Z', '2026-08-29T10:01:00Z', '2026-08-29T10:01:00Z');
+  `);
+
+  applyMigration(db, name);
+
+  assert.deepEqual(db.prepare(`
+    SELECT id, status FROM ai_chat_assistant_attempts ORDER BY id
+  `).all().map((row) => ({ ...row })), [
+    { id: "attempt-new", status: "pending" },
+    { id: "attempt-old", status: "expired" },
+  ]);
+  assert.deepEqual(db.prepare(`
+    SELECT id, status, error_code FROM ai_chat_messages
+    WHERE role = 'assistant' ORDER BY id
+  `).all().map((row) => ({ ...row })), [
+    { id: "assistant-new", status: "pending", error_code: null },
+    { id: "assistant-old", status: "failed", error_code: "provider_timeout" },
+  ]);
+  assert.deepEqual(indexColumns(db, "ai_chat_assistant_attempts")
+    .get("idx_ai_chat_assistant_attempts_one_pending_chat"), {
+    columns: ["chat_id"],
+    unique: true,
+  });
 });
 
 test("0016 foreign keys cascade owned chat data and retain practice snapshots", () => {

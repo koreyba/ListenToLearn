@@ -27,11 +27,7 @@ export type AiChatClientMessage = {
   sequence: number;
   content: string;
   status: "complete" | "pending" | "failed";
-  practiceContext: unknown;
   clientMessageId: string;
-  provider: string | null;
-  model: string | null;
-  usage: unknown;
   errorCode: string | null;
   createdAt: string;
   updatedAt: string;

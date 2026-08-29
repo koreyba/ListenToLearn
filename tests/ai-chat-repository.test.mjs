@@ -10,14 +10,15 @@ const vocabularyModule = await import("../lib/vocabulary/repository.ts").catch((
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 class SQLiteD1Statement {
-  constructor(database, sql, bindings = []) {
+  constructor(database, sql, bindings = [], observeRows = () => {}) {
     this.database = database;
     this.sql = sql;
     this.bindings = bindings;
+    this.observeRows = observeRows;
   }
 
   bind(...bindings) {
-    return new SQLiteD1Statement(this.database, this.sql, bindings);
+    return new SQLiteD1Statement(this.database, this.sql, bindings, this.observeRows);
   }
 
   execute() {
@@ -38,8 +39,10 @@ class SQLiteD1Statement {
   }
 
   async all() {
+    const results = this.database.prepare(this.sql).all(...this.bindings);
+    this.observeRows(this.sql, results);
     return {
-      results: this.database.prepare(this.sql).all(...this.bindings),
+      results,
       success: true,
       meta: {},
     };
@@ -54,10 +57,15 @@ class SQLiteD1Database {
   constructor(database) {
     this.database = database;
     this.throwAfterNextBatchCommit = false;
+    this.lastPracticeItemRowCount = null;
   }
 
   prepare(sql) {
-    return new SQLiteD1Statement(this.database, sql);
+    return new SQLiteD1Statement(this.database, sql, [], (executedSql, rows) => {
+      if (executedSql.includes("items.id AS item_id")) {
+        this.lastPracticeItemRowCount = rows.length;
+      }
+    });
   }
 
   async batch(statements) {
@@ -126,6 +134,131 @@ function hasCode(code) {
   return (error) => error && typeof error === "object" && error.code === code;
 }
 
+test("chat aggregate limits are explicit and server enforced", async () => {
+  assert.equal(repositoryModule.AI_CHAT_ACCOUNT_LIMIT, 100);
+  assert.equal(repositoryModule.AI_CHAT_LIST_LIMIT, 100);
+  assert.equal(repositoryModule.AI_CHAT_MESSAGE_LIST_LIMIT, 200);
+
+  const { repository, sqlite } = createFixture();
+  const insertChat = sqlite.prepare(`
+    INSERT INTO ai_chats (
+      id, user_id, title, explanation_language, created_at, updated_at
+    ) VALUES (?, 'user-a', ?, 'ru', ?, ?)
+  `);
+  for (let index = 0; index < repositoryModule.AI_CHAT_ACCOUNT_LIMIT - 1; index += 1) {
+    const timestamp = new Date(Date.parse("2026-08-29T09:00:00.000Z") + index).toISOString();
+    insertChat.run(`seed-chat-${index}`, `Seed ${index}`, timestamp, timestamp);
+  }
+
+  const lastAllowed = await repository.createChat("user-a", {
+    openingMessage: "Последние слова готовы к практике.",
+  });
+  assert.equal(lastAllowed.messageCount, 1);
+  await assert.rejects(
+    repository.createChat("user-a", {
+      targets: [{ source: "ad_hoc", text: "overflow", meaningMode: "explore" }],
+      openingMessage: "This must not be persisted.",
+    }),
+    hasCode("conflict"),
+  );
+  assert.equal(
+    sqlite.prepare("SELECT count(*) AS count FROM ai_chats WHERE user_id = 'user-a'").get().count,
+    repositoryModule.AI_CHAT_ACCOUNT_LIMIT,
+  );
+  assert.equal(
+    sqlite.prepare("SELECT count(*) AS count FROM ai_chat_practice_items").get().count,
+    0,
+  );
+  assert.equal(
+    sqlite.prepare("SELECT count(*) AS count FROM ai_chat_messages").get().count,
+    1,
+  );
+
+  insertChat.run(
+    "raw-overflow-chat",
+    "Newest raw row",
+    "2026-08-29T12:00:00.000Z",
+    "2026-08-29T12:00:00.000Z",
+  );
+  const listed = await repository.listChats("user-a");
+  assert.equal(listed.length, repositoryModule.AI_CHAT_LIST_LIMIT);
+  assert.equal(listed[0].id, "raw-overflow-chat");
+  assert.equal(listed.some((chat) => chat.id === "seed-chat-0"), false);
+});
+
+test("chat restoration returns only the latest bounded messages in chronological order", async () => {
+  assert.equal(repositoryModule.AI_CHAT_MESSAGE_LIST_LIMIT, 200);
+  const { repository, sqlite } = createFixture();
+  const chat = await repository.createChat("user-a");
+  const insertMessage = sqlite.prepare(`
+    INSERT INTO ai_chat_messages (
+      id, chat_id, role, sequence, content, status, practice_context_json,
+      client_message_id, provider, model, usage_json, error_code, created_at, updated_at
+    ) VALUES (?, ?, 'assistant', ?, ?, 'complete', '[]', ?,
+      'openrouter', 'internal/model', '{"inputTokens":1}', NULL, ?, ?)
+  `);
+  for (let sequence = 1; sequence <= repositoryModule.AI_CHAT_MESSAGE_LIST_LIMIT + 2; sequence += 1) {
+    const timestamp = new Date(Date.parse("2026-08-29T12:00:00.000Z") + sequence).toISOString();
+    insertMessage.run(
+      `bounded-message-${sequence}`,
+      chat.id,
+      sequence,
+      `Message ${sequence}`,
+      `bounded-client-${sequence}`,
+      timestamp,
+      timestamp,
+    );
+  }
+
+  const restored = await repository.getChat("user-a", chat.id);
+  assert.equal(restored.messageCount, repositoryModule.AI_CHAT_MESSAGE_LIST_LIMIT + 2);
+  assert.equal(restored.messages.length, repositoryModule.AI_CHAT_MESSAGE_LIST_LIMIT);
+  assert.deepEqual(
+    restored.messages.map((message) => message.sequence),
+    Array.from(
+      { length: repositoryModule.AI_CHAT_MESSAGE_LIST_LIMIT },
+      (_, index) => index + 3,
+    ),
+  );
+});
+
+test("concurrent chat creation cannot race past the per-account cap", async () => {
+  const { repository, sqlite } = createFixture();
+  const insertChat = sqlite.prepare(`
+    INSERT INTO ai_chats (
+      id, user_id, title, explanation_language, created_at, updated_at
+    ) VALUES (?, 'user-a', ?, 'ru', ?, ?)
+  `);
+  for (let index = 0; index < repositoryModule.AI_CHAT_ACCOUNT_LIMIT - 1; index += 1) {
+    const timestamp = new Date(Date.parse("2026-08-29T09:00:00.000Z") + index).toISOString();
+    insertChat.run(`race-seed-${index}`, `Race seed ${index}`, timestamp, timestamp);
+  }
+
+  const attempts = await Promise.allSettled([
+    repository.createChat("user-a", { openingMessage: "First contender." }),
+    repository.createChat("user-a", { openingMessage: "Second contender." }),
+  ]);
+  assert.deepEqual(
+    attempts.map((attempt) => attempt.status).sort(),
+    ["fulfilled", "rejected"],
+  );
+  assert.equal(
+    attempts.find((attempt) => attempt.status === "rejected").reason.code,
+    "conflict",
+  );
+  assert.equal(
+    sqlite.prepare("SELECT count(*) AS count FROM ai_chats WHERE user_id = 'user-a'").get().count,
+    repositoryModule.AI_CHAT_ACCOUNT_LIMIT,
+  );
+  assert.equal(
+    sqlite.prepare("SELECT count(*) AS count FROM ai_chat_messages").get().count,
+    1,
+  );
+
+  const otherOwner = await repository.createChat("user-b");
+  assert.equal(otherOwner.id.length > 0, true);
+});
+
 test("meaning fallback and personal meanings stay owner-scoped and status-neutral", async () => {
   const { vocabulary, sqlite } = createFixture();
 
@@ -138,6 +271,8 @@ test("meaning fallback and personal meanings stay owner-scoped and status-neutra
       translation: "бежать",
       context: "run every morning",
     }],
+    meaningCount: 1,
+    meaningsTruncated: false,
   });
 
   const created = await vocabulary.addMeaning("user-a", {
@@ -190,6 +325,22 @@ test("meaning fallback and personal meanings stay owner-scoped and status-neutra
   assert.equal(await vocabulary.listMeanings("user-a", "phrase-b"), null);
 });
 
+test("meaning lists are owner-scoped, bounded, and disclose truncation", async () => {
+  const { vocabulary } = createFixture();
+  for (let index = 0; index < vocabularyModule.VOCABULARY_LIMITS.meaningList + 2; index += 1) {
+    await vocabulary.addMeaning("user-a", {
+      phraseId: "phrase-shared",
+      translation: `значение ${index}`,
+    });
+  }
+
+  const result = await vocabulary.listMeanings("user-a", "phrase-shared");
+  assert.equal(result.meanings.length, vocabularyModule.VOCABULARY_LIMITS.meaningList + 1);
+  assert.equal(result.meaningCount, vocabularyModule.VOCABULARY_LIMITS.meaningList + 3);
+  assert.equal(result.meaningsTruncated, true);
+  assert.equal(result.meanings[0].source, "legacy");
+});
+
 test("recent and searched vocabulary stay owner-scoped and include saved meanings", async () => {
   const { vocabulary, sqlite } = createFixture();
   sqlite.exec(`
@@ -219,6 +370,13 @@ test("recent and searched vocabulary stay owner-scoped and include saved meaning
   ]);
   assert.deepEqual(
     (await vocabulary.search("user-a", "управлять", 5)).map(({ phraseId, text }) => ({
+      phraseId,
+      text,
+    })),
+    [{ phraseId: "phrase-shared", text: "run" }],
+  );
+  assert.deepEqual(
+    (await vocabulary.search("user-a", "УПРАВЛЯТЬ", 5)).map(({ phraseId, text }) => ({
       phraseId,
       text,
     })),
@@ -292,6 +450,25 @@ test("agent vocabulary writes are idempotent, owner-scoped, and status-safe", as
   assert.deepEqual(duplicate.entry.meanings.map(({ translation }) => translation), [
     "счастливая случайность",
   ]);
+  assert.equal(duplicate.entry.meanings[0].source, "personal");
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT translation, context FROM phrases WHERE id = ?
+  `).get(first.entry.phraseId) }, { translation: "", context: "" });
+  const firstMeaning = duplicate.entry.meanings[0];
+  const revisedFirstMeaning = await vocabulary.updateMeaning("user-a", {
+    meaningId: firstMeaning.id,
+    phraseId: first.entry.phraseId,
+    expectedTranslation: firstMeaning.translation,
+    expectedContext: firstMeaning.context,
+    translation: "удачная случайность",
+  });
+  assert.deepEqual({
+    translation: revisedFirstMeaning.translation,
+    context: revisedFirstMeaning.context,
+  }, {
+    translation: "удачная случайность",
+    context: "a lucky discovery",
+  });
   assert.equal(
     sqlite.prepare("SELECT count(*) AS count FROM phrases WHERE text = 'serendipity' COLLATE NOCASE").get().count,
     1,
@@ -320,6 +497,23 @@ test("agent vocabulary writes are idempotent, owner-scoped, and status-safe", as
   );
   assert.equal(await vocabulary.getEntryForMeaning("user-b", personal.id), null);
   assert.equal(await vocabulary.getEntryForMeaning("user-a", "legacy"), null);
+
+  sqlite.exec(`
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
+    VALUES (
+      'user-a', 'phrase-a', 'learning_now',
+      '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z'
+    )
+  `);
+  const historicalLegacy = await vocabulary.getEntryForMeaning("user-a", "legacy:phrase-a");
+  assert.deepEqual(historicalLegacy?.selectedMeaning, {
+    id: "legacy:phrase-a",
+    source: "legacy",
+    translation: "разобраться",
+    context: "figure out a problem",
+  });
+  assert.equal(await vocabulary.getEntryForMeaning("user-b", "legacy:phrase-a"), null);
+  assert.equal(await vocabulary.getEntryForMeaning("user-a", "legacy:phrase-shared"), null);
   const updated = await vocabulary.updateMeaning("user-a", {
     meaningId: personal.id,
     phraseId: "phrase-shared",
@@ -450,6 +644,70 @@ test("chat creation can persist a deterministic assistant opening without a mode
   }]);
 });
 
+test("chat creation recovers its exact committed payload after an ambiguous D1 response", async () => {
+  const { database, repository, sqlite } = createFixture();
+  database.throwAfterNextBatchCommit = true;
+
+  const chat = await repository.createChat("user-a", {
+    targets: [
+      { source: "saved", phraseId: "phrase-shared", meaningMode: "all_saved" },
+      { source: "ad_hoc", text: "break even", meaningMode: "explore" },
+    ],
+    explanationLanguage: "uk",
+    openingMessage: "A deterministic opening.",
+  });
+
+  assert.equal(chat.id, "chat-1");
+  assert.equal(chat.explanationLanguage, "uk");
+  assert.deepEqual(chat.targets.map(({ id, phraseId, text, meaningMode }) => ({
+    id,
+    phraseId,
+    text,
+    meaningMode,
+  })), [
+    { id: "target-2", phraseId: "phrase-shared", text: "run", meaningMode: "all_saved" },
+    { id: "target-3", phraseId: null, text: "break even", meaningMode: "explore" },
+  ]);
+  assert.deepEqual(chat.messages.map(({ id, clientMessageId, content, status }) => ({
+    id,
+    clientMessageId,
+    content,
+    status,
+  })), [{
+    id: "message-4",
+    clientMessageId: "opening:chat-1",
+    content: "A deterministic opening.",
+    status: "complete",
+  }]);
+  assert.equal(sqlite.prepare("SELECT count(*) AS count FROM ai_chats").get().count, 1);
+  assert.equal(sqlite.prepare("SELECT count(*) AS count FROM ai_chat_practice_items").get().count, 2);
+  assert.equal(sqlite.prepare("SELECT count(*) AS count FROM ai_chat_messages").get().count, 1);
+});
+
+test("chat creation never treats an unrelated generated-ID collision as its own commit", async () => {
+  const { repository, sqlite } = createFixture();
+  sqlite.prepare(`
+    INSERT INTO ai_chats (
+      id, user_id, title, explanation_language, created_at, updated_at
+    ) VALUES ('chat-1', 'user-a', 'Pre-existing collision', 'en', ?, ?)
+  `).run("2026-08-29T09:00:00.000Z", "2026-08-29T09:00:00.000Z");
+
+  await assert.rejects(
+    repository.createChat("user-a", { openingMessage: "Must not be replayed." }),
+    /UNIQUE constraint failed/,
+  );
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT title, explanation_language, created_at, updated_at
+    FROM ai_chats WHERE id = 'chat-1'
+  `).get() }, {
+    title: "Pre-existing collision",
+    explanation_language: "en",
+    created_at: "2026-08-29T09:00:00.000Z",
+    updated_at: "2026-08-29T09:00:00.000Z",
+  });
+  assert.equal(sqlite.prepare("SELECT count(*) AS count FROM ai_chat_messages").get().count, 0);
+});
+
 test("replacing current targets validates visibility, ownership, limits, and snapshots before mutation", async () => {
   const { repository, sqlite, vocabulary } = createFixture();
   const selected = await vocabulary.addMeaning("user-a", {
@@ -532,6 +790,49 @@ test("replacing current targets validates visibility, ownership, limits, and sna
     repository.replacePracticeItems("user-b", chat.id, []),
     hasCode("not_found"),
   );
+});
+
+test("practice-item persistence reads bound all-saved meanings and fetch only the selected meaning", async () => {
+  const { database, repository, sqlite } = createFixture();
+  const insertMeaning = sqlite.prepare(`
+    INSERT INTO phrase_meanings (
+      id, user_id, phrase_id, translation, normalized_translation, context,
+      created_at, updated_at
+    ) VALUES (?, 'user-a', 'phrase-shared', ?, ?, ?, ?, ?)
+  `);
+  for (let index = 0; index < 20; index += 1) {
+    const timestamp = `2026-08-29T10:01:${String(index).padStart(2, "0")}.000Z`;
+    insertMeaning.run(
+      `bounded-meaning-${index}`,
+      `meaning ${index}`,
+      `meaning ${index}`,
+      `context ${index}`,
+      timestamp,
+      timestamp,
+    );
+  }
+
+  const allSaved = await repository.createChat("user-a", {
+    targets: [{ source: "saved", phraseId: "phrase-shared", meaningMode: "all_saved" }],
+  });
+  assert.equal(allSaved.targets[0].knownMeanings.length, 12);
+  assert.deepEqual(
+    allSaved.targets[0].knownMeanings.map(({ id }) => id),
+    ["legacy", ...Array.from({ length: 11 }, (_, index) => `bounded-meaning-${index}`)],
+  );
+  assert.equal(database.lastPracticeItemRowCount, 11);
+
+  const selected = await repository.createChat("user-a", {
+    targets: [{
+      source: "saved",
+      phraseId: "phrase-shared",
+      meaningMode: "selected",
+      selectedMeaningId: "bounded-meaning-17",
+    }],
+  });
+  assert.equal(selected.targets[0].selectedMeaning.id, "bounded-meaning-17");
+  assert.equal(selected.targets[0].selectedMeaning.context, "context 17");
+  assert.equal(database.lastPracticeItemRowCount, 1);
 });
 
 test("selected meaning accepts the explicit legacy sentinel without creating a personal row", async () => {
@@ -676,11 +977,27 @@ test("beginTurn atomically creates one ordered pair and reuses a client id", asy
     hasCode("conflict"),
   );
 
-  const second = await repository.beginTurn("user-a", chat.id, {
+  const secondInput = {
     clientMessageId: "client-2",
     content: "One more.",
     practiceContext: [],
+  };
+  await assert.rejects(
+    repository.beginTurn("user-a", chat.id, secondInput),
+    hasCode("turn_in_progress"),
+  );
+  assert.equal(
+    sqlite.prepare("SELECT count(*) AS count FROM ai_chat_messages WHERE chat_id = ?")
+      .get(chat.id).count,
+    2,
+  );
+  await repository.finishTurn("user-a", chat.id, input.clientMessageId, {
+    attemptId: created.attempt.id,
+    content: "Run every morning.",
+    provider: "openrouter",
+    model: "test/model",
   });
+  const second = await repository.beginTurn("user-a", chat.id, secondInput);
   assert.deepEqual([second.user.sequence, second.assistant.sequence], [3, 4]);
   await assert.rejects(
     repository.beginTurn("user-b", chat.id, {
@@ -690,6 +1007,42 @@ test("beginTurn atomically creates one ordered pair and reuses a client id", asy
     }),
     hasCode("not_found"),
   );
+});
+
+test("a different turn expires a stale chat lease before acquiring single-flight", async () => {
+  const { repository, sqlite } = createFixture();
+  const chat = await repository.createChat("user-a");
+  const first = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "stale-first",
+    content: "First prompt.",
+    practiceContext: [],
+  });
+  sqlite.prepare(`
+    UPDATE ai_chat_assistant_attempts
+    SET lease_expires_at = '2026-08-29T10:00:00.000Z'
+    WHERE id = ?
+  `).run(first.attempt.id);
+
+  const second = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "after-stale",
+    content: "Second prompt.",
+    practiceContext: [],
+  });
+
+  assert.equal(second.state, "created");
+  assert.equal(sqlite.prepare(`
+    SELECT status FROM ai_chat_assistant_attempts WHERE id = ?
+  `).get(first.attempt.id).status, "expired");
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT status, error_code FROM ai_chat_messages WHERE id = ?
+  `).get(first.assistant.id) }, {
+    status: "failed",
+    error_code: "provider_timeout",
+  });
+  assert.equal(sqlite.prepare(`
+    SELECT count(*) AS count FROM ai_chat_assistant_attempts
+    WHERE chat_id = ? AND status = 'pending'
+  `).get(chat.id).count, 1);
 });
 
 test("beginTurn recovers its freshly committed turn after an ambiguous D1 response", async () => {
@@ -707,6 +1060,33 @@ test("beginTurn recovers its freshly committed turn after an ambiguous D1 respon
   assert.equal(recovered.assistant.status, "pending");
   assert.equal(recovered.attempt.status, "pending");
   assert.equal(recovered.attempt.attemptNumber, 1);
+});
+
+test("finishTurn recovers its exact completion after an ambiguous D1 response", async () => {
+  const { database, repository } = createFixture();
+  const chat = await repository.createChat("user-a");
+  const started = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "ambiguous-finish",
+    content: "Give me a sentence.",
+    practiceContext: [],
+  });
+  database.throwAfterNextBatchCommit = true;
+
+  const recovered = await repository.finishTurn("user-a", chat.id, "ambiguous-finish", {
+    attemptId: started.attempt.id,
+    content: "I figured out the answer.",
+    provider: "openrouter",
+    model: "test/model",
+    usage: { inputTokens: 12, outputTokens: 7 },
+  });
+
+  assert.equal(recovered.assistant.status, "complete");
+  assert.equal(recovered.assistant.content, "I figured out the answer.");
+  assert.equal(recovered.assistant.provider, "openrouter");
+  assert.equal(recovered.assistant.model, "test/model");
+  assert.deepEqual(recovered.assistant.usage, { inputTokens: 12, outputTokens: 7 });
+  assert.equal(recovered.attempt.id, started.attempt.id);
+  assert.equal(recovered.attempt.status, "complete");
 });
 
 test("failed turns retain the user row and retry the same assistant to completion", async () => {

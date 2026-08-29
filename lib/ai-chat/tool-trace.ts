@@ -702,37 +702,35 @@ export function createAiChatToolTraceRepository(
       timestamp,
     );
 
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        await db.batch([...plan.statements, receiptStatement, completeCall]);
-        return result.value as Result;
-      } catch {
-        const racedReceipt = await readReceipt(context, plan.operation, plan.targetKey);
-        if (racedReceipt) {
-          if (racedReceipt.args_sha256 !== argsSha256) {
-            return rejectMutationConflict(context, call.id) as Promise<ToolExecutionError>;
-          }
-          // A receipt written by this atomic batch means its call completion was
-          // committed too. Read it first so an ambiguous post-commit response is
-          // recovered without a guaranteed-to-miss replay UPDATE plus readback.
-          const committedCall = await readCallById(context, call.id);
-          if (committedCall && committedCall.status !== "received") {
-            return committedCall.result as Result;
-          }
-          return replayReceipt(context, call.id, racedReceipt) as Promise<Result>;
-        }
-        if (!await callIsActive(context, call.id)) {
-          return finishCall(
-            context,
-            call.id,
-            "rejected",
-            stableFailure("stale_attempt"),
-            "stale_attempt",
-          ) as Promise<ToolExecutionError>;
-        }
-        if (await mutationConflictDetected(plan) === true) {
+    try {
+      await db.batch([...plan.statements, receiptStatement, completeCall]);
+      return result.value as Result;
+    } catch {
+      const racedReceipt = await readReceipt(context, plan.operation, plan.targetKey);
+      if (racedReceipt) {
+        if (racedReceipt.args_sha256 !== argsSha256) {
           return rejectMutationConflict(context, call.id) as Promise<ToolExecutionError>;
         }
+        // A receipt written by this atomic batch means its call completion was
+        // committed too. Read it first so an ambiguous post-commit response is
+        // recovered without a guaranteed-to-miss replay UPDATE plus readback.
+        const committedCall = await readCallById(context, call.id);
+        if (committedCall && committedCall.status !== "received") {
+          return committedCall.result as Result;
+        }
+        return replayReceipt(context, call.id, racedReceipt) as Promise<Result>;
+      }
+      if (!await callIsActive(context, call.id)) {
+        return finishCall(
+          context,
+          call.id,
+          "rejected",
+          stableFailure("stale_attempt"),
+          "stale_attempt",
+        ) as Promise<ToolExecutionError>;
+      }
+      if (await mutationConflictDetected(plan) === true) {
+        return rejectMutationConflict(context, call.id) as Promise<ToolExecutionError>;
       }
     }
     return finishCall(

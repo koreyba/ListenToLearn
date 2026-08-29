@@ -323,8 +323,18 @@ test("a vocabulary mutation, receipt, and terminal call status commit atomically
       AND phrases.text = 'uncanny'
   `).get() }, {
     text: "uncanny",
-    translation: "странный",
+    translation: "",
     status: "to_learn",
+  });
+  assert.deepEqual({ ...fixture.sqlite.prepare(`
+    SELECT translation, normalized_translation, context
+    FROM phrase_meanings
+    WHERE user_id = 'user-a'
+      AND phrase_id = (SELECT id FROM phrases WHERE owner_id = 'user-a' AND text = 'uncanny')
+  `).get() }, {
+    translation: "странный",
+    normalized_translation: "странный",
+    context: "",
   });
   assert.equal(fixture.sqlite.prepare(
     "SELECT count(*) AS count FROM ai_chat_tool_mutation_receipts",
@@ -500,7 +510,7 @@ test("an ambiguous post-commit D1 error resolves from the durable receipt", asyn
   `).get().status, "committed");
 });
 
-test("a transient pre-execution D1 failure retries the idempotent atomic batch", async () => {
+test("a transient pre-execution D1 failure fails closed for a fresh turn retry", async () => {
   const fixture = createFixture();
   fixture.database.throwBeforeNextBatch = true;
   const result = await executeAdd(
@@ -509,17 +519,20 @@ test("a transient pre-execution D1 failure retries the idempotent atomic batch",
     "write-transient",
     { text: "make ends meet", translation: "сводить концы с концами" },
   );
-  assert.deepEqual(result, {
-    ok: true,
-    saved: true,
-    text: "make ends meet",
-  });
+  assert.deepEqual(result, { ok: false, error: "operation_failed" });
   assert.equal(fixture.sqlite.prepare(`
     SELECT count(*) AS count FROM phrases WHERE text = 'make ends meet'
-  `).get().count, 1);
+  `).get().count, 0);
   assert.equal(fixture.sqlite.prepare(
     "SELECT count(*) AS count FROM ai_chat_tool_mutation_receipts",
-  ).get().count, 1);
+  ).get().count, 0);
+  assert.deepEqual({ ...fixture.sqlite.prepare(`
+    SELECT status, error_code FROM ai_chat_tool_calls
+    WHERE provider_tool_call_id = 'write-transient'
+  `).get() }, {
+    status: "failed",
+    error_code: "operation_failed",
+  });
 });
 
 test("a stale or foreign attempt cannot create a call or mutate vocabulary", async () => {

@@ -1,5 +1,7 @@
 import {
   normalizeVocabularyMeaning,
+  readScopedLegacyMeaningId,
+  scopedLegacyMeaningId,
   VOCABULARY_LEGACY_MEANING_ID,
   VOCABULARY_LIMITS,
   type VocabularyEntry,
@@ -7,6 +9,7 @@ import {
   type VocabularyMeaningList,
   type VocabularyStatus,
 } from "./contracts.ts";
+import { createVocabularyMutationPlanner } from "./mutations.ts";
 
 export type VocabularyRepositoryErrorCode =
   | "not_found"
@@ -44,11 +47,12 @@ type MeaningRow = {
 export type VocabularyEntryForMeaning = VocabularyEntry & {
   selectedMeaning: VocabularyMeaning & {
     id: string;
-    source: "personal";
+    source: "legacy" | "personal";
   };
 };
 
 type BoundedMeaningRow = MeaningRow & {
+  phrase_id: string;
   total_count: number;
 };
 
@@ -151,11 +155,24 @@ export function createVocabularyRepository(
     const phrase = await visiblePhrase(userId, phraseId);
     if (!phrase) return null;
     const result = await db.prepare(`
-      SELECT id, translation, context
-      FROM phrase_meanings
-      WHERE user_id = ? AND phrase_id = ?
+      SELECT id, translation, context, total_count
+      FROM (
+        SELECT
+          id,
+          translation,
+          context,
+          created_at,
+          COUNT(*) OVER () AS total_count
+        FROM phrase_meanings
+        WHERE user_id = ? AND phrase_id = ?
+      ) AS owned_meanings
       ORDER BY created_at, id
-    `).bind(userId, phraseId).all<MeaningRow>();
+      LIMIT ?
+    `).bind(
+      userId,
+      phraseId,
+      VOCABULARY_LIMITS.meaningList,
+    ).all<MeaningRow & { total_count: number }>();
     const meanings: VocabularyMeaning[] = [];
     if (phrase.translation.trim()) {
       meanings.push({
@@ -166,7 +183,14 @@ export function createVocabularyRepository(
       });
     }
     meanings.push(...result.results.map(mapMeaning));
-    return { phraseId: phrase.id, text: phrase.text, meanings };
+    const personalMeaningCount = Number(result.results[0]?.total_count || 0);
+    return {
+      phraseId: phrase.id,
+      text: phrase.text,
+      meanings,
+      meaningCount: personalMeaningCount + (phrase.translation.trim() ? 1 : 0),
+      meaningsTruncated: personalMeaningCount > result.results.length,
+    };
   }
 
   async function addMeaning(
@@ -227,20 +251,39 @@ export function createVocabularyRepository(
     rows: readonly VocabularyEntryRow[],
   ): Promise<VocabularyEntry[]> {
     if (!rows.length) return [];
-    const personalResults = await db.batch<BoundedMeaningRow>(rows.map((row) => db.prepare(`
-      SELECT id, translation, context, COUNT(*) OVER () AS total_count
-      FROM phrase_meanings
-      WHERE user_id = ? AND phrase_id = ?
-      ORDER BY created_at, id
-      LIMIT ?
+    const phraseIds = [...new Set(rows.map((row) => row.phrase_id))];
+    const placeholders = phraseIds.map(() => "?").join(", ");
+    const personalResult = await db.prepare(`
+      SELECT phrase_id, id, translation, context, total_count
+      FROM (
+        SELECT
+          phrase_id,
+          id,
+          translation,
+          context,
+          ROW_NUMBER() OVER (
+            PARTITION BY phrase_id ORDER BY created_at, id
+          ) AS meaning_rank,
+          COUNT(*) OVER (PARTITION BY phrase_id) AS total_count
+        FROM phrase_meanings
+        WHERE user_id = ? AND phrase_id IN (${placeholders})
+      ) AS ranked_meanings
+      WHERE meaning_rank <= ?
+      ORDER BY phrase_id, meaning_rank
     `).bind(
       userId,
-      row.phrase_id,
+      ...phraseIds,
       VOCABULARY_LIMITS.repositoryPersonalMeanings,
-    )));
-    return rows.map((row, index) => {
+    ).all<BoundedMeaningRow>();
+    const personalMeanings = new Map<string, BoundedMeaningRow[]>();
+    for (const meaning of personalResult.results) {
+      const current = personalMeanings.get(meaning.phrase_id) || [];
+      current.push(meaning);
+      personalMeanings.set(meaning.phrase_id, current);
+    }
+    return rows.map((row) => {
       const meanings: VocabularyMeaning[] = [];
-      const personalRows = personalResults[index]?.results || [];
+      const personalRows = personalMeanings.get(row.phrase_id) || [];
       if (row.translation.trim()) {
         meanings.push({
           id: VOCABULARY_LEGACY_MEANING_ID,
@@ -296,6 +339,35 @@ export function createVocabularyRepository(
     meaningId: string,
   ): Promise<VocabularyEntryForMeaning | null> {
     if (meaningId === VOCABULARY_LEGACY_MEANING_ID) return null;
+    const scopedLegacyPhraseId = readScopedLegacyMeaningId(meaningId);
+    if (scopedLegacyPhraseId) {
+      const legacy = await db.prepare(`
+        SELECT phrases.translation, phrases.context
+        FROM phrases
+        JOIN phrase_progress AS progress ON progress.phrase_id = phrases.id
+        WHERE phrases.id = ? AND phrases.source_type = 'custom'
+          AND phrases.owner_id = ? AND TRIM(phrases.translation) <> ''
+          AND progress.user_id = ?
+          AND progress.status IN ('to_learn', 'learning_now', 'learnt', 'learned')
+        LIMIT 1
+      `).bind(scopedLegacyPhraseId, userId, userId).first<{
+        translation: string;
+        context: string;
+      }>();
+      if (!legacy) return null;
+      const entry = await getEntry(userId, scopedLegacyPhraseId);
+      return entry
+        ? {
+            ...entry,
+            selectedMeaning: {
+              id: scopedLegacyMeaningId(scopedLegacyPhraseId),
+              source: "legacy",
+              translation: legacy.translation,
+              context: legacy.context,
+            },
+          }
+        : null;
+    }
     const row = await db.prepare(`
       SELECT meanings.id, meanings.phrase_id, meanings.translation, meanings.context
       FROM phrase_meanings AS meanings
@@ -379,7 +451,10 @@ export function createVocabularyRepository(
             FROM phrase_meanings AS matching_meanings
             WHERE matching_meanings.user_id = ?
               AND matching_meanings.phrase_id = phrases.id
-              AND matching_meanings.translation LIKE ? ESCAPE '\\' COLLATE NOCASE
+              AND (
+                matching_meanings.translation LIKE ? ESCAPE '\\' COLLATE NOCASE
+                OR matching_meanings.normalized_translation = ?
+              )
           )
         )
       ORDER BY
@@ -405,6 +480,7 @@ export function createVocabularyRepository(
       pattern,
       userId,
       pattern,
+      normalizedQuery,
       cleanedQuery,
       cleanedQuery,
       userId,
@@ -436,61 +512,6 @@ export function createVocabularyRepository(
     `).bind(userId, text, userId, userId).first<VisibleVocabularyRow>();
   }
 
-  async function activateEntry(
-    userId: string,
-    existing: VisibleVocabularyRow,
-    translation: string,
-    context: string | undefined,
-    timestamp: string,
-  ) {
-    const nextStatus: VocabularyStatus = existing.status === "pick"
-      ? "to_learn"
-      : existing.status;
-    const statements = [db.prepare(`
-      INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(user_id, phrase_id) DO UPDATE SET
-        status = CASE
-          WHEN phrase_progress.status = 'pick' THEN 'to_learn'
-          ELSE phrase_progress.status
-        END,
-        updated_at = excluded.updated_at
-    `).bind(userId, existing.phrase_id, nextStatus, timestamp, timestamp)];
-    const canFillOwnedLegacy = existing.source_type === "custom"
-      && existing.owner_id === userId
-      && !existing.translation.trim()
-      && Boolean(translation);
-    if (canFillOwnedLegacy) {
-      statements.push(db.prepare(`
-        UPDATE phrases
-        SET translation = ?, context = ?, updated_at = ?
-        WHERE id = ? AND owner_id = ? AND translation = ''
-      `).bind(
-        translation,
-        context === undefined ? existing.context : context,
-        timestamp,
-        existing.phrase_id,
-        userId,
-      ));
-    }
-    await db.batch(statements);
-    if (
-      translation
-      && !canFillOwnedLegacy
-      && normalizeVocabularyMeaning(translation)
-        !== normalizeVocabularyMeaning(existing.translation)
-    ) {
-      await addMeaning(userId, {
-        phraseId: existing.phrase_id,
-        translation,
-        context,
-      });
-    }
-    const entry = await getEntry(userId, existing.phrase_id);
-    if (!entry) fail("conflict", "Vocabulary entry could not be persisted.");
-    return entry;
-  }
-
   async function addEntry(
     userId: string,
     input: { text: string; translation?: string; context?: string },
@@ -508,41 +529,22 @@ export function createVocabularyRepository(
       fail("invalid_target", "Vocabulary context is too long.");
     }
 
-    const existing = await findVisibleByText(userId, text);
-    const timestamp = now();
-    if (existing) {
-      return {
-        entry: await activateEntry(userId, existing, translation, context, timestamp),
-        created: false,
-      };
-    }
-
-    const phraseId = createId("phrase");
-    await db.batch([
-      db.prepare(`
-        INSERT OR IGNORE INTO phrases (
-          id, text, pattern, ipa, translation, context, source_type, catalog_order,
-          owner_id, status, created_at, updated_at
-        ) VALUES (?, ?, ?, '', ?, ?, 'custom', NULL, ?, 'pick', ?, ?)
-      `).bind(phraseId, text, text, translation, context || "", userId, timestamp, timestamp),
-      db.prepare(`
-        INSERT OR IGNORE INTO phrase_progress (
-          user_id, phrase_id, status, created_at, updated_at
-        )
-        SELECT ?, phrases.id, 'to_learn', ?, ?
-        FROM phrases
-        WHERE phrases.owner_id = ?
-          AND phrases.source_type = 'custom'
-          AND phrases.text = ? COLLATE NOCASE
-        ORDER BY phrases.id
-        LIMIT 1
-      `).bind(userId, timestamp, timestamp, userId, text),
-    ]);
+    const plan = await createVocabularyMutationPlanner(db, { createId, now }).planAddEntry(
+      userId,
+      {
+        text,
+        ...(translation ? { translation } : {}),
+        ...(context === undefined ? {} : { context }),
+      },
+    );
+    await db.batch(plan.statements);
     const persisted = await findVisibleByText(userId, text);
     if (!persisted) fail("conflict", "Vocabulary entry could not be persisted.");
+    const entry = await getEntry(userId, persisted.phrase_id);
+    if (!entry) fail("conflict", "Vocabulary entry could not be persisted.");
     return {
-      entry: await activateEntry(userId, persisted, translation, context, timestamp),
-      created: persisted.phrase_id === phraseId,
+      entry,
+      created: persisted.phrase_id === plan.candidateEntityId,
     };
   }
 

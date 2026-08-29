@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+const httpModule = await import("../lib/ai-chat/http.ts").catch(() => ({}));
+
 const routeUrls = {
   chats: new URL("../app/api/ai/chats/route.ts", import.meta.url),
   detail: new URL("../app/api/ai/chats/[chatId]/route.ts", import.meta.url),
@@ -71,4 +73,53 @@ test("chat, target, and meaning routes expose the complete first-slice persisten
   assert.match(routeSources.chats, /generationConfigured/);
   assert.match(routeSources.chats, /createChatWithVocabularyOpening\(/);
   assert.doesNotMatch(routeSources.chats, /repository\.createChat\(/);
+});
+
+test("chat routes expose a whitelisted public message contract", async () => {
+  assert.equal(typeof httpModule.toPublicAiChatDetail, "function");
+  const chat = httpModule.toPublicAiChatDetail({
+    id: "chat-1",
+    title: "Practice",
+    explanationLanguage: "ru",
+    targetCount: 0,
+    messageCount: 1,
+    createdAt: "2026-08-29T10:00:00.000Z",
+    updatedAt: "2026-08-29T10:00:01.000Z",
+    targets: [],
+    messages: [{
+      id: "message-1",
+      role: "assistant",
+      sequence: 1,
+      content: "Hello",
+      status: "complete",
+      practiceContext: [],
+      clientMessageId: "opening:chat-1",
+      provider: "openrouter",
+      model: "private/model-routing-id",
+      usage: { inputTokens: 123, outputTokens: 45 },
+      errorCode: null,
+      createdAt: "2026-08-29T10:00:00.000Z",
+      updatedAt: "2026-08-29T10:00:01.000Z",
+    }],
+  });
+
+  assert.deepEqual(chat.messages, [{
+    id: "message-1",
+    role: "assistant",
+    sequence: 1,
+    content: "Hello",
+    status: "complete",
+    clientMessageId: "opening:chat-1",
+    errorCode: null,
+    createdAt: "2026-08-29T10:00:00.000Z",
+    updatedAt: "2026-08-29T10:00:01.000Z",
+  }]);
+  assert.equal("provider" in chat.messages[0], false);
+  assert.equal("model" in chat.messages[0], false);
+  assert.equal("usage" in chat.messages[0], false);
+  assert.equal("practiceContext" in chat.messages[0], false);
+
+  const routeSources = await sources();
+  assert.match(routeSources.chats, /toPublicAiChatDetail\(chat\)/);
+  assert.match(routeSources.detail, /toPublicAiChatDetail\(chat\)/);
 });

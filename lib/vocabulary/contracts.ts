@@ -3,11 +3,23 @@ export const VOCABULARY_LIMITS = Object.freeze({
   meaningCharacters: 1_000,
   contextCharacters: 1_000,
   readEntries: 20,
+  meaningList: 50,
   providerMeanings: 6,
   repositoryPersonalMeanings: 7,
 });
 
 export const VOCABULARY_LEGACY_MEANING_ID = "legacy";
+export const VOCABULARY_SCOPED_LEGACY_MEANING_PREFIX = "legacy:";
+
+export function scopedLegacyMeaningId(phraseId: string) {
+  return `${VOCABULARY_SCOPED_LEGACY_MEANING_PREFIX}${phraseId}`;
+}
+
+export function readScopedLegacyMeaningId(value: string) {
+  if (!value.startsWith(VOCABULARY_SCOPED_LEGACY_MEANING_PREFIX)) return null;
+  const phraseId = value.slice(VOCABULARY_SCOPED_LEGACY_MEANING_PREFIX.length);
+  return phraseId && [...phraseId].length <= 120 ? phraseId : null;
+}
 
 export type VocabularyStatus = "to_learn" | "learning_now" | "learnt" | "learned";
 
@@ -22,6 +34,8 @@ export type VocabularyMeaningList = {
   phraseId: string;
   text: string;
   meanings: VocabularyMeaning[];
+  meaningCount: number;
+  meaningsTruncated: boolean;
 };
 
 export type VocabularyEntry = {

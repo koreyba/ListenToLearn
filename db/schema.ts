@@ -224,6 +224,9 @@ export const aiChatAssistantAttempts = sqliteTable("ai_chat_assistant_attempts",
   uniqueIndex("idx_ai_chat_assistant_attempts_one_pending")
     .on(table.assistantMessageId)
     .where(sql`${table.status} = 'pending'`),
+  uniqueIndex("idx_ai_chat_assistant_attempts_one_pending_chat")
+    .on(table.chatId)
+    .where(sql`${table.status} = 'pending'`),
   index("idx_ai_chat_assistant_attempts_user_chat_created")
     .on(table.userId, table.chatId, table.createdAt),
   check(

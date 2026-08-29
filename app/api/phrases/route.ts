@@ -382,29 +382,18 @@ export async function PATCH(request: Request) {
       VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(user_id, phrase_id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at
     `).bind(user.subject, id, status, now, now);
-    if (phrase.source_type === "preset") {
-      const statements = [progressUpdate];
-      if (status !== "pick" && !phrase.legacy_translation && translation.text) {
-        const meaningPlan = await createVocabularyMutationPlanner(db).planAddMeaning(
-          user.subject,
-          {
-            phraseId: id,
-            translation: translation.text,
-          },
-        );
-        statements.push(...meaningPlan.statements);
-      }
-      await db.batch(statements);
-    } else {
-      await db.batch([
-        db.prepare(`
-          UPDATE phrases
-          SET translation = ?, updated_at = ?
-          WHERE id = ? AND source_type = 'custom' AND owner_id = ? AND translation = ''
-        `).bind(translation.text, now, id, user.subject),
-        progressUpdate,
-      ]);
+    const statements = [progressUpdate];
+    if (status !== "pick" && !phrase.legacy_translation && translation.text) {
+      const meaningPlan = await createVocabularyMutationPlanner(db).planAddMeaning(
+        user.subject,
+        {
+          phraseId: id,
+          translation: translation.text,
+        },
+      );
+      statements.push(...meaningPlan.statements);
     }
+    await db.batch(statements);
     return Response.json({
       ok: true,
       status,

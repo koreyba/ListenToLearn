@@ -211,10 +211,18 @@ test("add-entry domain statements create one custom entry and compose atomically
     WHERE progress.user_id = 'user-a' AND phrases.text = 'Break Even' COLLATE NOCASE
   `).get() }, {
     text: "Break Even",
-    translation: "окупаться",
-    context: "The company broke even.",
+    translation: "",
+    context: "",
     owner_id: "user-a",
     status: "to_learn",
+  });
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT translation, normalized_translation, context
+    FROM phrase_meanings WHERE user_id = 'user-a'
+  `).get() }, {
+    translation: "окупаться",
+    normalized_translation: "окупаться",
+    context: "The company broke even.",
   });
 
   const retry = await planner.planAddEntry("user-a", {
@@ -228,8 +236,8 @@ test("add-entry domain statements create one custom entry and compose atomically
     WHERE owner_id = 'user-a' AND text = 'break even' COLLATE NOCASE
   `).get().count, 1);
   assert.equal(sqlite.prepare(`
-    SELECT context FROM phrases
-    WHERE owner_id = 'user-a' AND text = 'break even' COLLATE NOCASE
+    SELECT context FROM phrase_meanings
+    WHERE user_id = 'user-a' AND normalized_translation = 'окупаться'
   `).get().context, "The company broke even.");
 });
 
@@ -463,7 +471,7 @@ test("preset add keeps legacy fields immutable and stores the user translation p
   `).get().status, "learned");
 });
 
-test("preset add reuses an equivalent legacy translation without a personal duplicate", async () => {
+test("preset add records an explicitly supplied equivalent translation as personal", async () => {
   const { database, planner, sqlite } = createSqliteFixture();
   sqlite.exec(`
     INSERT INTO phrases (
@@ -490,7 +498,14 @@ test("preset add reuses an equivalent legacy translation without a personal dupl
     SELECT count(*) AS count
     FROM phrase_meanings
     WHERE user_id = 'user-a' AND phrase_id = 'phrase-run'
-  `).get().count, 0);
+  `).get().count, 1);
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT translation, context FROM phrase_meanings
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-run'
+  `).get() }, {
+    translation: "бежать",
+    context: "a newly proposed context",
+  });
   assert.deepEqual({ ...sqlite.prepare(`
     SELECT translation, context FROM phrases WHERE id = 'phrase-run'
   `).get() }, {
@@ -524,18 +539,23 @@ test("concurrent custom adds retain the losing translation as a personal meaning
     FROM phrases
     WHERE owner_id = 'user-a' AND text = 'break even' COLLATE NOCASE
   `).get() }, {
-    translation: "окупаться",
-    context: "cover the costs",
+    translation: "",
+    context: "",
   });
-  assert.deepEqual({ ...sqlite.prepare(`
+  assert.deepEqual(sqlite.prepare(`
     SELECT translation, normalized_translation, context
     FROM phrase_meanings
     WHERE user_id = 'user-a'
-  `).get() }, {
+    ORDER BY normalized_translation
+  `).all().map((row) => ({ ...row })), [{
     translation: "выйти в ноль",
     normalized_translation: "выйти в ноль",
     context: "reach zero profit",
-  });
+  }, {
+    translation: "окупаться",
+    normalized_translation: "окупаться",
+    context: "cover the costs",
+  }]);
   assert.equal(sqlite.prepare("SELECT count(*) AS count FROM mutation_receipts").get().count, 2);
 });
 
@@ -730,4 +750,124 @@ test("update-meaning compare-and-swap rejects a stale or wrong selected meaning"
     /CHECK constraint failed/u,
   );
   assert.equal(sqlite.prepare("SELECT count(*) AS count FROM mutation_receipts").get().count, 0);
+});
+
+test("owner-scoped legacy meaning is atomically promoted to a personal meaning", async () => {
+  const { database, planner, sqlite } = createSqliteFixture();
+  sqlite.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, translation, context, source_type, owner_id, status,
+      created_at, updated_at
+    ) VALUES (
+      'phrase-legacy', 'break even', '', 'окупаться', 'the business breaks even',
+      'custom', 'user-a', 'pick',
+      '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z'
+    );
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
+    VALUES (
+      'user-a', 'phrase-legacy', 'learning_now',
+      '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z'
+    );
+  `);
+
+  const promoted = await planner.planUpdateMeaning("user-a", {
+    meaningId: "legacy:phrase-legacy",
+    phraseId: "phrase-legacy",
+    expectedTranslation: "окупаться",
+    expectedContext: "the business breaks even",
+    translation: "выходить в ноль",
+    context: "the startup broke even",
+  });
+  assert.match(promoted.canonicalResult.meaningId, /^meaning-/u);
+  assert.equal(promoted.entityId, promoted.canonicalResult.meaningId);
+  assert.equal(await executePlan(database, promoted, "receipt-promote-legacy"), 1);
+
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT translation, context FROM phrases WHERE id = 'phrase-legacy'
+  `).get() }, { translation: "", context: "" });
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT id, translation, normalized_translation, context
+    FROM phrase_meanings
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-legacy'
+  `).get() }, {
+    id: promoted.canonicalResult.meaningId,
+    translation: "выходить в ноль",
+    normalized_translation: "выходить в ноль",
+    context: "the startup broke even",
+  });
+  assert.equal(sqlite.prepare(`
+    SELECT status FROM phrase_progress
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-legacy'
+  `).get().status, "learning_now");
+
+  const directlyUpdated = await planner.planUpdateMeaning("user-a", {
+    meaningId: promoted.canonicalResult.meaningId,
+    phraseId: "phrase-legacy",
+    expectedTranslation: "выходить в ноль",
+    expectedContext: "the startup broke even",
+    translation: "достигать безубыточности",
+  });
+  assert.equal(await executePlan(database, directlyUpdated, "receipt-update-promoted"), 1);
+  assert.equal(sqlite.prepare(`
+    SELECT translation FROM phrase_meanings WHERE id = ?
+  `).get(promoted.canonicalResult.meaningId).translation, "достигать безубыточности");
+});
+
+test("scoped legacy promotion rejects stale, mismatched, and foreign targets", async () => {
+  for (const attempted of [
+    {
+      userId: "user-a",
+      meaningId: "legacy:phrase-legacy",
+      phraseId: "phrase-legacy",
+      expectedTranslation: "устаревший перевод",
+    },
+    {
+      userId: "user-a",
+      meaningId: "legacy:phrase-other",
+      phraseId: "phrase-legacy",
+      expectedTranslation: "окупаться",
+    },
+    {
+      userId: "user-b",
+      meaningId: "legacy:phrase-legacy",
+      phraseId: "phrase-legacy",
+      expectedTranslation: "окупаться",
+    },
+  ]) {
+    const { database, planner, sqlite } = createSqliteFixture();
+    sqlite.exec(`
+      INSERT INTO phrases (
+        id, text, pattern, translation, context, source_type, owner_id, status,
+        created_at, updated_at
+      ) VALUES (
+        'phrase-legacy', 'break even', '', 'окупаться', 'the business breaks even',
+        'custom', 'user-a', 'pick',
+        '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z'
+      );
+      INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
+      VALUES (
+        'user-a', 'phrase-legacy', 'learning_now',
+        '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z'
+      );
+    `);
+    const plan = await planner.planUpdateMeaning(attempted.userId, {
+      meaningId: attempted.meaningId,
+      phraseId: attempted.phraseId,
+      expectedTranslation: attempted.expectedTranslation,
+      expectedContext: "the business breaks even",
+      translation: "выходить в ноль",
+    });
+    await assert.rejects(
+      executePlan(database, plan, `receipt-${attempted.userId}-${attempted.meaningId}`),
+      /CHECK constraint failed/u,
+    );
+    assert.deepEqual({ ...sqlite.prepare(`
+      SELECT translation, context FROM phrases WHERE id = 'phrase-legacy'
+    `).get() }, {
+      translation: "окупаться",
+      context: "the business breaks even",
+    });
+    assert.equal(sqlite.prepare("SELECT count(*) AS count FROM phrase_meanings").get().count, 0);
+    sqlite.close();
+  }
 });

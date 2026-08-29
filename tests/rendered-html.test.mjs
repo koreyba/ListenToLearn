@@ -52,6 +52,33 @@ test("unified site navigation exposes every primary section", async () => {
   assert.match(trainer, /href="\/practice" aria-current="page">Practice<\/a>/);
 });
 
+test("every navigation keeps Beta with the brand and places a GitHub icon in the right controls", async () => {
+  const [navigation, trainer, styles] = await Promise.all([
+    readFile(new URL("../app/components/site-navigation.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../public/trainer.html", import.meta.url), "utf8"),
+    readFile(new URL("../public/site-navigation.css", import.meta.url), "utf8"),
+  ]);
+
+  for (const source of [navigation, trainer]) {
+    const brandIndex = source.indexOf("site-brand-context");
+    const betaIndex = source.indexOf("site-beta-badge");
+    const accountIndex = source.indexOf("site-account");
+    const githubIndex = source.indexOf("site-github-link");
+
+    assert.ok(brandIndex < betaIndex && betaIndex < accountIndex);
+    assert.ok(accountIndex < githubIndex);
+    assert.match(source, /class(?:Name)?="site-beta-badge"[^>]*>Beta</);
+    assert.match(source, /class(?:Name)?="site-github-link"/);
+    assert.match(source, /aria-label="Open source on GitHub"/);
+    assert.match(source, /href="https:\/\/github\.com\/koreyba\/Unmumble"/);
+    assert.match(source, /class(?:Name)?="site-github-icon"/);
+    assert.doesNotMatch(source, />Open source on GitHub/);
+  }
+
+  assert.match(styles, /\.site-github-link \{/);
+  assert.match(styles, /\.site-github-icon \{/);
+});
+
 test("unified navigation stays on top for desktop and moves to the bottom on mobile", async () => {
   const styles = await readFile(
     new URL("../public/site-navigation.css", import.meta.url),

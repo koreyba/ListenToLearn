@@ -256,8 +256,9 @@ never copied into usage storage or the browser stream.
 
 ## Validation Evidence
 
-Fresh exact-diff evidence passes focused backend tests 217/217 (including the
-concurrent queue/circuit regression), full `npm test` 501/501, typecheck, Drizzle,
+Fresh exact-diff evidence passes focused backend tests 219/219 (including the
+concurrent queue/circuit, cursor-compatibility, and linear-time literal-policy
+regressions), full `npm test` 503/503, typecheck, Drizzle,
 audit, lifecycle/diff/secret/ignore checks, and lint with zero errors plus three
 existing warnings. Independent final review found no P0/P1. Coverage includes the
 six-tool registry, legacy timestamp pagination, NFC/NOCASE identity, mutation

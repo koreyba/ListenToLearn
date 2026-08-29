@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const toolsModule = await import("../lib/ai-chat/vocabulary-tools.ts").catch(() => ({}));
+const policyModule = await import("../lib/ai-chat/tools/vocabulary/policy.ts").catch(() => ({}));
 
 function entry(overrides = {}) {
   return {
@@ -394,6 +395,18 @@ test("list cursors preserve every supported historical D1 timestamp boundary", (
   }
 });
 
+test("list cursor codec remains byte-compatible for existing Unicode cursors", () => {
+  const cursor = "eyJ2IjoxLCJjYXRlZ29yeSI6ImxlYXJuZWQiLCJhZGRlZEF0IjoiMjAyNi0wOC0yOSAxMTowMDowMCIsInBocmFzZUlkIjoicGhyYXNlLdGR0LbQuNC6LfCfmIAifQ";
+  const value = {
+    category: "learned",
+    addedAt: "2026-08-29 11:00:00",
+    phraseId: "phrase-ёжик-😀",
+  };
+
+  assert.equal(toolsModule.encodeAiVocabularyListCursor(value), cursor);
+  assert.deepEqual(toolsModule.readAiVocabularyListCursor(cursor, "learned"), value);
+});
+
 test("list handler rejects malformed or category-mismatched cursors before D1", async () => {
   const malformed = createHarness("Покажи дальше.");
   assert.deepEqual(await malformed.handlers.listVocabulary({
@@ -587,6 +600,19 @@ test("write handlers preserve literal case and compatibility characters", async 
     text: "Ｐｏｌｉｓｈ",
   }, fullWidthExact.scope)).ok, true);
   assert.equal(fullWidthExact.calls.at(-1).input.text, "Ｐｏｌｉｓｈ");
+});
+
+test("literal write policy stays bounded on adversarial punctuation tails", () => {
+  const literal = `${".".repeat(30_000)}x`;
+  const startedAt = performance.now();
+
+  assert.equal(policyModule.exactCommandValue(literal, literal), true);
+
+  const elapsedMilliseconds = performance.now() - startedAt;
+  assert.ok(
+    elapsedMilliseconds < 150,
+    `literal comparison took ${elapsedMilliseconds.toFixed(1)}ms`,
+  );
 });
 
 test("quoted entry commands preserve meaningful terminal punctuation", async () => {

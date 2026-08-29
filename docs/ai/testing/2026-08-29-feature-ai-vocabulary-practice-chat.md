@@ -8,8 +8,8 @@ description: Verified agent-tool contracts and remaining end-to-end gates
 
 ## Fresh Automated Evidence
 
-Fresh exact-diff evidence on 2026-08-29 passes focused backend tests 217/217 and
-full `npm test` 501/501, plus typecheck, Drizzle validation, dependency audit,
+Fresh exact-diff evidence on 2026-08-29 passes focused backend tests 219/219 and
+full `npm test` 503/503, plus typecheck, Drizzle validation, dependency audit,
 lifecycle lint, diff check, tracked-secret check, and ignore check. Full lint has
 zero errors and three existing warnings. Independent final review found no P0/P1.
 
@@ -130,9 +130,10 @@ zero errors and three existing warnings. Independent final review found no P0/P1
 
 ## Repository Verification
 
-- [x] Fresh focused backend suite: 217/217, including the concurrent tool-call
-  serialization/circuit regression.
-- [x] Fresh full `npm test`: 501/501 on the exact diff.
+- [x] Fresh focused backend suite: 219/219, including the concurrent tool-call
+  serialization/circuit, byte-compatible Unicode cursor, and linear-time
+  adversarial literal-policy regressions.
+- [x] Fresh full `npm test`: 503/503 on the exact diff.
 - [x] Fresh typecheck, Drizzle, dependency audit, tracked-secret, ignore, lifecycle,
   and diff checks pass; full lint has zero errors and three existing warnings.
 - [x] Independent final review reports no P0/P1.

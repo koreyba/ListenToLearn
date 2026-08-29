@@ -284,8 +284,8 @@ outside AI generation, so it cannot consume the generation invocation's D1 budge
 
 ## Validation Status
 
-Fresh exact-diff evidence on 2026-08-29 passes the focused backend suite 217/217 and
-full `npm test` 501/501, plus typecheck, Drizzle validation, dependency audit,
+Fresh exact-diff evidence on 2026-08-29 passes the focused backend suite 219/219 and
+full `npm test` 503/503, plus typecheck, Drizzle validation, dependency audit,
 lifecycle lint, diff check, tracked-secret check, and ignore check. Full lint has
 zero errors and three existing warnings. Independent final review found no P0/P1.
 Current provider evidence also includes the real serializer and a live direct

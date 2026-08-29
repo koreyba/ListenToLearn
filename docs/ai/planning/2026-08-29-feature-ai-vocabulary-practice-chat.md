@@ -9,7 +9,7 @@ description: Delivery status for the chat-only vocabulary-agent revision
 ## Current Status
 
 The chat-only backend is implemented locally. Fresh exact-diff evidence passes the
-focused backend suite 217/217, full `npm test` 501/501, typecheck, Drizzle, audit,
+focused backend suite 219/219, full `npm test` 503/503, typecheck, Drizzle, audit,
 lifecycle/diff/secret/ignore checks, and lint with zero errors plus three existing
 warnings. Independent final review found no P0/P1. The concrete-model serializer
 passes, and a live direct OpenRouter smoke returned a DeepSeek `list_vocabulary`
@@ -113,8 +113,8 @@ smoke, operational ownership, and production authorization remain open.
   autonomous-category denial, retry/replay, and reload. Partial evidence: earlier
   preview New Chat passed; direct OpenRouter now proves DeepSeek can select
   `list_vocabulary`, but not that the app executed the tool against owned D1 data.
-- [x] **P13 · Final local verification/review** — focused 217/217, full `npm test`
-  501/501, typecheck, Drizzle, audit, lifecycle/diff/secret/ignore checks, and lint
+- [x] **P13 · Final local verification/review** — focused 219/219, full `npm test`
+  503/503, typecheck, Drizzle, audit, lifecycle/diff/secret/ignore checks, and lint
   (zero errors, three existing warnings) pass; independent review found no P0/P1.
 - [ ] **P14 · Publish and release decision** — commit/push and rebuild preview,
   apply/verify preview 0020, run authenticated updated-preview smoke, assign spend/

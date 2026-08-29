@@ -73,8 +73,8 @@ backfill, and the unique receipt key before code rollout.
 
 ## Release Gates
 
-- [x] Fresh exact-diff focused backend tests pass 217/217; full `npm test` passes
-  501/501.
+- [x] Fresh exact-diff focused backend tests pass 219/219; full `npm test` passes
+  503/503.
 - [x] Typecheck, Drizzle, dependency audit, lifecycle/diff/secret/ignore checks pass;
   full lint has zero errors and three existing warnings.
 - [x] Independent final review reports no P0/P1.

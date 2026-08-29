@@ -86,15 +86,30 @@ const DIRECT_UPDATE_MEANING_COMMAND = new RegExp(
   `^(?:(?:пожалуйста|please)\\s*[,;:—-]?\\s+|давай\\s+)?(?:${UPDATE_WRITE_VERB_PATTERN})(?:\\s+\\S+){0,4}\\s+(?:${MEANING_WRITE_OBJECT_PATTERN})(?:$|[^\\p{L}])`,
   "iu",
 );
-const DIRECT_ADD_COMMAND = /^(?:(?:пожалуйста|please)\s*[,;:—-]?\s+|давай\s+)?(?:добав(?:ь|ьте|ляй|ляйте|ить|им|имте|лю)|add)(?:$|[^\p{L}])/iu;
 const PRACTICE_ADD_DESTINATION = /(?:^|[^\p{L}])(?:предложен\p{L}*|пример\p{L}*|упражнен\p{L}*|текст\p{L}*|ответ\p{L}*|sentences?|examples?|exercises?|texts?|answers?)(?:$|[^\p{L}])/iu;
 const DICTIONARY_ADD_DESTINATION = /(?:в\s+(?:мой\s+)?словарь|(?:to|in)\s+(?:my\s+)?(?:vocabulary|dictionary))/iu;
 const NEGATED_WRITE_VERB = new RegExp(
   `^(?:(?:пожалуйста|please)\\s*[,;:—-]?\\s+)?(?:не|никогда|do\\s+not|don['’]t|never)\\s+(?:\\S+\\s+){0,2}(?:${WRITE_VERB_PATTERN})(?:$|[^\\p{L}])`,
   "iu",
 );
-const LEADING_REVOKED_WRITE_COMMAND = /^(?:(?:пожалуйста|please)\s*[,;:—-]?\s+)?(?:не\s+(?:делай|делайте)\s+(?:этого|это)|не\s+надо|отмен(?:а|и|ите)|передумал(?:а)?|do\s+not\s+do\s+(?:it|that)|don['’]t\s+do\s+(?:it|that)|cancel\s+(?:it|that)|never\s+mind)(?:$|[^\p{L}])/iu;
-const TRAILING_REVOKED_WRITE_COMMAND = /(?:[—–;]|,\s*)\s*(?:не\s+(?:делай|делайте)\s+(?:этого|это)|не\s+надо|не\s+выполняй(?:те)?(?:\s+(?:это|этого))?|отмен(?:а|и|ите)|передумал(?:а)?|забудь(?:те)?(?:\s+(?:это|об\s+этом))?|игнорируй(?:те)?(?:\s+(?:это|эту\s+команду))?|do\s+not\s+do\s+(?:it|that)|don['’]t\s+do\s+(?:it|that)|cancel\s+(?:it|that)|never\s+mind|ignore|disregard)(?:\s+(?:this|that)(?:\s+instruction)?|\s+(?:it|that))?\s*[.!?]*$/iu;
+// Input is whitespace-normalized before these expressions. Keeping the optional
+// prefix to fixed single-space alternatives avoids overlapping unbounded matches.
+const NORMALIZED_POLITE_PREFIX_PATTERN =
+  "(?:(?:пожалуйста|please)(?: ?[,;:—-])? )?";
+const NORMALIZED_COMMAND_PREFIX_PATTERN =
+  "(?:(?:пожалуйста|please)(?: ?[,;:—-])? |давай )?";
+const DIRECT_ADD_COMMAND = new RegExp(
+  `^${NORMALIZED_COMMAND_PREFIX_PATTERN}(?:добав(?:ь|ьте|ляй|ляйте|ить|им|имте|лю)|add)(?:$|[^\\p{L}])`,
+  "iu",
+);
+const LEADING_REVOKED_WRITE_COMMAND = new RegExp(
+  `^${NORMALIZED_POLITE_PREFIX_PATTERN}(?:не (?:делай|делайте) (?:этого|это)|не надо|отмен(?:а|и|ите)|передумал(?:а)?|do not do (?:it|that)|don['’]t do (?:it|that)|cancel (?:it|that)|never mind)(?:$|[^\\p{L}])`,
+  "iu",
+);
+const TRAILING_REVOKED_WRITE_COMMAND = /^(?:не (?:делай|делайте) (?:этого|это)|не надо|не выполняй(?:те)?(?: (?:это|этого))?|отмен(?:а|и|ите)|передумал(?:а)?|забудь(?:те)?(?: (?:это|об этом))?|игнорируй(?:те)?(?: (?:это|эту команду))?|do not do (?:it|that)|don['’]t do (?:it|that)|cancel (?:it|that)|never mind|ignore|disregard)(?: (?:this|that)(?: instruction)?| (?:it|that))?$/iu;
+const TRAILING_REVOCATION_SEPARATORS = [",", ";", "—", "–"] as const;
+const TERMINAL_COMMAND_PUNCTUATION = new Set([".", ",", "?", ";", ":"]);
+const TRANSLATION_PAIR_SEPARATORS = ["—", "–", "->", "→", "=", ":"] as const;
 
 export type VocabularyWriteOperation =
   | "add_entry"
@@ -106,6 +121,49 @@ function normalizedCommandText(value: unknown) {
   return typeof value === "string"
     ? value.normalize("NFC").trim().replace(/\s+/gu, " ")
     : "";
+}
+
+function hasTrailingRevokedWriteCommand(value: string) {
+  const lower = value.toLowerCase();
+  let end = lower.length;
+  while (end > 0 && ".!?".includes(lower[end - 1])) end -= 1;
+  while (end > 0 && lower[end - 1].trim() === "") end -= 1;
+  const withoutPunctuation = lower.slice(0, end);
+  const separatorIndex = Math.max(...TRAILING_REVOCATION_SEPARATORS.map(
+    (separator) => withoutPunctuation.lastIndexOf(separator),
+  ));
+  if (separatorIndex < 0) return false;
+  return TRAILING_REVOKED_WRITE_COMMAND.test(
+    withoutPunctuation.slice(separatorIndex + 1).trimStart(),
+  );
+}
+
+function trimTrailingCommandPunctuation(value: string) {
+  let end = value.length;
+  while (end > 0) {
+    const character = value[end - 1];
+    if (!TERMINAL_COMMAND_PUNCTUATION.has(character) && character.trim() !== "") {
+      break;
+    }
+    end -= 1;
+  }
+  return value.slice(0, end);
+}
+
+function splitTranslationPair(value: string): readonly [string, string] | null {
+  let selectedIndex = -1;
+  let selectedMarker = "";
+  for (const separator of TRANSLATION_PAIR_SEPARATORS) {
+    const marker = ` ${separator} `;
+    const index = value.indexOf(marker);
+    if (index > 0 && (selectedIndex < 0 || index < selectedIndex)) {
+      selectedIndex = index;
+      selectedMarker = marker;
+    }
+  }
+  if (selectedIndex < 0) return null;
+  const right = value.slice(selectedIndex + selectedMarker.length);
+  return right ? [value.slice(0, selectedIndex), right] : null;
 }
 
 const COMMAND_PREFIX_PATTERN = "(?:(?:пожалуйста|please)\\s*[,;:—-]?\\s+|давай\\s+)?";
@@ -126,7 +184,7 @@ function cleanCommandValue(value: string | undefined) {
   if (closingQuote && cleaned.endsWith(closingQuote) && cleaned.length >= 2) {
     return cleaned.slice(1, -1).trim();
   }
-  return cleaned.replace(/[\s.,?;:]+$/gu, "");
+  return trimTrailingCommandPunctuation(cleaned);
 }
 
 export function exactCommandValue(actual: string | undefined, expected: string) {
@@ -161,11 +219,10 @@ export function parseAddEntryCommands(message: string) {
     ).exec(clause);
     if (!entry?.groups?.body) return [];
     const withContext = parseContextSuffix(entry.groups.body);
-    const values = /^(.+?)\s+(?:—|–|->|→|=|:)\s+(.+)$/u
-      .exec(withContext.value);
+    const values = splitTranslationPair(withContext.value);
     return [{
-      text: values?.[1] || withContext.value,
-      translation: values?.[2],
+      text: values?.[0] || withContext.value,
+      translation: values?.[1],
       context: withContext.context,
     }];
   });
@@ -256,7 +313,7 @@ export function parseSetCategoryCommand(message: string) {
     !normalized
     || NEGATED_WRITE_VERB.test(normalized)
     || LEADING_REVOKED_WRITE_COMMAND.test(normalized)
-    || TRAILING_REVOKED_WRITE_COMMAND.test(normalized)
+    || hasTrailingRevokedWriteCommand(normalized)
   ) {
     return null;
   }
@@ -289,7 +346,7 @@ export function isExplicitVocabularyWriteOperation(
     !normalized
     || NEGATED_WRITE_VERB.test(normalized)
     || LEADING_REVOKED_WRITE_COMMAND.test(normalized)
-    || TRAILING_REVOKED_WRITE_COMMAND.test(normalized)
+    || hasTrailingRevokedWriteCommand(normalized)
   ) {
     return false;
   }
@@ -318,5 +375,5 @@ export function isExplicitVocabularyWriteRequest(message: string) {
     && !ambiguousPracticeAdd
     && !NEGATED_WRITE_VERB.test(normalized)
     && !LEADING_REVOKED_WRITE_COMMAND.test(normalized)
-    && !TRAILING_REVOKED_WRITE_COMMAND.test(normalized);
+    && !hasTrailingRevokedWriteCommand(normalized);
 }

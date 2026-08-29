@@ -324,8 +324,8 @@ results, and upstream bodies.
 
 ## Local Verification
 
-Fresh exact-diff evidence passes focused backend tests 217/217, full `npm test`
-501/501, typecheck, Drizzle validation, dependency audit, lifecycle/diff/secret/
+Fresh exact-diff evidence passes focused backend tests 219/219, full `npm test`
+503/503, typecheck, Drizzle validation, dependency audit, lifecycle/diff/secret/
 ignore checks, and lint with zero errors plus three existing warnings. Independent
 final review found no P0/P1. These close the local architecture/static gates, not
 the remaining preview or production rollout gates.

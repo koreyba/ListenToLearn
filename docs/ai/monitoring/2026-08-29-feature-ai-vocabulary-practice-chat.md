@@ -14,7 +14,7 @@ rejection events. Wrangler configuration enables logs at full head sampling and
 traces at 10% for production configuration, with full logs/traces in preview; these
 are configuration facts, not deployed-state evidence. The durable D1 ledger is an
 execution/audit boundary, not a substitute for aggregated operational metrics.
-Fresh exact-diff automated/static checks pass (217/217 focused, 501/501 full, zero
+Fresh exact-diff automated/static checks pass (219/219 focused, 503/503 full, zero
 lint errors with three existing warnings), and independent review found no P0/P1;
 alert thresholds, spend ownership, retention, and key-rotation ownership remain
 release decisions.

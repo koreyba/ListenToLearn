@@ -27,11 +27,12 @@ function isPhraseId(value: unknown): value is string {
 function utf8ToBase64Url(value: string) {
   const bytes = new TextEncoder().encode(value);
   let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary)
+  for (const byte of bytes) binary += String.fromCodePoint(byte);
+  const base64 = btoa(binary)
     .replace(/\+/gu, "-")
-    .replace(/\//gu, "_")
-    .replace(/=+$/gu, "");
+    .replace(/\//gu, "_");
+  const paddingStart = base64.indexOf("=");
+  return paddingStart === -1 ? base64 : base64.slice(0, paddingStart);
 }
 
 function base64UrlToUtf8(value: string) {
@@ -46,7 +47,10 @@ function base64UrlToUtf8(value: string) {
     + "=".repeat((4 - value.length % 4) % 4);
   try {
     const binary = atob(padded);
-    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    const bytes = Uint8Array.from(
+      binary,
+      (character) => character.codePointAt(0) ?? 0,
+    );
     const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     return utf8ToBase64Url(decoded) === value ? decoded : null;
   } catch {
@@ -86,7 +90,8 @@ export function readAiVocabularyListCursor(
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
     const record = parsed as Record<string, unknown>;
     if (
-      Object.keys(record).sort().join(",") !== "addedAt,category,phraseId,v"
+      Object.keys(record).sort((left, right) => left.localeCompare(right)).join(",")
+        !== "addedAt,category,phraseId,v"
       || record.v !== CURSOR_VERSION
       || !isVocabularyCategoryFilter(record.category)
       || (expectedCategory !== undefined && record.category !== expectedCategory)

@@ -15,6 +15,8 @@ const publicLoginReturnPaths = new Set([
   "/library/",
   "/practice",
   "/practice/",
+  "/chat",
+  "/chat/",
   "/trainer",
   "/trainer/",
   "/trainer.html",
@@ -38,6 +40,8 @@ export function isPublicGuestRequest(request: Request) {
     || pathname === "/trainer.html"
     || pathname === "/practice"
     || pathname === "/practice/"
+    || pathname === "/chat"
+    || pathname === "/chat/"
     || pathname === "/videos"
     || pathname === "/videos/"
     || pathname === "/settings"

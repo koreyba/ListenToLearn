@@ -28,6 +28,8 @@ const PUBLIC_DOCUMENT_PATHS = new Set([
   "/trainer.html",
   "/practice",
   "/practice/",
+  "/chat",
+  "/chat/",
   "/videos",
   "/videos/",
   "/settings",

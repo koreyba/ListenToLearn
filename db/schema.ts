@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -125,4 +125,76 @@ export const integrationSecrets = sqliteTable("integration_secrets", {
 }, (table) => [
   uniqueIndex("idx_integration_secrets_user_provider")
     .on(table.userId, table.provider),
+]);
+
+export const phraseMeanings = sqliteTable("phrase_meanings", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  phraseId: text("phrase_id").notNull().references(() => phrases.id, { onDelete: "cascade" }),
+  translation: text("translation").notNull(),
+  normalizedTranslation: text("normalized_translation").notNull(),
+  context: text("context").notNull().default(""),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  index("idx_phrase_meanings_user_phrase_updated")
+    .on(table.userId, table.phraseId, table.updatedAt),
+  uniqueIndex("idx_phrase_meanings_user_phrase_normalized")
+    .on(table.userId, table.phraseId, table.normalizedTranslation),
+]);
+
+export const aiChats = sqliteTable("ai_chats", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  title: text("title").notNull().default(""),
+  explanationLanguage: text("explanation_language").notNull().default("ru"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  index("idx_ai_chats_user_updated").on(table.userId, table.updatedAt),
+]);
+
+export const aiChatPracticeItems = sqliteTable("ai_chat_practice_items", {
+  id: text("id").primaryKey(),
+  chatId: text("chat_id").notNull().references(() => aiChats.id, { onDelete: "cascade" }),
+  phraseId: text("phrase_id").references(() => phrases.id, { onDelete: "set null" }),
+  textSnapshot: text("text_snapshot").notNull(),
+  meaningMode: text("meaning_mode").notNull(),
+  selectedMeaningId: text("selected_meaning_id").references(() => phraseMeanings.id, { onDelete: "set null" }),
+  selectedMeaningSnapshot: text("selected_meaning_snapshot").notNull().default(""),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  index("idx_ai_chat_practice_items_chat_created").on(table.chatId, table.createdAt),
+  check(
+    "ai_chat_practice_items_meaning_mode_check",
+    sql`${table.meaningMode} IN ('all_saved', 'selected', 'explore')`,
+  ),
+]);
+
+export const aiChatMessages = sqliteTable("ai_chat_messages", {
+  id: text("id").primaryKey(),
+  chatId: text("chat_id").notNull().references(() => aiChats.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  sequence: integer("sequence").notNull(),
+  content: text("content").notNull().default(""),
+  status: text("status").notNull(),
+  practiceContextJson: text("practice_context_json").notNull().default("[]"),
+  clientMessageId: text("client_message_id").notNull(),
+  provider: text("provider"),
+  model: text("model"),
+  usageJson: text("usage_json"),
+  errorCode: text("error_code"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+}, (table) => [
+  index("idx_ai_chat_messages_chat_sequence").on(table.chatId, table.sequence),
+  uniqueIndex("idx_ai_chat_messages_chat_sequence_unique").on(table.chatId, table.sequence),
+  uniqueIndex("idx_ai_chat_messages_chat_client_role")
+    .on(table.chatId, table.clientMessageId, table.role),
+  check("ai_chat_messages_role_check", sql`${table.role} IN ('user', 'assistant')`),
+  check(
+    "ai_chat_messages_status_check",
+    sql`${table.status} IN ('complete', 'pending', 'failed')`,
+  ),
 ]);

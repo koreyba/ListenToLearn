@@ -3,11 +3,12 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
-type SiteSection = "home" | "library" | "practice" | "videos" | "settings";
+type SiteSection = "home" | "library" | "practice" | "chat" | "videos" | "settings";
 
 const primaryLinks: Array<{ href: string; label: string; section: SiteSection }> = [
   { href: "/library", label: "Library", section: "library" },
   { href: "/practice", label: "Practice", section: "practice" },
+  { href: "/chat", label: "AI Chat", section: "chat" },
   { href: "/videos", label: "Videos", section: "videos" },
   { href: "/settings", label: "Settings", section: "settings" },
 ];

@@ -25,6 +25,7 @@ import {
   type AiChatClientSummary,
   type AiChatUiMessage,
 } from "@/lib/ai-chat/client";
+import { observeCanonicalMessages } from "@/lib/ai-chat/canonical-sync";
 import {
   readComposerSelection,
   restoreComposerSelection,
@@ -139,6 +140,7 @@ function ChatConversation({
   const messageEnd = useRef<HTMLDivElement | null>(null);
   const messageTexts = useRef(new Map<string, string>());
   const canonicalMessages = useMemo(() => toAiChatUiMessages(chat.messages), [chat.messages]);
+  const observedCanonicalMessages = useRef(canonicalMessages);
   const transport = useMemo(() => new DefaultChatTransport<AiChatUiMessage>({
     api: `/api/ai/chats/${chat.id}/messages`,
     prepareSendMessagesRequest: prepareAiChatMessageRequest,
@@ -222,7 +224,13 @@ function ChatConversation({
   }, [messages]);
 
   useEffect(() => {
-    if (!busy) setMessages(canonicalMessages);
+    const sync = observeCanonicalMessages(
+      observedCanonicalMessages.current,
+      canonicalMessages,
+      busy,
+    );
+    observedCanonicalMessages.current = sync.observed;
+    if (sync.apply) setMessages(canonicalMessages);
   }, [busy, canonicalMessages, setMessages]);
 
   useEffect(() => {

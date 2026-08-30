@@ -8,8 +8,8 @@ description: Verified agent-tool contracts and remaining end-to-end gates
 
 ## Fresh Automated Evidence
 
-Fresh 2026-08-30 UI evidence passes focused interaction tests 93/93 and full
-`npm test` 537/537, including the production build, plus typecheck and lint with
+Fresh 2026-08-30 UI evidence passes focused interaction tests 95/95 and full
+`npm test` 539/539, including the production build, plus typecheck and lint with
 zero errors and three existing warnings. Earlier exact-diff backend evidence on
 2026-08-29 passes focused backend tests 219/219, plus Drizzle validation, dependency
 audit, lifecycle lint, diff check, tracked-secret check, and ignore check.
@@ -148,8 +148,8 @@ Independent final review found no P0/P1.
 - [x] Fresh focused backend suite: 219/219, including the concurrent tool-call
   serialization/circuit, byte-compatible Unicode cursor, and linear-time
   adversarial literal-policy regressions.
-- [x] Fresh focused UI/selection suite: 93/93 on the exact diff.
-- [x] Fresh full `npm test`: 537/537 on the exact diff, including production build.
+- [x] Fresh focused UI/selection suite: 95/95 on the exact diff.
+- [x] Fresh full `npm test`: 539/539 on the exact diff, including production build.
 - [x] Fresh typecheck, Drizzle, dependency audit, tracked-secret, ignore, lifecycle,
   and diff checks pass; full lint has zero errors and three existing warnings.
 - [x] Independent final review reports no P0/P1.

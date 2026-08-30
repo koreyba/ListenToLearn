@@ -273,8 +273,8 @@ never copied into usage storage or the browser stream.
 
 ## Validation Evidence
 
-Fresh 2026-08-30 exact-diff evidence passes focused UI/selection tests 93/93 and
-full `npm test` 537/537 (including the production build), plus typecheck and lint
+Fresh 2026-08-30 exact-diff evidence passes focused UI/selection tests 95/95 and
+full `npm test` 539/539 (including the production build), plus typecheck and lint
 with zero errors plus three existing warnings. The earlier focused backend 219/219,
 Drizzle, audit, lifecycle/diff/secret/ignore, and independent P0/P1 review evidence
 remains recorded for the backend commit. Coverage includes the

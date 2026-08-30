@@ -341,8 +341,8 @@ outside AI generation, so it cannot consume the generation invocation's D1 budge
 
 ## Validation Status
 
-Fresh 2026-08-30 UI evidence passes the focused interaction suite 93/93 and full
-`npm test` 537/537, including the production build, plus typecheck and lint with
+Fresh 2026-08-30 UI evidence passes the focused interaction suite 95/95 and full
+`npm test` 539/539, including the production build, plus typecheck and lint with
 zero errors and three existing warnings. Controlled desktop/mobile browser checks
 cover word taps, sequential current-selection translate/add payloads, rounded
 composer focus, compact no-scroll input, and the full-screen editor.

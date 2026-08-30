@@ -9,8 +9,8 @@ description: Delivery status for the chat-only vocabulary-agent revision
 ## Current Status
 
 The chat-only backend and responsive chat workspace are implemented locally. Fresh
-2026-08-30 exact-diff evidence passes the focused selection/UI suite 93/93 and full
-`npm test` 537/537 (including the production build), plus typecheck and lint with
+2026-08-30 exact-diff evidence passes the focused selection/UI suite 95/95 and full
+`npm test` 539/539 (including the production build), plus typecheck and lint with
 zero errors plus three existing warnings. Controlled browser verification covers
 desktop/light/dark, narrow mobile, chat drawer/switching, per-chat drafts, mixed-
 language selection, individually actionable English words, sequential current-
@@ -136,8 +136,8 @@ authorization remain open.
   pagination/cross-turn continuation, then verify explicit write denial/commit and
   interruption/replay without duplicate mutation.
 - [x] **P13 · Final local verification/review** — the prior focused backend 219/219
-  evidence remains green; the current exact diff passes focused UI/selection 93/93,
-  full `npm test` 537/537, typecheck, production build, and lint (zero errors, three
+  evidence remains green; the current exact diff passes focused UI/selection 95/95,
+  full `npm test` 539/539, typecheck, production build, and lint (zero errors, three
   existing warnings). Controlled desktop/mobile browser verification is also green.
 - [ ] **P14 · Release decision** — assign spend/alerts/retention/key-rotation
   ownership, then obtain explicit production migration/deployment authorization.

@@ -111,6 +111,15 @@ test("chat switching is last-request-wins and refresh does not remount away draf
   assert.match(source, /shiftKey/);
 });
 
+test("a terminal stream stays visible until canonical history actually changes", async () => {
+  const source = await readFile(componentUrl, "utf8");
+
+  assert.match(source, /observeCanonicalMessages\(\s*observedCanonicalMessages\.current,\s*canonicalMessages,\s*busy,/s);
+  assert.match(source, /observedCanonicalMessages\.current = sync\.observed/);
+  assert.match(source, /if \(sync\.apply\) setMessages\(canonicalMessages\)/);
+  assert.doesNotMatch(source, /if \(!busy\) setMessages\(canonicalMessages\)/);
+});
+
 test("compact composer has no internal scrollbar and expands into a full-screen editor", async () => {
   const [source, styles] = await Promise.all([
     readFile(componentUrl, "utf8"),

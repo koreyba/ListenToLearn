@@ -384,8 +384,8 @@ results, and upstream bodies.
 
 ## Local Verification
 
-Fresh 2026-08-30 exact-diff UI evidence passes focused interaction tests 93/93 and
-full `npm test` 537/537 (including the production build), plus typecheck and lint
+Fresh 2026-08-30 exact-diff UI evidence passes focused interaction tests 95/95 and
+full `npm test` 539/539 (including the production build), plus typecheck and lint
 with zero errors plus three existing warnings. Controlled desktop/mobile browser
 checks cover word actions, current-selection translate/add payloads, native-selection
 regressions, rounded focus, compact no-scroll input, and expanded editing. Earlier

@@ -14,6 +14,7 @@ import {
   useState,
 } from "react";
 import { ChatSelectionActions } from "@/app/components/ai-chat-selection-actions";
+import { AiChatWriteProposal } from "@/app/components/ai-chat-write-proposal";
 import { InteractiveEnglishText } from "@/app/components/interactive-english-text";
 import { SignedInSiteAccount } from "@/app/components/signed-in-site-account";
 import { SiteNavigation } from "@/app/components/site-navigation";
@@ -131,6 +132,11 @@ function ChatConversation({
   const [selection, setSelection] = useState<ChatTextSelection | null>(null);
   const [following, setFollowing] = useState(true);
   const [composerExpanded, setComposerExpanded] = useState(false);
+  const [proposalDecision, setProposalDecision] = useState<{
+    proposalId: string;
+    decision: "confirm" | "cancel";
+  } | null>(null);
+  const [proposalErrors, setProposalErrors] = useState<Record<string, string>>({});
   const compactComposer = useRef<HTMLTextAreaElement | null>(null);
   const expandedComposer = useRef<HTMLTextAreaElement | null>(null);
   const composerSelection = useRef<ComposerSelection | null>(null);
@@ -334,6 +340,32 @@ function ChatConversation({
     await sendMessage({ text: aiChatUiMessageText(message), messageId: message.id });
   }
 
+  async function decideWriteProposal(
+    proposalId: string,
+    command: { decision: "confirm" | "cancel" },
+  ) {
+    const { decision } = command;
+    if (proposalDecision) return;
+    setProposalDecision({ proposalId, decision });
+    setProposalErrors((current) => ({ ...current, [proposalId]: "" }));
+    try {
+      await requestJson(`/api/ai/chats/${chat.id}/write-proposals/${proposalId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ decision }),
+      });
+      await refresh();
+    } catch (decisionError) {
+      setProposalErrors((current) => ({
+        ...current,
+        [proposalId]: decisionError instanceof Error
+          ? decisionError.message
+          : "The proposal could not be updated. Try again.",
+      }));
+    } finally {
+      setProposalDecision(null);
+    }
+  }
+
   function handleMessageScroll(event: ReactUIEvent<HTMLDivElement>) {
     const element = event.currentTarget;
     const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 96;
@@ -388,6 +420,9 @@ function ChatConversation({
         ) : messages.map((message) => {
           const text = aiChatUiMessageText(message);
           const failed = message.metadata?.status === "failed";
+          const writeProposals = (chat.writeProposals || []).filter(
+            (proposal) => proposal.assistantMessageId === message.id,
+          );
           return (
             <article className={`ai-chat-message ${message.role}`} key={message.id}>
               <span className="ai-chat-message-role">{message.role === "user" ? "You" : "Unmumble AI"}</span>
@@ -421,6 +456,30 @@ function ChatConversation({
                   >Retry</button>
                 </div>
               )}
+              {writeProposals.map((proposal) => {
+                const deciding = proposalDecision?.proposalId === proposal.id;
+                const errorMessage = proposalErrors[proposal.id]
+                  || (proposal.errorCode === "mutation_conflict"
+                    ? "Your vocabulary changed after this proposal was prepared. Nothing was overwritten."
+                    : undefined);
+                return (
+                  <AiChatWriteProposal
+                    errorMessage={errorMessage}
+                    items={proposal.items}
+                    key={proposal.id}
+                    onCancel={(proposalId) => void decideWriteProposal(proposalId, {
+                      decision: "cancel",
+                    })}
+                    onConfirm={(proposalId) => void decideWriteProposal(proposalId, {
+                      decision: "confirm",
+                    })}
+                    operation={proposal.operation}
+                    proposalId={proposal.id}
+                    result={proposal.result}
+                    status={deciding ? "busy" : proposal.status}
+                  />
+                );
+              })}
             </article>
           );
         })}

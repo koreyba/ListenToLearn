@@ -20,10 +20,10 @@ export const AI_VOCABULARY_MAX_TOOL_RESULT_JSON_CHARACTERS = 7_800;
 export const AI_VOCABULARY_TOOL_NAMES = Object.freeze([
   "list_vocabulary",
   "find_vocabulary",
-  "add_vocabulary_entry",
-  "add_vocabulary_meaning",
-  "set_vocabulary_category",
-  "update_vocabulary_meaning",
+  "propose_vocabulary_entries",
+  "propose_vocabulary_meaning",
+  "propose_vocabulary_meaning_update",
+  "propose_vocabulary_category",
 ] as const);
 
 export type VocabularyToolName = (typeof AI_VOCABULARY_TOOL_NAMES)[number];
@@ -51,7 +51,11 @@ export type VocabularyToolRepository = {
 
 export type VocabularyMutationPlanner = Pick<
   ReturnType<typeof createVocabularyMutationPlanner>,
-  "planAddEntry" | "planAddMeaning" | "planSetCategory" | "planUpdateMeaning"
+  | "planAddEntry"
+  | "planAddEntries"
+  | "planAddMeaning"
+  | "planSetCategory"
+  | "planUpdateMeaning"
 >;
 
 export type AiChatToolExecutor = ReturnType<typeof createAiChatToolExecutor>;
@@ -80,6 +84,10 @@ export type AddVocabularyEntryInput = {
   text: string;
   translation?: string;
   context?: string;
+};
+
+export type ProposeVocabularyEntriesInput = {
+  entries: AddVocabularyEntryInput[];
 };
 
 export type AddVocabularyMeaningInput = {

@@ -11,11 +11,11 @@ import {
   AI_VOCABULARY_MAX_TOOL_CALLS_PER_TURN,
   AI_VOCABULARY_MAX_TOOL_RESULTS,
   AI_VOCABULARY_TOOL_NAMES,
-  type AddVocabularyEntryInput,
   type AddVocabularyMeaningInput,
   type AiChatToolExecutor,
   type FindVocabularyInput,
   type ListVocabularyInput,
+  type ProposeVocabularyEntriesInput,
   type SetVocabularyCategoryInput,
   type ToolPolicyError,
   type UpdateVocabularyMeaningInput,
@@ -137,26 +137,38 @@ export function createAiVocabularyTools(
       }),
       run: (input) => handlers.findVocabulary(input),
     }),
-    add_vocabulary_entry: defineTracedVocabularyTool({
-      name: "add_vocabulary_entry",
+    propose_vocabulary_entries: defineTracedVocabularyTool({
+      name: "propose_vocabulary_entries",
       mutation: true,
-      description: "Add a word or phrase to the signed-in learner's vocabulary only when the current user message explicitly commands saving it. Pass only values literally supplied by the user; never invent a translation or context.",
-      inputSchema: jsonSchema<AddVocabularyEntryInput>({
+      description: "Prepare one reviewable proposal containing 1 to 10 exact words or phrases. This does not change vocabulary; the learner must confirm the inline proposal. Use one bulk proposal instead of repeated single-entry calls.",
+      inputSchema: jsonSchema<ProposeVocabularyEntriesInput>({
         type: "object",
         properties: {
-          text: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.targetTextCharacters },
-          translation: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.meaningCharacters },
-          context: { type: "string", maxLength: AI_CHAT_LIMITS.contextCharacters },
+          entries: {
+            type: "array",
+            minItems: 1,
+            maxItems: 10,
+            items: {
+              type: "object",
+              properties: {
+                text: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.targetTextCharacters },
+                translation: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.meaningCharacters },
+                context: { type: "string", maxLength: AI_CHAT_LIMITS.contextCharacters },
+              },
+              required: ["text"],
+              additionalProperties: false,
+            },
+          },
         },
-        required: ["text"],
+        required: ["entries"],
         additionalProperties: false,
       }),
-      run: (input, scope) => handlers.addVocabularyEntry(input, scope),
+      run: (input, scope) => handlers.proposeVocabularyEntries(input, scope),
     }),
-    add_vocabulary_meaning: defineTracedVocabularyTool({
-      name: "add_vocabulary_meaning",
+    propose_vocabulary_meaning: defineTracedVocabularyTool({
+      name: "propose_vocabulary_meaning",
       mutation: true,
-      description: "Add a personal meaning to an existing vocabulary entry only on an explicit current-turn user command that names the affected word or phrase. Use the phrase ID from a read tool and pass only translation/context values literally supplied by the user.",
+      description: "Prepare an inline proposal to add a personal meaning to an existing vocabulary entry. This does not write until the learner confirms it.",
       inputSchema: jsonSchema<AddVocabularyMeaningInput>({
         type: "object",
         properties: {
@@ -167,12 +179,12 @@ export function createAiVocabularyTools(
         required: ["phraseId", "translation"],
         additionalProperties: false,
       }),
-      run: (input, scope) => handlers.addVocabularyMeaning(input, scope),
+      run: (input, scope) => handlers.proposeVocabularyMeaning(input, scope),
     }),
-    update_vocabulary_meaning: defineTracedVocabularyTool({
-      name: "update_vocabulary_meaning",
+    propose_vocabulary_meaning_update: defineTracedVocabularyTool({
+      name: "propose_vocabulary_meaning_update",
       mutation: true,
-      description: "Update one learner-owned meaning only on an explicit current-turn user command that names the affected word or phrase and its current translation. A legacy meaning ID is updateable only when the read tool scoped it to the learner's own custom entry; shared preset meanings stay immutable. Pass only new translation/context values literally supplied by the user.",
+      description: "Prepare an inline proposal to update one learner-owned meaning. Shared preset meanings stay immutable. This does not write until the learner confirms it.",
       inputSchema: jsonSchema<UpdateVocabularyMeaningInput>({
         type: "object",
         properties: {
@@ -183,12 +195,12 @@ export function createAiVocabularyTools(
         required: ["meaningId", "translation"],
         additionalProperties: false,
       }),
-      run: (input, scope) => handlers.updateVocabularyMeaning(input, scope),
+      run: (input, scope) => handlers.proposeVocabularyMeaningUpdate(input, scope),
     }),
-    set_vocabulary_category: defineTracedVocabularyTool({
-      name: "set_vocabulary_category",
+    propose_vocabulary_category: defineTracedVocabularyTool({
+      name: "propose_vocabulary_category",
       mutation: true,
-      description: "Move one existing signed-in learner vocabulary entry to To Learn, Learning, or Learned only when the current user message explicitly names both that word or phrase and the destination category. Never infer mastery or change a category autonomously.",
+      description: "Prepare an inline proposal to move one existing vocabulary entry to To Learn, Learning, or Learned. Never infer mastery. This does not write until the learner confirms it.",
       inputSchema: jsonSchema<SetVocabularyCategoryInput>({
         type: "object",
         properties: {
@@ -201,7 +213,7 @@ export function createAiVocabularyTools(
         required: ["phraseId", "category"],
         additionalProperties: false,
       }),
-      run: (input, scope) => handlers.setVocabularyCategory(input, scope),
+      run: (input, scope) => handlers.proposeVocabularyCategory(input, scope),
     }),
   };
 }

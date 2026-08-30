@@ -148,6 +148,13 @@
       "when": 1788032018664,
       "tag": "0020_easy_mentallo",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1788118008844,
+      "tag": "0021_cold_stone_men",
+      "breakpoints": true
     }
   ]
 }

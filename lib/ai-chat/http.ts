@@ -8,6 +8,7 @@ import type {
   AiChatPublicDetail,
   AiChatPublicMessage,
 } from "./public-contracts.ts";
+import type { AiChatPublicWriteProposal } from "./write-proposals.ts";
 
 export function noStoreJson(body: unknown, init: ResponseInit = {}) {
   const headers = new Headers(init.headers);
@@ -18,7 +19,9 @@ export function noStoreJson(body: unknown, init: ResponseInit = {}) {
 export type PublicAiChatMessage = AiChatPublicMessage;
 export type PublicAiChatDetail = AiChatPublicDetail;
 
-export function toPublicAiChatDetail(chat: AiChatDetail): PublicAiChatDetail {
+export function toPublicAiChatDetail(
+  chat: AiChatDetail & { writeProposals?: readonly AiChatPublicWriteProposal[] },
+): PublicAiChatDetail {
   return {
     id: chat.id,
     title: chat.title,
@@ -59,6 +62,27 @@ export function toPublicAiChatDetail(chat: AiChatDetail): PublicAiChatDetail {
       errorCode: message.errorCode,
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
+    })),
+    writeProposals: (chat.writeProposals || []).map((proposal) => ({
+      id: proposal.id,
+      assistantMessageId: proposal.assistantMessageId,
+      operation: proposal.operation,
+      items: proposal.items.map((item) => ({
+        id: item.id,
+        text: item.text,
+        ...(item.translation === undefined ? {} : { translation: item.translation }),
+        ...(item.context === undefined ? {} : { context: item.context }),
+        ...(item.previousTranslation === undefined
+          ? {}
+          : { previousTranslation: item.previousTranslation }),
+        ...(item.fromCategory === undefined ? {} : { fromCategory: item.fromCategory }),
+        ...(item.toCategory === undefined ? {} : { toCategory: item.toCategory }),
+      })),
+      status: proposal.status,
+      result: proposal.result,
+      errorCode: proposal.errorCode,
+      createdAt: proposal.createdAt,
+      decidedAt: proposal.decidedAt,
     })),
   };
 }

@@ -350,3 +350,99 @@ export const aiChatToolCalls = sqliteTable("ai_chat_tool_calls", {
     sql`length(${table.providerToolCallId}) BETWEEN 1 AND 240 AND length(${table.toolName}) BETWEEN 1 AND 120`,
   ),
 ]);
+
+export const aiChatVocabularyWriteProposals = sqliteTable("ai_chat_vocabulary_write_proposals", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  chatId: text("chat_id").notNull().references(() => aiChats.id, { onDelete: "cascade" }),
+  userMessageId: text("user_message_id").notNull().references(
+    () => aiChatMessages.id,
+    { onDelete: "cascade" },
+  ),
+  assistantMessageId: text("assistant_message_id").notNull().references(
+    () => aiChatMessages.id,
+    { onDelete: "cascade" },
+  ),
+  originAttemptId: text("origin_attempt_id").notNull().references(
+    () => aiChatAssistantAttempts.id,
+    { onDelete: "cascade" },
+  ),
+  originToolCallId: text("origin_tool_call_id").notNull().references(
+    () => aiChatToolCalls.id,
+    { onDelete: "cascade" },
+  ),
+  operation: text("operation").notNull(),
+  targetKey: text("target_key").notNull(),
+  mutationInputJson: text("mutation_input_json").notNull(),
+  mutationInputSha256: text("mutation_input_sha256").notNull(),
+  publicJson: text("public_json").notNull(),
+  status: text("status").notNull(),
+  resultJson: text("result_json"),
+  errorCode: text("error_code"),
+  receiptId: text("receipt_id").references(
+    () => aiChatToolMutationReceipts.id,
+    { onDelete: "set null" },
+  ),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  decidedAt: text("decided_at"),
+}, (table) => [
+  uniqueIndex("idx_ai_chat_write_proposals_message_operation_target")
+    .on(table.userMessageId, table.operation, table.targetKey),
+  uniqueIndex("idx_ai_chat_write_proposals_origin_call")
+    .on(table.originToolCallId),
+  index("idx_ai_chat_write_proposals_user_chat_assistant_created")
+    .on(table.userId, table.chatId, table.assistantMessageId, table.createdAt),
+  index("idx_ai_chat_write_proposals_receipt").on(table.receiptId),
+  check(
+    "ai_chat_write_proposals_status_check",
+    sql`${table.status} IN ('pending', 'committed', 'cancelled', 'conflict')`,
+  ),
+  check(
+    "ai_chat_write_proposals_input_json_check",
+    sql`json_valid(${table.mutationInputJson}) AND length(${table.mutationInputJson}) <= 4096`,
+  ),
+  check(
+    "ai_chat_write_proposals_public_json_check",
+    sql`json_valid(${table.publicJson}) AND length(${table.publicJson}) <= 4096`,
+  ),
+  check(
+    "ai_chat_write_proposals_result_json_check",
+    sql`${table.resultJson} IS NULL OR (json_valid(${table.resultJson}) AND length(${table.resultJson}) <= 8192)`,
+  ),
+  check(
+    "ai_chat_write_proposals_input_hash_check",
+    sql`length(${table.mutationInputSha256}) = 64 AND ${table.mutationInputSha256} NOT GLOB '*[^0-9a-f]*'`,
+  ),
+  check(
+    "ai_chat_write_proposals_metadata_check",
+    sql`length(${table.operation}) BETWEEN 1 AND 120 AND length(${table.targetKey}) BETWEEN 1 AND 1400`,
+  ),
+  check(
+    "ai_chat_write_proposals_lifecycle_check",
+    sql`(
+      ${table.status} = 'pending'
+      AND ${table.resultJson} IS NULL
+      AND ${table.errorCode} IS NULL
+      AND ${table.receiptId} IS NULL
+      AND ${table.decidedAt} IS NULL
+    ) OR (
+      ${table.status} = 'committed'
+      AND ${table.resultJson} IS NOT NULL
+      AND ${table.errorCode} IS NULL
+      AND ${table.receiptId} IS NOT NULL
+      AND ${table.decidedAt} IS NOT NULL
+    ) OR (
+      ${table.status} = 'cancelled'
+      AND ${table.resultJson} IS NULL
+      AND ${table.errorCode} IS NULL
+      AND ${table.receiptId} IS NULL
+      AND ${table.decidedAt} IS NOT NULL
+    ) OR (
+      ${table.status} = 'conflict'
+      AND ${table.errorCode} IS NOT NULL
+      AND ${table.receiptId} IS NULL
+      AND ${table.decidedAt} IS NOT NULL
+    )`,
+  ),
+]);

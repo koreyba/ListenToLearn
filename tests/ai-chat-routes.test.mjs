@@ -10,6 +10,10 @@ const routeUrls = {
   targets: new URL("../app/api/ai/chats/[chatId]/targets/route.ts", import.meta.url),
   messages: new URL("../app/api/ai/chats/[chatId]/messages/route.ts", import.meta.url),
   meanings: new URL("../app/api/ai/meanings/route.ts", import.meta.url),
+  writeProposal: new URL(
+    "../app/api/ai/chats/[chatId]/write-proposals/[proposalId]/route.ts",
+    import.meta.url,
+  ),
 };
 const httpUrl = new URL("../lib/ai-chat/http.ts", import.meta.url);
 const clientUrl = new URL("../lib/ai-chat/client.ts", import.meta.url);
@@ -29,7 +33,7 @@ test("every AI route stays dynamic, authenticated, owner-scoped, and uncached", 
     assert.match(source, /unauthorizedResponse\(\)/, name);
     assert.match(
       source,
-      /create(?:AiChat|Vocabulary)Repository\((?:getD1\(\)|db)\)/,
+      /create(?:AiChat|AiChatWriteProposal|Vocabulary)Repository\((?:getD1\(\)|db)/,
       name,
     );
     assert.match(source, /noStoreJson|aiChatErrorResponse|createUIMessageStreamResponse/, name);
@@ -41,17 +45,19 @@ test("every AI route stays dynamic, authenticated, owner-scoped, and uncached", 
   assert.match(routeSources.messages, /createVocabularyMutationPlanner\(db\)/);
   assert.match(routeSources.messages, /createAiChatToolTraceRepository\(db\)/);
   assert.match(routeSources.meanings, /createVocabularyRepository\(getD1\(\)\)/);
+  assert.match(routeSources.writeProposal, /createAiChatWriteProposalRepository\(db/);
 });
 
 test("AI mutations share the exact-origin bounded body boundary", async () => {
   const routeSources = await sources();
-  for (const name of ["chats", "targets", "messages", "meanings"]) {
+  for (const name of ["chats", "targets", "messages", "meanings", "writeProposal"]) {
     assert.match(routeSources[name], /readAiMutationPayload\(/, name);
   }
   assert.match(routeSources.chats, /readCreateChatPayload/);
   assert.match(routeSources.targets, /readReplaceTargetsPayload/);
   assert.match(routeSources.messages, /readGenerateMessagePayload/);
   assert.match(routeSources.meanings, /readCreateMeaningPayload/);
+  assert.match(routeSources.writeProposal, /readWriteProposalDecisionPayload/);
 });
 
 test("message streaming delegates canonical state and configuration to the service", async () => {
@@ -91,6 +97,7 @@ test("chat, target, and meaning routes expose the complete first-slice persisten
   assert.match(routeSources.targets, /export async function PATCH/);
   assert.match(routeSources.meanings, /export async function GET/);
   assert.match(routeSources.meanings, /export async function POST/);
+  assert.match(routeSources.writeProposal, /export async function PATCH/);
   assert.match(routeSources.chats, /generationConfigured/);
   assert.match(routeSources.chats, /createChatWithVocabularyOpening\(/);
   assert.doesNotMatch(routeSources.chats, /repository\.createChat\(/);
@@ -107,6 +114,19 @@ test("chat routes expose a whitelisted public message contract", async () => {
     createdAt: "2026-08-29T10:00:00.000Z",
     updatedAt: "2026-08-29T10:00:01.000Z",
     targets: [],
+    writeProposals: [{
+      id: "proposal-1",
+      assistantMessageId: "message-1",
+      operation: "add_vocabulary_entries",
+      items: [{ id: "entry-1", text: "uncanny", translation: "странный" }],
+      status: "pending",
+      result: null,
+      errorCode: null,
+      createdAt: "2026-08-29T10:00:01.000Z",
+      decidedAt: null,
+      targetKey: "must-not-leak",
+      mutationInput: { entries: [{ text: "must-not-leak" }] },
+    }],
     messages: [{
       id: "message-1",
       role: "assistant",
@@ -139,10 +159,24 @@ test("chat routes expose a whitelisted public message contract", async () => {
   assert.equal("model" in chat.messages[0], false);
   assert.equal("usage" in chat.messages[0], false);
   assert.equal("practiceContext" in chat.messages[0], false);
+  assert.deepEqual(chat.writeProposals, [{
+    id: "proposal-1",
+    assistantMessageId: "message-1",
+    operation: "add_vocabulary_entries",
+    items: [{ id: "entry-1", text: "uncanny", translation: "странный" }],
+    status: "pending",
+    result: null,
+    errorCode: null,
+    createdAt: "2026-08-29T10:00:01.000Z",
+    decidedAt: null,
+  }]);
+  assert.equal("targetKey" in chat.writeProposals[0], false);
+  assert.equal("mutationInput" in chat.writeProposals[0], false);
 
   const routeSources = await sources();
   assert.match(routeSources.chats, /toPublicAiChatDetail\(chat\)/);
   assert.match(routeSources.detail, /toPublicAiChatDetail\(chat\)/);
+  assert.match(routeSources.detail, /listForChat\(/);
 });
 
 test("server and browser share explicit allowlisted chat DTOs", async () => {

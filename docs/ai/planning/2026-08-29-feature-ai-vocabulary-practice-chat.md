@@ -9,20 +9,25 @@ description: Delivery status for the chat-only vocabulary-agent revision
 ## Current Status
 
 The chat-only backend and responsive chat workspace are implemented locally. Fresh
-2026-08-30 exact-diff evidence passes the focused selection/UI suite 95/95 and full
-`npm test` 539/539 (including the production build), plus typecheck and lint with
-zero errors plus three existing warnings. Controlled browser verification covers
-desktop/light/dark, narrow mobile, chat drawer/switching, per-chat drafts, mixed-
-language selection, individually actionable English words, sequential current-
-selection translate/add payloads, compact/expanded composer behavior, and a clean
-fresh console. Independent backend review found no P0/P1. The concrete-model serializer
-passes. Backend commit `8f671288` is pushed; PR #32 CodeQL, Analyze, Sonar, and Workers checks
-are green. Preview 0020 is applied with configured provenance columns backfilled,
+2026-08-30 exact-diff evidence passes full `npm test` 564/564 (including the
+production build), typecheck, and lint with zero errors plus three existing warnings.
+Focused proposal/lifecycle/bulk/budget/UI suites and controlled 1280px/390px card
+verification are green. Earlier browser verification covers desktop/light/dark,
+narrow mobile, chat drawer/switching, drafts, mixed-language selection, actionable
+English words, current-selection translate/add, and compact/expanded composer
+behavior. Prior backend commit `8f671288` is pushed; its PR #32 CodeQL, Analyze,
+Sonar, and Workers checks are green. Preview 0020 is applied with configured provenance columns backfilled,
 the pending-chat index present, and foreign keys clean. Authenticated provider-
 backed preview requests for latest ten/all available and `To Learn` each returned
 the account's two matching entries without mutating user data. No production deployment is claimed;
 manual >10 cross-turn traversal, write/replay, operational ownership, and production
 authorization remain open.
+
+The approved follow-up is implemented and locally verified: immediate agent writes
+and the literal-command regex boundary are replaced by durable inline proposals,
+learner confirmation, and a true atomic 1–10 entry bulk operation. Direct selection
+Add remains immediate; the six-tool/two-call limits remain unchanged. No deployment
+is authorized.
 
 ## Implemented
 
@@ -39,12 +44,11 @@ authorization remain open.
   bounded search across text and owner-visible meanings. Opaque versioned cursors
   are category-bound; the latest completed list can continue across a later turn
   without copying its entries into the prompt.
-- [x] **P04 · Explicit writes** — add entry, add meaning, update meaning, and
-  `set_vocabulary_category` use strict schemas, server identity, and current-turn
-  literal commands. Category changes require the exact resolved entry and canonical
-  destination and never infer mastery. Update/category plans use owner-scoped CAS;
-  quoted punctuation, case, compatibility characters, negation, and revocation are
-  handled deterministically.
+- [x] **P04 · Confirmation-gated agent writes** — the exact six-tool registry
+  contains two reads and four proposal tools. Natural references resolve through
+  bounded canonical context; the model can only persist an immutable proposal.
+  Category and meaning proposals resolve exact owner-visible entities and capture
+  owner-scoped CAS values; only the learner's later Confirm executes the write.
 - [x] **P05 · Category-safe domain plans** — new/`pick` add initializes `to_learn`;
   entry/meaning writes preserve active category, while only the explicit category
   plan changes it through owner-scoped CAS. Preset legacy data is immutable and
@@ -82,12 +86,13 @@ authorization remain open.
 - [x] **P09 · Bounded orchestration** — two tool calls, five model steps, tools
   disabled on the final step, and a provider-adapter pre-trace fence that rejects
   call three onward without D1 queries. Same-step calls serialize before shared
-  limit/circuit checks; a failed or thrown mutation opens the circuit, so no later
+  limit/circuit checks; a failed or thrown proposal opens the circuit, so no later
   queued provider tool reaches D1. Exact generation envelopes are 35 for two reads,
-  43 for two writes, 45 for an ambiguous write, 36 for rollback/circuit, 38 for
-  rollback plus ambiguous terminal failure, and 41 for legacy rollback plus
-  ambiguous terminal failure (also under concurrent duplicate call); maximum
-  create-chat recovery remains 49/50.
+  40 for two cold proposals, 42 with one ambiguous proposal commit, 32 for proposal
+  rollback/circuit, 34 for rollback plus ambiguous terminal failure, and 37 for a
+  meaning-update proposal rollback plus ambiguous terminal failure. Confirming a
+  bulk proposal costs 10 statements including auth/user refresh for both one and
+  ten entries; maximum create-chat recovery remains 49/50.
 - [x] **P09a · Bounded public transport** — 100 chats per account/list, latest 200
   detail messages, 40/32,000 model history, explicit public DTOs, provider-stream
   allowlisting, and stable `provider_rate_limited` mapping.
@@ -106,12 +111,22 @@ authorization remain open.
   atomic idempotent legacy-owner transfer runs only on login/session bootstrap.
 - [x] **P10 · Versioned prompt and SRP tools** — prompt path
   `lib/ai-chat/prompts/vocabulary-practice.ts` exposes ID
-  `unmumble.vocabulary-practice`/version `1` and reports that identity in safe
-  events. Six vocabulary tools are split into contracts/policy/results/handlers/
-  registry/pagination; `vocabulary-tools.ts` is a thin facade and every tool shares
-  one traced budget wrapper.
+  `unmumble.vocabulary-practice`/version `2` and reports that identity in safe
+  events. Six vocabulary tools are split into contracts/results/handlers/registry/
+  pagination; `vocabulary-tools.ts` is a thin facade and every active tool shares
+  one traced budget wrapper. The legacy literal parser is not registered on the
+  provider path.
 
 ## Remaining Gates
+
+- [x] **P15 · Durable inline write approval** — add immutable owner-scoped proposal
+  payloads with guarded terminal states; change all four model mutation tools to
+  proposals; replace singular entry add with set-based atomic 1–10 bulk; expose only
+  sanitized proposal DTOs; render accessible inline Confirm/Cancel cards; execute
+  confirmation from stored arguments without a second model call; cover replay,
+  races, cancellation, stale CAS, ambiguous D1 completion, owner isolation, direct
+  selection-write preservation, and fresh sub-50 D1 statement envelopes. The UI
+  safely defaults an older chat DTO without `writeProposals` to an empty list.
 
 - [x] **P11 · Responsive chat workspace** — keep list and dialogue visible together
   on desktop; use a drawer on tablet/mobile; preserve selected chat in the URL,
@@ -132,13 +147,15 @@ authorization remain open.
   the provider-backed `list_vocabulary` path for latest ten/all available and
   category `To Learn`; each returned the account's two matching entries and no
   user-data mutation was performed.
-- [ ] **P12a · Extended manual smoke** — traverse more than ten entries through
-  pagination/cross-turn continuation, then verify explicit write denial/commit and
-  interruption/replay without duplicate mutation.
-- [x] **P13 · Final local verification/review** — the prior focused backend 219/219
-  evidence remains green; the current exact diff passes focused UI/selection 95/95,
-  full `npm test` 539/539, typecheck, production build, and lint (zero errors, three
-  existing warnings). Controlled desktop/mobile browser verification is also green.
+- [ ] **P12a · Extended cloud smoke** — traverse more than ten entries through
+  pagination/cross-turn continuation, then verify proposal Confirm/Cancel and
+  interruption/replay without duplicate mutation after an authorized deployment.
+- [x] **P13 · Final local verification/review** — the current exact diff passes
+  production build, full `npm test` 564/564, typecheck, and lint with zero errors
+  plus three existing warnings. Focused proposal, lifecycle, route, tool, prompt,
+  schema/migration, bulk, budget, and UI suites are green. Controlled 1280px/390px
+  card verification confirms 44px actions, disclosure, and no horizontal overflow.
+  Independent exact-diff review found no P0/P1.
 - [ ] **P14 · Release decision** — assign spend/alerts/retention/key-rotation
   ownership, then obtain explicit production migration/deployment authorization.
 
@@ -149,22 +166,21 @@ authorization remain open.
 - Final direct target/meaning UX, editable translation/meaning selection, and
   Library/Practice launch remain deferred. Selection translation and exact-text
   saving are now in scope.
-- Current explicit-write recognition is bounded Russian/English heuristics. Command
-  syntax may ignore case, but persisted values require exact NFC/case/compatibility
-  literals; quotes preserve meaningful terminal punctuation, and revocation is only
-  leading or punctuation-delimited trailing command language. Supported languages
-  and future confirmation UX remain open.
+- Proposal requests may use natural language and bounded canonical history; the
+  exact canonical values shown inline, not regex/literal matching, are the approval
+  boundary. Persisted values still preserve exact NFC/case/compatibility literals.
+  Broader intent-language quality remains a prompt/model concern.
 - Guest AI, fallback models, model-allowlist governance, spend ownership, retention,
   observability thresholds, and resumable/background streams remain deferred.
 
 ## Key Risks
 
 - Model intent is not an authorization boundary. Hard safety comes from server
-  identity, current-message literal checks, strict schemas, owner-scoped category/
-  meaning CAS, attempt fencing, atomic postconditions, and receipts. The category
-  tool expands capability but not autonomous authority.
-- A committed write can outlive a failed provider response by design. Retry must
-  replay the receipt rather than attempt compensating deletion or another mutation.
+  identity, strict schemas, immutable owner-scoped proposal arguments, explicit
+  learner confirmation, category/meaning CAS, atomic postconditions, and receipts.
+- A committed proposal can outlive a failed provider response by design, but cannot
+  mutate vocabulary until confirmed. Confirmation ambiguity must resolve through
+  the durable proposal/receipt before any retry.
 - Corrected migration 0017 deterministically merges historical owner-custom
   ASCII-`NOCASE` duplicates, preserves duplicate meaning translation/context/latest
   update metadata, and rehomes progress, examples, videos, and chat references.

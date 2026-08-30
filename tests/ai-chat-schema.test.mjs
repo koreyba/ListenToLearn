@@ -196,3 +196,50 @@ test("AI messages enforce sequence ordering and request idempotency", () => {
   assert.ok(config.checks.some((entry) => entry.name === "ai_chat_messages_role_check"));
   assert.ok(config.checks.some((entry) => entry.name === "ai_chat_messages_status_check"));
 });
+
+test("AI vocabulary write proposals keep immutable owner-scoped approval inputs", () => {
+  const config = tableConfig(
+    "aiChatVocabularyWriteProposals",
+    "ai_chat_vocabulary_write_proposals",
+  );
+  const columns = columnMap(config);
+  const indexes = indexMap(config);
+
+  assertRequiredColumns(config, [
+    "id",
+    "user_id",
+    "chat_id",
+    "user_message_id",
+    "assistant_message_id",
+    "origin_attempt_id",
+    "origin_tool_call_id",
+    "operation",
+    "target_key",
+    "mutation_input_json",
+    "mutation_input_sha256",
+    "public_json",
+    "status",
+    "created_at",
+    "updated_at",
+  ]);
+  for (const optional of ["result_json", "error_code", "receipt_id", "decided_at"]) {
+    assert.equal(columns.get(optional).notNull, false, `${optional} must be nullable`);
+  }
+  assert.deepEqual(indexes.get("idx_ai_chat_write_proposals_message_operation_target"), {
+    columns: ["user_message_id", "operation", "target_key"],
+    unique: true,
+  });
+  assert.deepEqual(indexes.get("idx_ai_chat_write_proposals_origin_call"), {
+    columns: ["origin_tool_call_id"],
+    unique: true,
+  });
+  assert.deepEqual(indexes.get("idx_ai_chat_write_proposals_user_chat_assistant_created"), {
+    columns: ["user_id", "chat_id", "assistant_message_id", "created_at"],
+    unique: false,
+  });
+  assert.ok(config.checks.some((entry) => entry.name === "ai_chat_write_proposals_status_check"));
+  assert.ok(config.checks.some((entry) => entry.name === "ai_chat_write_proposals_input_json_check"));
+  assert.ok(config.checks.some((entry) => entry.name === "ai_chat_write_proposals_public_json_check"));
+  assert.ok(config.checks.some((entry) => entry.name === "ai_chat_write_proposals_result_json_check"));
+  assert.ok(config.checks.some((entry) => entry.name === "ai_chat_write_proposals_input_hash_check"));
+});

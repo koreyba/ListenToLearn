@@ -46,6 +46,17 @@ export type AiChatToolCall = {
 
 export type AiChatToolExecutionScope = {
   commitMutation<Result>(plan: AiChatToolMutationPlan<Result>): Promise<Result | ToolExecutionError>;
+  proposeMutation<Result>(
+    plan: AiChatToolMutationPlan<Result>,
+    publicPayload: unknown,
+  ): Promise<AiChatToolProposalResult | ToolExecutionError>;
+};
+
+export type AiChatToolProposalResult = {
+  ok: true;
+  proposed: true;
+  approvalRequired: true;
+  proposalId: string;
 };
 
 export type ToolExecutionError = {
@@ -62,7 +73,7 @@ export type ToolExecutionError = {
 };
 
 type TraceRepositoryOptions = {
-  createId?: (kind: "tool-call" | "receipt") => string;
+  createId?: (kind: "tool-call" | "receipt" | "proposal") => string;
   now?: () => string;
 };
 
@@ -83,6 +94,11 @@ type ReceiptRow = {
   result_json: string;
 };
 
+type ProposalRow = {
+  id: string;
+  mutation_input_sha256: string;
+};
+
 export class AiChatToolTraceError extends Error {
   readonly code: ToolExecutionError["error"];
 
@@ -93,7 +109,7 @@ export class AiChatToolTraceError extends Error {
   }
 }
 
-function defaultCreateId(kind: "tool-call" | "receipt") {
+function defaultCreateId(kind: "tool-call" | "receipt" | "proposal") {
   return `${kind}-${crypto.randomUUID()}`;
 }
 
@@ -495,6 +511,26 @@ export function createAiChatToolTraceRepository(
     ).first<ReceiptRow>();
   }
 
+  async function readProposal(
+    context: AiChatToolTraceContext,
+    operation: string,
+    targetKey: string,
+  ) {
+    return db.prepare(`
+      SELECT id, mutation_input_sha256
+      FROM ai_chat_vocabulary_write_proposals
+      WHERE user_id = ? AND chat_id = ? AND user_message_id = ?
+        AND operation = ? AND target_key = ?
+      LIMIT 1
+    `).bind(
+      context.userId,
+      context.chatId,
+      context.userMessageId,
+      operation,
+      targetKey,
+    ).first<ProposalRow>();
+  }
+
   async function readLatestCompletedToolResult(
     userId: string,
     chatId: string,
@@ -786,6 +822,196 @@ export function createAiChatToolTraceRepository(
     ) as Promise<ToolExecutionError>;
   }
 
+  async function proposeMutation<Result>(
+    context: AiChatToolTraceContext,
+    call: AiChatToolCall,
+    plan: AiChatToolMutationPlan<Result>,
+    publicPayload: unknown,
+  ): Promise<AiChatToolProposalResult | ToolExecutionError> {
+    const operation = cleanIdentifier(plan.operation, 120);
+    const targetKey = cleanIdentifier(plan.targetKey, 1_400);
+    let mutationInputJson: string;
+    let publicJson: string;
+    try {
+      mutationInputJson = canonicalTraceJson({
+        args: plan.canonicalArgs,
+        result: plan.canonicalResult,
+      });
+      publicJson = canonicalTraceJson(publicPayload);
+    } catch {
+      return finishCall(
+        context,
+        call.id,
+        "rejected",
+        stableFailure("invalid_target"),
+        "invalid_target",
+      ) as Promise<ToolExecutionError>;
+    }
+    if (
+      !operation
+      || !targetKey
+      || mutationInputJson.length > TRACE_LIMITS.argsJsonCharacters
+      || publicJson.length > TRACE_LIMITS.argsJsonCharacters
+    ) {
+      return finishCall(
+        context,
+        call.id,
+        "rejected",
+        stableFailure("result_too_large"),
+        "result_too_large",
+      ) as Promise<ToolExecutionError>;
+    }
+    const mutationInputSha256 = await sha256Hex(mutationInputJson);
+    const existing = await readProposal(context, operation, targetKey);
+    if (existing) {
+      if (existing.mutation_input_sha256 !== mutationInputSha256) {
+        return rejectMutationConflict(context, call.id) as Promise<ToolExecutionError>;
+      }
+      const result: AiChatToolProposalResult = {
+        ok: true,
+        proposed: true,
+        approvalRequired: true,
+        proposalId: existing.id,
+      };
+      return finishCall(context, call.id, "succeeded", result) as Promise<AiChatToolProposalResult>;
+    }
+
+    const proposalId = createId("proposal");
+    const timestamp = now();
+    const result: AiChatToolProposalResult = {
+      ok: true,
+      proposed: true,
+      approvalRequired: true,
+      proposalId,
+    };
+    const resultJson = canonicalTraceJson(result);
+    const insertProposal = db.prepare(`
+      INSERT OR IGNORE INTO ai_chat_vocabulary_write_proposals (
+        id, user_id, chat_id, user_message_id, assistant_message_id,
+        origin_attempt_id, origin_tool_call_id, operation, target_key,
+        mutation_input_json, mutation_input_sha256, public_json, status,
+        created_at, updated_at
+      )
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?
+      WHERE EXISTS (
+        SELECT 1
+        FROM ai_chat_tool_calls AS calls
+        JOIN ai_chat_assistant_attempts AS attempts
+          ON attempts.id = calls.assistant_attempt_id
+        WHERE calls.id = ?
+          AND calls.user_id = ?
+          AND calls.chat_id = ?
+          AND calls.user_message_id = ?
+          AND calls.assistant_attempt_id = ?
+          AND calls.status = 'received'
+          AND attempts.assistant_message_id = ?
+          AND attempts.status = 'pending'
+          AND attempts.lease_expires_at > ?
+      )
+    `).bind(
+      proposalId,
+      context.userId,
+      context.chatId,
+      context.userMessageId,
+      context.assistantMessageId,
+      context.attemptId,
+      call.id,
+      operation,
+      targetKey,
+      mutationInputJson,
+      mutationInputSha256,
+      publicJson,
+      timestamp,
+      timestamp,
+      call.id,
+      context.userId,
+      context.chatId,
+      context.userMessageId,
+      context.attemptId,
+      context.assistantMessageId,
+      timestamp,
+    );
+    const completeCall = db.prepare(`
+      UPDATE ai_chat_tool_calls
+      SET status = 'succeeded', result_json = ?, error_code = NULL,
+          completed_at = ?
+      WHERE id = ? AND user_id = ? AND chat_id = ? AND user_message_id = ?
+        AND assistant_attempt_id = ? AND status = 'received'
+        AND EXISTS (
+          SELECT 1
+          FROM ai_chat_assistant_attempts AS attempts
+          WHERE attempts.id = ai_chat_tool_calls.assistant_attempt_id
+            AND attempts.assistant_message_id = ?
+            AND attempts.status = 'pending'
+            AND attempts.lease_expires_at > ?
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM ai_chat_vocabulary_write_proposals AS proposals
+          WHERE proposals.id = ?
+            AND proposals.user_id = ai_chat_tool_calls.user_id
+            AND proposals.chat_id = ai_chat_tool_calls.chat_id
+            AND proposals.user_message_id = ai_chat_tool_calls.user_message_id
+            AND proposals.origin_tool_call_id = ai_chat_tool_calls.id
+            AND proposals.mutation_input_sha256 = ?
+        )
+    `).bind(
+      resultJson,
+      timestamp,
+      call.id,
+      context.userId,
+      context.chatId,
+      context.userMessageId,
+      context.attemptId,
+      context.assistantMessageId,
+      timestamp,
+      proposalId,
+      mutationInputSha256,
+    );
+
+    try {
+      const batch = await db.batch([insertProposal, completeCall]);
+      if (
+        Number(batch[0]?.meta.changes || 0) === 1
+        && Number(batch[1]?.meta.changes || 0) === 1
+      ) {
+        return result;
+      }
+    } catch {
+      // Resolve an ambiguous commit by reading the immutable proposal below.
+    }
+
+    const recovered = await readProposal(context, operation, targetKey);
+    if (recovered) {
+      if (recovered.mutation_input_sha256 !== mutationInputSha256) {
+        return rejectMutationConflict(context, call.id) as Promise<ToolExecutionError>;
+      }
+      const recoveredResult: AiChatToolProposalResult = {
+        ok: true,
+        proposed: true,
+        approvalRequired: true,
+        proposalId: recovered.id,
+      };
+      const storedCall = await readCallById(context, call.id);
+      if (storedCall && storedCall.status !== "received") {
+        return storedCall.result as AiChatToolProposalResult;
+      }
+      return finishCall(
+        context,
+        call.id,
+        "succeeded",
+        recoveredResult,
+      ) as Promise<AiChatToolProposalResult>;
+    }
+    return finishCall(
+      context,
+      call.id,
+      "failed",
+      stableFailure("operation_failed"),
+      "operation_failed",
+    ) as Promise<ToolExecutionError>;
+  }
+
   return {
     beginCall,
     commitMutation,
@@ -793,6 +1019,7 @@ export function createAiChatToolTraceRepository(
     readCall,
     readLatestCompletedToolResult,
     readReceipt,
+    proposeMutation,
   };
 }
 
@@ -822,15 +1049,19 @@ export function createAiChatToolExecutor(
         return stableFailure(code);
       }
 
-      let mutationCommitted = false;
+      let scopePersisted = false;
       try {
         const result = await input.run({
           commitMutation: async (plan) => {
-            mutationCommitted = true;
+            scopePersisted = true;
             return repository.commitMutation(context, call, plan);
           },
+          proposeMutation: async (plan, publicPayload) => {
+            scopePersisted = true;
+            return repository.proposeMutation(context, call, plan, publicPayload);
+          },
         });
-        if (mutationCommitted) return result;
+        if (scopePersisted) return result;
         const rejected = Boolean(
           result
           && typeof result === "object"

@@ -16,6 +16,7 @@ import { prepareAiChatGeneration } from "../lib/ai-chat/service.ts";
 import {
   createAiChatToolTraceRepository,
 } from "../lib/ai-chat/tool-trace.ts";
+import { createAiChatWriteProposalRepository } from "../lib/ai-chat/write-proposals.ts";
 import {
   AI_VOCABULARY_MAX_TOOL_CALLS_PER_TURN,
   createAiVocabularyToolHandlers,
@@ -107,6 +108,7 @@ class CountingSQLiteD1Database {
   async batch(statements) {
     const isMutationBatch = statements.some((statement) => (
       statement.sql.includes("INSERT INTO ai_chat_tool_mutation_receipts")
+      || statement.sql.includes("ai_chat_vocabulary_write_proposals")
     ));
     this.database.exec("BEGIN IMMEDIATE");
     let results;
@@ -188,7 +190,9 @@ async function ensureUserOnColdPath(database) {
 async function runWorstCaseColdTurn({
   ambiguousCommit = false,
   ambiguousTerminal = false,
+  bulkEntryCount = 2,
   scenario = "writes",
+  secondProposal = true,
   terminal = "complete",
 } = {}) {
   const fixture = await createFixture();
@@ -228,7 +232,7 @@ async function runWorstCaseColdTurn({
         `2026-08-29T10:00:${String(index).padStart(2, "0")}.000Z`,
       );
     }
-  } else if (["legacyRollback", "legacyParallelRollback"].includes(scenario)) {
+  } else {
     fixture.sqlite.exec(`
       INSERT INTO phrases (
         id, text, pattern, translation, context, source_type, owner_id, status,
@@ -286,7 +290,7 @@ async function runWorstCaseColdTurn({
     }),
     buildPrompt: () => ({
       id: "unmumble.vocabulary-practice",
-      version: "1",
+      version: "2",
       system: "system",
       messages: [],
     }),
@@ -315,11 +319,11 @@ async function runWorstCaseColdTurn({
   if (scenario === "legacyParallelRollback") {
     fixture.database.throwAfterNextBatchRollback = true;
     const [firstWrite, secondWrite] = await Promise.all([
-      vocabularyTools.update_vocabulary_meaning.execute({
+      vocabularyTools.propose_vocabulary_meaning_update.execute({
         meaningId: "legacy:phrase-legacy-budget",
         translation: "выходить в ноль",
       }, toolOptions("update-legacy-first")),
-      vocabularyTools.update_vocabulary_meaning.execute({
+      vocabularyTools.propose_vocabulary_meaning_update.execute({
         meaningId: "legacy:phrase-legacy-budget",
         translation: "выходить в ноль",
       }, toolOptions("update-legacy-concurrent")),
@@ -328,7 +332,7 @@ async function runWorstCaseColdTurn({
     assert.deepEqual(secondWrite, { ok: false, error: "tool_budget_exceeded" });
   } else if (scenario === "legacyRollback") {
     fixture.database.throwAfterNextBatchRollback = true;
-    assert.deepEqual(await vocabularyTools.update_vocabulary_meaning.execute({
+    assert.deepEqual(await vocabularyTools.propose_vocabulary_meaning_update.execute({
       meaningId: "legacy:phrase-legacy-budget",
       translation: "выходить в ноль",
     }, toolOptions("update-legacy-first")), {
@@ -337,7 +341,7 @@ async function runWorstCaseColdTurn({
     });
     assert.equal(fixture.database.throwAfterNextBatchRollback, false);
     const countAfterFailure = fixture.database.statementCount;
-    assert.deepEqual(await vocabularyTools.update_vocabulary_meaning.execute({
+    assert.deepEqual(await vocabularyTools.propose_vocabulary_meaning_update.execute({
       meaningId: "legacy:phrase-legacy-budget",
       translation: "выходить в ноль",
     }, toolOptions("update-legacy-retry")), {
@@ -350,23 +354,43 @@ async function runWorstCaseColdTurn({
       fixture.database.throwAfterNextBatchCommit = true;
     }
     if (scenario === "rollback") fixture.database.throwAfterNextBatchRollback = true;
-    const firstWrite = await vocabularyTools.add_vocabulary_entry.execute({
-      text: "uncanny",
-      translation: "странный",
+    const firstWrite = await vocabularyTools.propose_vocabulary_entries.execute({
+      entries: Array.from({ length: bulkEntryCount }, (_, index) => ({
+        text: `budget word ${index + 1}`,
+        translation: `перевод ${index + 1}`,
+      })),
     }, toolOptions("add-uncanny"));
-    assert.deepEqual(firstWrite, scenario === "rollback"
-      ? { ok: false, error: "operation_failed" }
-      : { ok: true, saved: true, text: "uncanny" });
+    if (scenario === "rollback") {
+      assert.deepEqual(firstWrite, { ok: false, error: "operation_failed" });
+    } else {
+      assert.equal(firstWrite.ok, true);
+      assert.equal(firstWrite.proposed, true);
+      assert.equal(firstWrite.approvalRequired, true);
+      assert.equal(typeof firstWrite.proposalId, "string");
+    }
     if (scenario === "rollback") {
       assert.equal(fixture.database.throwAfterNextBatchRollback, false);
     }
-    const secondWrite = await vocabularyTools.add_vocabulary_entry.execute({
-      text: "break even",
-      translation: "окупаться",
-    }, toolOptions("add-break-even"));
-    assert.deepEqual(secondWrite, scenario === "rollback"
-      ? { ok: false, error: "tool_budget_exceeded" }
-      : { ok: true, saved: true, text: "break even" });
+    if (secondProposal) {
+      const secondWrite = await vocabularyTools.propose_vocabulary_meaning_update.execute({
+        meaningId: "legacy:phrase-legacy-budget",
+        translation: "выходить в ноль",
+      }, toolOptions("add-break-even"));
+      if (scenario === "rollback") {
+        assert.deepEqual(secondWrite, { ok: false, error: "tool_budget_exceeded" });
+      } else {
+        assert.equal(secondWrite.ok, true);
+        assert.equal(secondWrite.proposed, true);
+        assert.equal(secondWrite.approvalRequired, true);
+        assert.equal(typeof secondWrite.proposalId, "string");
+      }
+    } else {
+      const secondRead = await vocabularyTools.list_vocabulary.execute(
+        { limit: 1 },
+        toolOptions("read-after-proposal"),
+      );
+      assert.equal(secondRead.ok, true);
+    }
   } else {
     for (const toolCallId of ["read-recent-1", "read-recent-2"]) {
       const result = await vocabularyTools.list_vocabulary.execute(
@@ -394,7 +418,7 @@ async function runWorstCaseColdTurn({
   } else {
     await generationInput.repository.completePendingAssistant({
       assistantId: generationInput.pendingAssistant.id,
-      text: "Saved both entries.",
+      text: "I prepared the requested vocabulary changes for your review.",
       provider: "openrouter",
       model: "test/model",
       usage: { inputTokens: 10, outputTokens: 4, totalTokens: 14 },
@@ -408,11 +432,12 @@ async function runWorstCaseColdTurn({
   if (scenario === "writes" || scenario === "rollback") {
     assert.deepEqual(fixture.sqlite.prepare(`
       SELECT text FROM phrases
-      WHERE owner_id = 'user-a' AND text IN ('uncanny', 'break even')
+      WHERE owner_id = 'user-a' AND text LIKE 'budget word %'
       ORDER BY text
-    `).all().map((row) => row.text), scenario === "rollback"
-      ? []
-      : ["break even", "uncanny"]);
+    `).all().map((row) => row.text), []);
+    assert.equal(fixture.sqlite.prepare(
+      "SELECT COUNT(*) AS count FROM ai_chat_tool_mutation_receipts",
+    ).get().count, 0);
   } else if (["legacyRollback", "legacyParallelRollback"].includes(scenario)) {
     assert.deepEqual({ ...fixture.sqlite.prepare(`
       SELECT translation, context FROM phrases
@@ -429,23 +454,23 @@ async function runWorstCaseColdTurn({
   return fixture;
 }
 
-test("a cold worst-case two-write turn stays within D1 Free's statement limit", async () => {
+test("a cold two-proposal turn stays within D1 Free's statement limit", async () => {
   const fixture = await runWorstCaseColdTurn();
-  assert.equal(fixture.database.statementCount, 43);
+  assert.equal(fixture.database.statementCount, 40);
   assert.ok(fixture.database.statementCount <= 50);
   fixture.sqlite.close();
 });
 
-test("one ambiguous committed write still leaves D1 Free headroom", async () => {
+test("one ambiguous proposal commit still leaves D1 Free headroom", async () => {
   const fixture = await runWorstCaseColdTurn({ ambiguousCommit: true });
-  assert.equal(fixture.database.statementCount, 45);
+  assert.equal(fixture.database.statementCount, 42);
   assert.ok(fixture.database.statementCount <= 50);
   fixture.sqlite.close();
 });
 
-test("a fully executed rolled-back mutation stays within D1 Free's statement limit", async () => {
+test("a rolled-back proposal stays within D1 Free's statement limit", async () => {
   const fixture = await runWorstCaseColdTurn({ scenario: "rollback" });
-  assert.equal(fixture.database.statementCount, 36);
+  assert.equal(fixture.database.statementCount, 32);
   assert.ok(fixture.database.statementCount <= 50);
   fixture.sqlite.close();
 });
@@ -457,9 +482,9 @@ test("two maximum recent-vocabulary reads leave room for terminal persistence", 
   fixture.sqlite.close();
 });
 
-test("a rolled-back mutation opens the circuit before another D1 call", async () => {
+test("a rolled-back proposal opens the circuit before another D1 call", async () => {
   const fixture = await runWorstCaseColdTurn({ scenario: "rollback" });
-  assert.equal(fixture.database.statementCount, 36);
+  assert.equal(fixture.database.statementCount, 32);
   assert.ok(fixture.database.statementCount <= 50);
   assert.deepEqual(fixture.sqlite.prepare(`
     SELECT provider_tool_call_id, status, error_code
@@ -475,48 +500,88 @@ test("a rolled-back mutation opens the circuit before another D1 call", async ()
   fixture.sqlite.close();
 });
 
-test("provider failure after an ambiguous successful write stays within D1 Free", async () => {
+test("provider failure after an ambiguous proposal stays within D1 Free", async () => {
   const fixture = await runWorstCaseColdTurn({
     scenario: "writes",
     ambiguousCommit: true,
     terminal: "failed",
   });
-  assert.equal(fixture.database.statementCount, 45);
+  assert.equal(fixture.database.statementCount, 42);
   assert.ok(fixture.database.statementCount <= 50);
   fixture.sqlite.close();
 });
 
-test("ambiguous failure persistence after a rolled-back mutation stays within D1 Free", async () => {
+test("ambiguous failure persistence after a rolled-back proposal stays within D1 Free", async () => {
   const fixture = await runWorstCaseColdTurn({
     scenario: "rollback",
     ambiguousTerminal: true,
     terminal: "failed",
   });
-  assert.equal(fixture.database.statementCount, 38);
+  assert.equal(fixture.database.statementCount, 34);
   assert.ok(fixture.database.statementCount <= 50);
   fixture.sqlite.close();
 });
 
-test("legacy promotion rollback plus ambiguous failure stays within D1 Free", async () => {
+test("meaning-update proposal rollback plus ambiguous failure stays within D1 Free", async () => {
   const fixture = await runWorstCaseColdTurn({
     scenario: "legacyRollback",
     ambiguousTerminal: true,
     terminal: "failed",
   });
-  assert.equal(fixture.database.statementCount, 41);
+  assert.equal(fixture.database.statementCount, 37);
   assert.ok(fixture.database.statementCount <= 50);
   fixture.sqlite.close();
 });
 
-test("parallel provider mutations are serialized before the D1 failure circuit", async () => {
+test("parallel provider proposals are serialized before the D1 failure circuit", async () => {
   const fixture = await runWorstCaseColdTurn({
     scenario: "legacyParallelRollback",
     ambiguousTerminal: true,
     terminal: "failed",
   });
-  assert.equal(fixture.database.statementCount, 41);
+  assert.equal(fixture.database.statementCount, 37);
   assert.ok(fixture.database.statementCount <= 50);
   fixture.sqlite.close();
+});
+
+test("confirming one or ten bulk entries has the same bounded D1 statement cost", async () => {
+  const observed = [];
+  for (const entryCount of [1, 10]) {
+    const fixture = await runWorstCaseColdTurn({
+      bulkEntryCount: entryCount,
+      secondProposal: false,
+    });
+    const proposal = fixture.sqlite.prepare(`
+      SELECT id FROM ai_chat_vocabulary_write_proposals
+      WHERE operation = 'vocabulary.add-entries/v1'
+    `).get();
+    assert.ok(proposal?.id);
+    fixture.database.resetStatementCount();
+
+    const resolved = await resolveAppSession(new Request("https://unmumble.online/", {
+      headers: { Cookie: `${APP_SESSION_COOKIE}=${SESSION_TOKEN}` },
+    }), d1AppSessionStore(fixture.database), {
+      now: new Date("2026-08-29T10:00:00.000Z"),
+    });
+    assert.deepEqual(resolved, USER);
+    await ensureUserOnColdPath(fixture.database);
+    const result = await createAiChatWriteProposalRepository(
+      fixture.database,
+      fixture.mutationPlanner,
+    ).decide(USER.subject, "chat-a", proposal.id, "confirm");
+
+    assert.equal(result.status, "confirmed");
+    assert.equal(result.result.entries.length, entryCount);
+    assert.equal(fixture.sqlite.prepare(`
+      SELECT COUNT(*) AS count FROM phrases
+      WHERE owner_id = 'user-a' AND text LIKE 'budget word %'
+    `).get().count, entryCount);
+    observed.push(fixture.database.statementCount);
+    fixture.sqlite.close();
+  }
+
+  assert.deepEqual(observed, [10, 10]);
+  assert.ok(observed.every((count) => count <= 50));
 });
 
 test("ambiguous max-target chat creation recovers within D1 Free's statement limit", async () => {

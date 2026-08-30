@@ -211,6 +211,122 @@ async function executeAdd(executor, planner, providerToolCallId, input) {
   });
 }
 
+async function proposeEntries(executor, planner, providerToolCallId, entries) {
+  return executor.execute({
+    providerToolCallId,
+    toolName: "propose_vocabulary_entries",
+    args: { entries },
+    run: async (scope) => {
+      const plan = await planner.planAddEntries("user-a", { entries });
+      return scope.proposeMutation(plan, {
+        operation: "add_vocabulary_entries",
+        items: plan.canonicalArgs.entries.map((entry, index) => ({
+          id: `entry-${index + 1}`,
+          ...entry,
+        })),
+      });
+    },
+  });
+}
+
+test("a proposal tool stores approval input without mutating vocabulary", async () => {
+  const fixture = createFixture();
+  const result = await proposeEntries(
+    fixture.executor,
+    fixture.planner,
+    "proposal-1",
+    [
+      { text: "uncanny", translation: "странный" },
+      { text: "break even", translation: "окупаться" },
+    ],
+  );
+
+  assert.deepEqual(result, {
+    ok: true,
+    proposed: true,
+    approvalRequired: true,
+    proposalId: "proposal-6",
+  });
+  assert.equal(fixture.sqlite.prepare(`
+    SELECT count(*) AS count FROM phrases
+    WHERE text IN ('uncanny', 'break even') COLLATE NOCASE
+  `).get().count, 0);
+  assert.deepEqual({ ...fixture.sqlite.prepare(`
+    SELECT operation, target_key, status, mutation_input_json, public_json
+    FROM ai_chat_vocabulary_write_proposals
+  `).get() }, {
+    operation: "vocabulary.add-entries/v1",
+    target_key: "entries",
+    status: "pending",
+    mutation_input_json: JSON.stringify({
+      args: { entries: [
+        { text: "uncanny", translation: "странный" },
+        { text: "break even", translation: "окупаться" },
+      ] },
+      result: {
+        entries: [
+          { state: "added", text: "uncanny" },
+          { state: "added", text: "break even" },
+        ],
+        ok: true,
+        saved: true,
+      },
+    }),
+    public_json: JSON.stringify({
+      items: [
+        { id: "entry-1", text: "uncanny", translation: "странный" },
+        { id: "entry-2", text: "break even", translation: "окупаться" },
+      ],
+      operation: "add_vocabulary_entries",
+    }),
+  });
+  assert.deepEqual({ ...fixture.sqlite.prepare(`
+    SELECT status, receipt_id FROM ai_chat_tool_calls
+    WHERE provider_tool_call_id = 'proposal-1'
+  `).get() }, { status: "succeeded", receipt_id: null });
+  assert.equal(fixture.sqlite.prepare(
+    "SELECT count(*) AS count FROM ai_chat_tool_mutation_receipts",
+  ).get().count, 0);
+});
+
+test("proposal retries reuse equal canonical input and reject changed input", async () => {
+  const fixture = createFixture();
+  const first = await proposeEntries(
+    fixture.executor,
+    fixture.planner,
+    "proposal-first",
+    [{ text: "uncanny", translation: "странный" }],
+  );
+  const same = await proposeEntries(
+    fixture.executor,
+    fixture.planner,
+    "proposal-same",
+    [{ text: "uncanny", translation: "странный" }],
+  );
+  const changed = await proposeEntries(
+    fixture.executor,
+    fixture.planner,
+    "proposal-changed",
+    [{ text: "uncanny", translation: "зловещий" }],
+  );
+
+  assert.deepEqual(same, first);
+  assert.deepEqual(changed, { ok: false, error: "mutation_conflict" });
+  assert.equal(fixture.sqlite.prepare(
+    "SELECT count(*) AS count FROM ai_chat_vocabulary_write_proposals",
+  ).get().count, 1);
+  assert.deepEqual(fixture.sqlite.prepare(`
+    SELECT provider_tool_call_id, status, error_code
+    FROM ai_chat_tool_calls
+    WHERE provider_tool_call_id LIKE 'proposal-%'
+    ORDER BY provider_tool_call_id
+  `).all().map((row) => ({ ...row })), [
+    { provider_tool_call_id: "proposal-changed", status: "rejected", error_code: "mutation_conflict" },
+    { provider_tool_call_id: "proposal-first", status: "succeeded", error_code: null },
+    { provider_tool_call_id: "proposal-same", status: "succeeded", error_code: null },
+  ]);
+});
+
 test("every read and policy rejection leaves a bounded invocation record", async () => {
   const fixture = createFixture();
   assert.deepEqual(await fixture.executor.execute({

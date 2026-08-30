@@ -55,7 +55,11 @@ export type AiChatServiceVocabularyRepository = Pick<
 
 export type AiChatServiceMutationPlanner = Pick<
   ReturnType<typeof createVocabularyMutationPlanner>,
-  "planAddEntry" | "planAddMeaning" | "planSetCategory" | "planUpdateMeaning"
+  | "planAddEntry"
+  | "planAddEntries"
+  | "planAddMeaning"
+  | "planSetCategory"
+  | "planUpdateMeaning"
 >;
 
 export type AiChatServiceToolTraceRepository = ReturnType<

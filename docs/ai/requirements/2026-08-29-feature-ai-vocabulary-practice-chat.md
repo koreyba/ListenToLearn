@@ -1,7 +1,7 @@
 ---
 phase: requirements
 title: AI Vocabulary Practice Chat
-description: Chat-only contextual practice with account-scoped vocabulary tools
+description: Chat-only contextual practice with account-scoped vocabulary tools and confirmed writes
 ---
 
 # AI Vocabulary Practice Chat
@@ -20,9 +20,10 @@ separate chat list and conversation pane, `New Chat`, messages, composer,
 send/retry, and essential loading/error states. Selecting text inside one message
 opens compact translation and vocabulary actions. Each English word has a subtle
 interactive treatment and opens the same actions on tap/click without taking native
-range selection away from the learner. There are no target cards,
-meaning selectors, inline status controls, or Library/Practice preselection entry
-points in this iteration.
+range selection away from the learner. Agent-requested vocabulary changes appear as
+durable inline confirmation cards in the conversation; they do not mutate data
+until the learner confirms. There are no target cards, meaning selectors, or
+Library/Practice preselection entry points in this iteration.
 
 When a chat is created, the server deterministically reads the learner's latest five
 active vocabulary entries, formats their saved meanings, and persists that offer as
@@ -42,13 +43,14 @@ reverse translation, or answer checks.
   `Learned`, continue the same list across turns, search it, and practise any
   conversational subset without configuring hidden targets.
 - As a learner, I can practise an ad-hoc word without saving it.
-- As a learner, I can explicitly command the chat to add a vocabulary entry, add or
-  update a personal meaning, or move one named entry to a named learning category.
+- As a learner, I can naturally ask the chat to add one to ten vocabulary entries,
+  add or update a personal meaning, or move one entry to a learning category.
 - As a learner, mentioning, practising, or showing interest in a word never saves
-  it. A write requires a direct, unambiguous command in that same user turn.
-- As a learner, AI never infers mastery or moves an item autonomously; it changes a
-  category only when my current message literally commands the exact entry and
-  destination.
+  it. The agent first shows the exact proposed change inline, and only my explicit
+  confirmation commits it.
+- As a learner, AI never infers mastery or moves an item autonomously; it may
+  resolve a natural reference from conversation context, but the inline proposal
+  must show the exact entry and destination before I confirm it.
 - As a learner, I can select a word, phrase, sentence, or mixed English/Russian
   fragment inside one chat message, translate it through my configured DeepL
   integration, and explicitly add the exact selection to my vocabulary.
@@ -91,45 +93,49 @@ reverse translation, or answer checks.
 
 ### Vocabulary writes
 
-The only agent write operations are:
+The four agent mutation tools create proposals, not vocabulary writes:
 
-- `add_vocabulary_entry(text, translation?, context?)`;
-- `add_vocabulary_meaning(phraseId, translation, context?)`;
-- `update_vocabulary_meaning(meaningId, translation, context?)`;
-- `set_vocabulary_category(phraseId, category)`.
+- `propose_vocabulary_entries(entries)` with 1–10 exact items;
+- `propose_vocabulary_meaning(phraseId, translation, context?)`;
+- `propose_vocabulary_meaning_update(meaningId, translation, context?)`;
+- `propose_vocabulary_category(phraseId, category)`.
 
-Every write must be authorized from the current user message only. That message
-must contain a direct vocabulary-write command and literally contain every text,
-translation, and context value being written. Meaning writes must also literally
-name the affected word or phrase. Prior turns, model suggestions, practice requests,
-and ambiguous references provide no write authority.
+Natural requests and references may use the bounded canonical conversation context.
+There is no regex/literal-current-turn authorization gate. Instead, the model must
+resolve the exact values into a durable proposal, and the browser renders those
+values for review. A proposal is not success and performs no domain write.
 
-Command syntax may be recognized case-insensitively, but persisted value matching
-is case- and compatibility-sensitive: `Polish` does not authorize `polish`, and
-full-width characters do not authorize their ASCII form. Revocation text is
-interpreted only as surrounding command language, not when it is the literal entry
-being saved (for example, `never mind`). Unquoted terminal punctuation is treated
-as command punctuation, while punctuation inside matching quotes remains part of
-the literal value (`"wow!"` cannot authorize `wow`).
+The learner authorizes a mutation only by confirming that stored proposal. The
+confirmation request names the proposal and decision but contains no mutation
+arguments; the server loads the immutable, owner-scoped canonical arguments and
+executes them deterministically without a second model call. Cancellation records a
+terminal state and performs no domain write. Confirm/cancel races converge to one
+durable state, and repeated confirms replay the same bounded result.
 
-Updating a personal meaning additionally requires the current/old translation to
-appear literally in that same message. The update is a compare-and-swap bound to
-owner, phrase ID, meaning ID, old translation, and old context. Missing, foreign,
-or stale state returns a traced `mutation_conflict`; it never overwrites newer data.
+Bulk entry input is set-based and atomic. Identical duplicate items in one request
+collapse. The same normalized text with conflicting translation or context rejects
+the entire proposal. Eleven or more items are invalid. Confirmation returns one
+bounded item result per canonical entry with state `added` or `already_saved`;
+`already_saved` means active owner-visible progress existed when the confirmed plan
+was built. Mixed-language text remains one exact item.
+
+Meaning updates remain compare-and-swap operations bound to owner, phrase ID,
+meaning ID, old translation, and old context captured server-side when the proposal
+is created. Category proposals similarly capture the exact owner-visible phrase and
+current stored status. Missing, foreign, or stale state fails truthfully and never
+overwrites newer data.
 
 Tool inputs never accept `userId`, `chatId`, raw stored status, provider/model,
 roles, SQL, or arbitrary HTTP operations. Identity, active chat, current user
 message, assistant message, and generation-attempt identity are injected by the
 server.
 
-`set_vocabulary_category` accepts only canonical `to_learn`, `learning`, or
-`learned`. The current message must literally name both the resolved entry text and
-destination category; practice performance, earlier turns, or model preference do
-not authorize it. The owner-scoped mutation is a compare-and-swap against the
-current stored status. Separately, a genuinely new/previously unsaved `pick` entry
+`propose_vocabulary_category` accepts only canonical `to_learn`, `learning`, or
+`learned`. The owner-scoped confirmed mutation is a compare-and-swap against the
+captured stored status. Separately, a genuinely new/previously unsaved `pick` entry
 starts in `to_learn`; other writes preserve active status. Every newly supplied
 translation is stored as an owner-scoped personal meaning; preset legacy data stays
-immutable, and an authorized historical custom-legacy update promotes it to a
+immutable, and a confirmed historical custom-legacy update promotes it to a
 personal meaning atomically.
 
 ### Conversation and retries
@@ -176,7 +182,7 @@ personal meaning atomically.
   budget.
 - The prompt contract lives at
   `lib/ai-chat/prompts/vocabulary-practice.ts`, has ID
-  `unmumble.vocabulary-practice` and version `1`, and returns that identity with the
+  `unmumble.vocabulary-practice` and version `2`, and returns that identity with the
   system/messages payload. Safe generation events include prompt ID/version so a
   response can be traced to the exact prompt contract without logging prompt text.
 
@@ -227,30 +233,40 @@ personal meaning atomically.
   A separate provider-adapter fence rejects the third and later calls as
   `tool_budget_exceeded` before any D1 trace query.
 - Provider tool calls issued in one model step are serialized before shared budget/
-  circuit checks. Any failed or thrown mutation opens a per-turn circuit. Every
+  circuit checks. Any failed or thrown proposal operation opens a per-turn circuit. Every
   later queued provider tool call in that turn returns `tool_budget_exceeded` before
   the traced executor and therefore cannot issue a second tool-side D1 call after
   the failed mutation's recovery envelope.
-- A committed write has one durable receipt keyed by
-  `(userMessageId, operation, targetKey)`.
+- A committed agent proposal has one durable receipt keyed by
+  `(userMessageId, operation, targetKey)`. Its immutable row binds owner, chat,
+  user/assistant message, attempt, operation, canonical argument hash, and bounded
+  display payload.
+- Each proposal has one guarded lifecycle: `pending`, `committed`, `cancelled`, or
+  `conflict`. Canonical mutation arguments and their hash never change. The public
+  chat DTO exposes only sanitized display data and terminal result/error state.
 - Write values and canonical arguments preserve the learner's NFC literal, including
   compatibility characters. Entry receipt target keys apply only NFC/whitespace
   cleanup plus ASCII `A-Z` folding, matching SQLite `NOCASE`; they never use NFKC
   compatibility folding. Unicode case variants remain distinct, and the application
   does not claim Unicode-insensitive uniqueness that D1 cannot enforce.
-- Domain statements, postcondition-guarded receipt insertion, and the tool call's
+- Proposal insertion, postcondition-guarded receipt insertion, and the tool call's
   committed result are one D1 `batch`. A failed postcondition rolls back the whole
-  mutation.
+  proposal operation.
+- Confirmation runs in a later Worker invocation. Its set-based domain statements
+  and postcondition-guarded terminal transition are one D1 `batch`; a false owner,
+  stale-state, or count postcondition rolls back every vocabulary change. Ambiguous
+  completion is resolved by reading the decision before any retry.
 - A mutation-batch error is never followed by a blind resubmission. The executor
   checks, in order, for a committed receipt, an expired/stale attempt, and a proven
   owner/entity/old-value CAS conflict. It recovers or replays only those observed
   states; an unclassified failure terminates as `operation_failed`.
 - An equivalent retry/repeated call replays the stored receipt. The same receipt key
   with different canonical arguments is a conflict, not a second mutation.
-- A provider/stream failure after commit must not erase or duplicate the committed
-  vocabulary write; the later attempt replays its receipt.
+- A provider/stream failure after proposal commit must not erase or duplicate the
+  proposal; the later attempt replays its receipt. It still cannot write vocabulary
+  until a learner confirms.
 - The six-tool implementation is split by responsibility under
-  `lib/ai-chat/tools/vocabulary/`: `contracts`, `policy`, `results`, `handlers`,
+  `lib/ai-chat/tools/vocabulary/`: `contracts`, `results`, `handlers`,
   `registry`, and `pagination`. `lib/ai-chat/vocabulary-tools.ts` is a compatibility
   facade only; every tool must still pass through the single traced/budgeted
   registry wrapper.
@@ -270,13 +286,13 @@ personal meaning atomically.
   30 seconds.
 - At most 2 tool calls per user turn and 5 model steps; tools are disabled for the
   final step. The hard two-call budget and pre-trace fence preserve headroom under
-  D1 Free's 50-query-per-Worker-invocation allowance. Current instrumented
-  generation envelopes are 35 statements for two maximum reads, 43 for two cold
-  writes, 45 with one ambiguous committed write, 36 for rollback plus the mutation
-  circuit, 38 when that rollback is followed by ambiguous terminal failure, and 41
-  for legacy-promotion rollback plus ambiguous terminal failure. Ambiguous maximum-
-  size chat creation remains the exact worst case at 49/50.
+  D1 Free's 50-query-per-Worker-invocation allowance. Proposal creation remains in
+  the generation invocation; confirmation is a separate invocation and must also
+  remain below 50. Fresh statement-count tests own the exact post-change envelopes.
 - Tool trace arguments/results: 4,096/8,192 JSON characters.
+- Proposal add-entry batches contain 1–10 items; canonical aggregate arguments stay
+  within the existing 4,096-character tool-argument cap and confirmation results
+  within the 8,192-character result cap.
 - Generation is limited by separate Cloudflare counters to 10 requests per
   authenticated account per minute and an aggregate 100 requests per Cloudflare
   location per minute. A denial, missing binding, or binding error fails closed
@@ -320,17 +336,17 @@ outside AI generation, so it cannot consume the generation invocation's D1 budge
   always snapshot the current message/text/context identity.
 - Compact and expanded composers remain usable without a nested scrollbar on both
   mobile and desktop, and the compact input has no inner rectangular focus outline.
-- Current-turn explicit-write rules, owner checks, status invariants, immutable
-  attempts, ledger entries, atomic receipts, replay, conflicts, and stale-attempt
-  fencing are covered by executable tests.
+- Natural-reference proposal creation, owner checks, immutable canonical arguments,
+  inline confirmation, atomic 1–10 bulk execution, cancellation, replay, conflicts,
+  ambiguous completion, and stale-state fencing are covered by executable tests.
 - A manual authenticated smoke confirms real model tool use and persistence before
   any deployment decision.
 
 ## Non-goals and Open Decisions
 
 - No inferred/automatic progress, autonomous category changes, spaced repetition,
-  autonomous curriculum, deletion/merge/bulk tools, guest-funded AI, or resumable
-  background run.
+  autonomous curriculum, deletion/merge, bulk meaning/category tools, guest-funded
+  AI, or resumable background run.
 - Whether “latest” should mean first activation or most recent re-activation remains
   open; the current deterministic definition is the first progress `created_at`.
 - Final direct target/meaning UI, editable translation/meaning selection, and
@@ -341,11 +357,13 @@ outside AI generation, so it cannot consume the generation invocation's D1 budge
 
 ## Validation Status
 
-Fresh 2026-08-30 UI evidence passes the focused interaction suite 95/95 and full
-`npm test` 539/539, including the production build, plus typecheck and lint with
-zero errors and three existing warnings. Controlled desktop/mobile browser checks
-cover word taps, sequential current-selection translate/add payloads, rounded
-composer focus, compact no-scroll input, and the full-screen editor.
+Fresh 2026-08-30 exact-diff evidence passes full `npm test` 564/564, including the
+production build, plus typecheck and lint with zero errors and three existing
+warnings. Focused proposal lifecycle, route, tool, prompt, schema/migration, bulk,
+D1-budget, and UI suites are green. Controlled 1280px/390px card checks verify
+disclosure, 44px actions, and no horizontal overflow; earlier browser checks cover
+word taps, current-selection translate/add, rounded composer focus, compact no-scroll
+input, and the full-screen editor. Independent exact-diff review found no P0/P1.
 
 Fresh exact-diff evidence on 2026-08-29 passes the focused backend suite 219/219 and
 full `npm test` 503/503, plus typecheck, Drizzle validation, dependency audit,

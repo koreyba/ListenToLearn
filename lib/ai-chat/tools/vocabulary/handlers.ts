@@ -4,11 +4,13 @@ import {
   type VocabularyCategoryFilter,
 } from "../../../vocabulary/contracts.ts";
 import type {
+  AddVocabularyEntriesMutationResult,
   AddVocabularyEntryMutationResult,
   AddVocabularyMeaningMutationResult,
   SetVocabularyCategoryMutationResult,
   UpdateVocabularyMeaningMutationResult,
 } from "../../../vocabulary/mutations.ts";
+import { VOCABULARY_BULK_ENTRY_LIMIT } from "../../../vocabulary/mutations.ts";
 import { createVocabularySearchPattern } from "../../../vocabulary/repository.ts";
 import type { AiChatToolExecutionScope } from "../../tool-trace.ts";
 
@@ -20,6 +22,7 @@ import {
   type AiVocabularyToolEntry,
   type FindVocabularyInput,
   type ListVocabularyInput,
+  type ProposeVocabularyEntriesInput,
   type SetVocabularyCategoryInput,
   type ToolPolicyError,
   type ToolResult,
@@ -136,6 +139,147 @@ export function createAiVocabularyToolHandlers(input: {
           boundedLimit(limit, 10),
         )),
       };
+    },
+
+    async proposeVocabularyEntries(
+      input: ProposeVocabularyEntriesInput,
+      scope: AiChatToolExecutionScope,
+    ) {
+      const budgetError = reserveToolCall();
+      if (budgetError) return budgetError;
+      if (
+        !input
+        || !Array.isArray(input.entries)
+        || input.entries.length < 1
+        || input.entries.length > VOCABULARY_BULK_ENTRY_LIMIT
+      ) {
+        return { ok: false, error: "invalid_input" } as const;
+      }
+      const entries: ProposeVocabularyEntriesInput["entries"] = [];
+      for (const entry of input.entries) {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          return { ok: false, error: "invalid_input" } as const;
+        }
+        const text = cleanSingleLine(entry.text, AI_CHAT_LIMITS.targetTextCharacters);
+        const translation = entry.translation === undefined
+          ? undefined
+          : cleanSingleLine(entry.translation, AI_CHAT_LIMITS.meaningCharacters);
+        const context = cleanOptionalContext(entry.context);
+        if (!text || translation === null || context === null) {
+          return { ok: false, error: "invalid_input" } as const;
+        }
+        entries.push({
+          text,
+          ...(translation === undefined ? {} : { translation }),
+          ...(context === undefined ? {} : { context }),
+        });
+      }
+      const plan = await mutationPlanner.planAddEntries(userId, { entries });
+      return scope.proposeMutation<AddVocabularyEntriesMutationResult>(plan, {
+        operation: "add_vocabulary_entries",
+        items: plan.canonicalArgs.entries.map((entry, index) => ({
+          id: `entry-${index + 1}`,
+          ...entry,
+        })),
+      });
+    },
+
+    async proposeVocabularyMeaning(
+      meaning: AddVocabularyMeaningInput,
+      scope: AiChatToolExecutionScope,
+    ) {
+      const budgetError = reserveToolCall();
+      if (budgetError) return budgetError;
+      const phraseId = cleanSingleLine(meaning.phraseId, 120);
+      const translation = cleanSingleLine(
+        meaning.translation,
+        AI_CHAT_LIMITS.meaningCharacters,
+      );
+      const context = cleanOptionalContext(meaning.context);
+      if (!phraseId || !translation || context === null) {
+        return { ok: false, error: "invalid_input" } as const;
+      }
+      const entry = await repository.getEntry(userId, phraseId);
+      if (!entry) return { ok: false, error: "mutation_conflict" } as const;
+      const plan = await mutationPlanner.planAddMeaning(userId, {
+        phraseId,
+        translation,
+        ...(context === undefined ? {} : { context }),
+      });
+      return scope.proposeMutation(plan, {
+        operation: "add_vocabulary_meaning",
+        items: [{
+          id: "entry-1",
+          text: entry.text,
+          translation,
+          ...(context === undefined ? {} : { context }),
+        }],
+      });
+    },
+
+    async proposeVocabularyMeaningUpdate(
+      meaning: UpdateVocabularyMeaningInput,
+      scope: AiChatToolExecutionScope,
+    ) {
+      const budgetError = reserveToolCall();
+      if (budgetError) return budgetError;
+      const meaningId = cleanSingleLine(meaning.meaningId, 140);
+      const translation = cleanSingleLine(
+        meaning.translation,
+        AI_CHAT_LIMITS.meaningCharacters,
+      );
+      const context = cleanOptionalContext(meaning.context);
+      if (!meaningId || !translation || context === null) {
+        return { ok: false, error: "invalid_input" } as const;
+      }
+      const entry = await repository.getEntryForMeaning(userId, meaningId);
+      if (!entry) return { ok: false, error: "mutation_conflict" } as const;
+      const plan = await mutationPlanner.planUpdateMeaning(userId, {
+        meaningId,
+        phraseId: entry.phraseId,
+        expectedTranslation: entry.selectedMeaning.translation,
+        expectedContext: entry.selectedMeaning.context,
+        translation,
+        ...(context === undefined ? {} : { context }),
+      });
+      return scope.proposeMutation(plan, {
+        operation: "update_vocabulary_meaning",
+        items: [{
+          id: "entry-1",
+          text: entry.text,
+          previousTranslation: entry.selectedMeaning.translation,
+          translation,
+          ...(context === undefined ? {} : { context }),
+        }],
+      });
+    },
+
+    async proposeVocabularyCategory(
+      input: SetVocabularyCategoryInput,
+      scope: AiChatToolExecutionScope,
+    ) {
+      const budgetError = reserveToolCall();
+      if (budgetError) return budgetError;
+      const phraseId = cleanSingleLine(input.phraseId, 120);
+      if (!phraseId || !["to_learn", "learning", "learned"].includes(input.category)) {
+        return { ok: false, error: "invalid_input" } as const;
+      }
+      const target = await repository.getCategoryTarget(userId, phraseId);
+      if (!target) return { ok: false, error: "mutation_conflict" } as const;
+      const plan = await mutationPlanner.planSetCategory(userId, {
+        phraseId,
+        expectedStoredStatus: target.storedStatus,
+        category: input.category,
+      });
+      return scope.proposeMutation(plan, {
+        operation: "set_vocabulary_category",
+        items: [{
+          id: "entry-1",
+          text: target.text,
+          fromCategory: target.category,
+          toCategory: input.category,
+        }],
+      });
     },
 
     async addVocabularyEntry(

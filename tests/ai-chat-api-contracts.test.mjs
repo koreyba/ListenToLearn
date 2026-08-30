@@ -90,6 +90,28 @@ test("meaning creation is explicit, bounded, and cannot carry progress state", (
   }
 });
 
+test("proposal decisions accept only an exact confirm or cancel command", () => {
+  assert.deepEqual(api.readWriteProposalDecisionPayload({ decision: "confirm" }), {
+    ok: true,
+    value: { decision: "confirm" },
+  });
+  assert.deepEqual(api.readWriteProposalDecisionPayload({ decision: "cancel" }), {
+    ok: true,
+    value: { decision: "cancel" },
+  });
+  for (const payload of [
+    {},
+    { decision: "approve" },
+    { decision: "confirm", entries: [{ text: "tampered" }] },
+    { decision: "cancel", proposalId: "other" },
+  ]) {
+    assert.deepEqual(api.readWriteProposalDecisionPayload(payload), {
+      ok: false,
+      error: { code: "invalid_request", status: 400 },
+    });
+  }
+});
+
 test("public API errors expose only a stable code and disable caching", async () => {
   const response = api.aiChatErrorResponse({ code: "provider_failed", status: 502 });
 

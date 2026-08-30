@@ -1,4 +1,5 @@
 import type { AiChatMeaningMode } from "./contracts.ts";
+import type { AiChatPublicWriteProposal } from "./write-proposals.ts";
 
 export type AiChatPublicMeaning = {
   id: string | null;
@@ -45,4 +46,5 @@ export type AiChatPublicSummary = {
 export type AiChatPublicDetail = AiChatPublicSummary & {
   targets: AiChatPublicTarget[];
   messages: AiChatPublicMessage[];
+  writeProposals: AiChatPublicWriteProposal[];
 };

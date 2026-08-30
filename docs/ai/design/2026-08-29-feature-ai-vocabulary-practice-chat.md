@@ -1,7 +1,7 @@
 ---
 phase: design
 title: AI Vocabulary Practice Chat Design
-description: Chat-only UI with bounded vocabulary tools and durable D1 execution receipts
+description: Chat-only UI with bounded vocabulary tools and durable inline write approval
 ---
 
 # AI Vocabulary Practice Chat Design
@@ -21,11 +21,14 @@ flowchart LR
   SDK --> Read["category pages / search"]
   Continuation["validated cross-turn cursor"] --> SDK
   SDK --> Context["vocabulary practice reader"]
-  SDK --> Guard["current-turn write policy"]
+  SDK --> Proposal["durable write proposal"]
   Read --> Vocabulary[(D1 vocabulary)]
   Context --> Vocabulary
-  Guard --> Ledger["tool-call ledger"]
-  Ledger --> Batch["domain write + receipt + call result"]
+  Proposal --> Ledger["tool-call ledger + proposal receipt"]
+  Ledger --> ProposalStore[(D1 proposals)]
+  UI --> Confirm["confirm/cancel by proposal ID"]
+  Confirm --> ProposalStore
+  Confirm --> Batch["set-based domain write + decision"]
   Batch --> Vocabulary
   SDK --> OpenRouter
 ```
@@ -38,15 +41,20 @@ Guests may render the sign-in boundary; generation and tools remain account-only
 - `GET /api/ai/chats/:id` restores an owned chat.
 - `POST /api/ai/chats/:id/messages` accepts only
   `{ clientMessageId, content }` and streams the assistant response.
+- `PATCH /api/ai/chats/:id/write-proposals/:proposalId` accepts only
+  `{ decision: "confirm" | "cancel" }`, never mutation arguments. It loads the
+  owned immutable proposal by ID; confirmation performs no model call.
 - The browser cannot submit identity, history, roles, targets, model, tool names,
   arguments, results, receipts, or attempts.
 - Account storage and list output are capped at 100 chats. Detail returns the
   latest 200 stored messages in ascending sequence order. The public detail mapper
   removes per-turn practice snapshots and provider/model/usage fields; attempts,
-  ledger calls, and receipts never enter the chat DTO.
+  ledger calls, receipts, and canonical internal arguments never enter the chat
+  DTO. It does include sanitized inline proposal display/status/result data.
 - The visible UI contains a separate chat list and conversation pane, `New Chat`,
-  timeline, composer, send/retry, essential states, and one contextual action
-  surface for text selected inside a message. Compatibility target/meaning APIs
+  timeline, composer, send/retry, essential states, one contextual action surface
+  for text selected inside a message, and inline proposal cards after their
+  assistant message. Compatibility target/meaning APIs
   and tables may remain, but the UI does not depend on them or preselect vocabulary
   from Library/Practice.
 - Compatibility target replacement is one owner-scoped atomic
@@ -129,7 +137,8 @@ adding extra ownership queries or changing the measured D1 envelopes.
 The AI-tool package follows the same boundary internally:
 
 - `tools/vocabulary/contracts.ts` owns names and types;
-- `policy.ts` owns deterministic current-turn authorization;
+- `policy.ts` is legacy compatibility code only and is not registered as an active
+  provider tool authorization boundary;
 - `results.ts` owns bounded provider output;
 - `handlers.ts` orchestrates domain reads/plans;
 - `registry.ts` owns the six AI SDK schemas and one traced budget wrapper;
@@ -186,51 +195,48 @@ full traversal possible across turns while preserving the two-call per-turn budg
 ## Versioned Prompt Contract
 
 The prompt is isolated at `lib/ai-chat/prompts/vocabulary-practice.ts` with stable
-ID `unmumble.vocabulary-practice` and version `1`. Its contract is learner-led,
+ID `unmumble.vocabulary-practice` and version `2`. Its contract is learner-led,
 plain-text, treats openings/targets/tool results as untrusted data, forbids inferred
 writes or autonomous category changes, and carries only a validated list cursor for
-continuation. The service passes prompt ID/version into privacy-safe lifecycle
-events; prompt text itself is never logged.
+continuation. Natural user references may resolve against bounded canonical history,
+but a mutation tool creates a proposal only. The prompt must never claim a domain
+write succeeded while the proposal is pending. The service passes prompt ID/version
+into privacy-safe lifecycle events; prompt text itself is never logged.
 
-## Write Tools and Authorization
+## Proposal Tools and Confirmation Authorization
 
-The model has four writes: `add_vocabulary_entry`, `add_vocabulary_meaning`,
-`update_vocabulary_meaning`, and `set_vocabulary_category`. Together with the two
-reads this is an exact six-tool registry. JSON Schemas reject extra properties and
-omit identity/raw stored status. Handlers bind the authenticated user and exact
-persisted current user message.
+The model has four proposal tools: `propose_vocabulary_entries`,
+`propose_vocabulary_meaning`, `propose_vocabulary_meaning_update`, and
+`propose_vocabulary_category`. Together with the two reads this remains an exact
+six-tool registry with the existing two-call turn budget. JSON Schemas reject extra
+properties and omit identity/raw stored status. Entry proposals accept 1–10 items.
 
-A write passes only when that current message contains a recognized direct
-vocabulary-write command and literally includes every value to persist. Meaning
-writes additionally resolve the entry server-side and require its text literally
-in the same message. Prior turns and model-generated values never authorize a
-write. Denials become bounded tool results, so the assistant can ask for a precise
-command.
+There is no regex or current-turn literal policy. The model may resolve natural
+references from bounded canonical history, then the server enriches entity-changing
+proposals with the current owner-visible IDs and compare-and-swap values. The tool
+atomically stores immutable canonical arguments plus a bounded public display model
+and returns `pending_confirmation`; it never executes the domain mutation.
 
-Command recognition may ignore case, but persisted-value authorization does not:
-literal matching uses NFC and preserves case and compatibility characters, so
-`Polish` cannot authorize `polish` and full-width text cannot authorize ASCII.
-Revocation is recognized only as leading command language or punctuation-delimited
-trailing language; a literal value such as `never mind` remains saveable. Unquoted
-terminal punctuation is treated as command punctuation, while matching quotes make
-it part of the literal (`"wow!"` differs from `wow`).
+The inline card is the authorization surface. Confirm and Cancel remain visible for
+a pending proposal and use at least 44px semantic buttons. Long entry batches show
+three items initially with an accessible inline disclosure. Busy and terminal
+confirmed/cancelled/failed states use live regions and never remain actionable.
 
-An update also requires the resolved current translation literally in the current
-message. The planner captures phrase/meaning IDs plus old translation/context and
-executes an owner-scoped compare-and-swap. A wrong owner, entry, meaning, old value,
-or concurrent edit fails the postcondition/conflict guard and becomes a traced
-`mutation_conflict`.
+Confirmation identifies only the proposal and decision. The server reloads the
+owned proposal and dispatches its versioned operation to deterministic planners; it
+does not trust the card payload and does not call the model. Meaning updates and category changes use
+captured owner-scoped compare-and-swap inputs. A wrong owner, stale entity, or
+concurrent edit fails the postcondition and becomes a durable failed decision.
 
-`set_vocabulary_category` accepts only `to_learn`, `learning`, or `learned` and
-requires the current message to literally name the resolved entry and matching
-destination. It never infers mastery from practice or prior turns. The mutation
-planner compare-and-swaps the owner-scoped current stored status, mapping public
-categories to the existing D1 status vocabulary. Other mutation plans initialize a
-new/`pick` entry as `to_learn` but preserve active status. Preset legacy fields are
-never updated; translations remain owner-scoped personal meanings, including
-promotion of authorized owner-custom legacy values.
+`propose_vocabulary_entries` canonicalizes the whole set before persistence.
+Identical duplicates collapse; normalized-text collisions with different
+translation/context reject the proposal. Confirmation performs one set-based read
+and bounded set-based writes for all 1–10 entries, preserving exact NFC literals and
+mixed-language items. The entire batch commits or rolls back, and each result is
+`added` or `already_saved`.
 
-The existing manual phrase `PATCH` remains outside the agent tool boundary. For a
+The existing manual phrase `PATCH` and selection `POST /api/phrases` remain outside
+the agent proposal boundary and execute immediately. For a
 preset phrase with no stored translation, it saves the resolved translation as the
 current learner's personal meaning and commits that meaning with the requested
 status change in one D1 batch; shared preset fields remain immutable.
@@ -257,6 +263,16 @@ consume no D1 trace queries. The identity
 and SHA-256 detect conflicting ID reuse. Terminal states are `succeeded`,
 `committed`, `replayed`, `rejected`, or `failed`.
 
+`ai_chat_vocabulary_write_proposals` is the approval boundary. Each immutable
+proposal binds owner/chat/user message/assistant message/origin attempt/tool call,
+a versioned operation and target key, canonical planner input plus SHA-256, and a
+sanitized display projection. Only lifecycle/result fields transition from
+`pending` to one terminal state: `committed`, `cancelled`, or `conflict`. A unique
+`(user_message_id, operation, target_key)` key makes equal-hash retries reuse the
+proposal and rejects changed arguments. Public DTOs omit target keys, hashes,
+canonical input, and trace IDs. Proposals are never included in model history and
+are exposed only after their assistant message is complete.
+
 The registry serializes provider tool calls from the same model step through one
 execution queue before applying the shared call counter and mutation circuit. If a
 mutation returns any bounded failure or throws, the circuit opens and every later
@@ -265,7 +281,7 @@ the traced executor. A failed mutation can therefore consume its recovery envelo
 but even provider calls issued concurrently cannot trigger a second tool-side D1
 call in the same turn.
 
-`ai_chat_tool_mutation_receipts` is the cross-attempt idempotency boundary. Its
+`ai_chat_tool_mutation_receipts` remains the domain-commit idempotency boundary. Its
 unique key is `(user_message_id, operation, target_key)`. Operations are versioned
 domain names; entry targets use normalized text, while meaning updates use the
 owned meaning ID. Equal canonical-argument hashes replay the stored bounded result;
@@ -277,13 +293,15 @@ and do not compatibility-fold it. Entry `target_key` normalization mirrors SQLit
 aligns receipt identity with the database unique index; full-width/other
 compatibility forms and non-ASCII case variants intentionally remain distinct.
 
-For a write, D1 executes domain statements, a postcondition-guarded receipt insert,
-and the tool-call `committed` update in one `batch`. A false owner/status/entity
-postcondition aborts the batch. Concurrent equivalent writes converge on one
-receipt; an ambiguous error after commit is resolved by reading that receipt. A
-batch error is not retried blindly: readback first recovers a matching receipt,
-then detects an inactive/stale attempt, then classifies a proven CAS conflict. If
-none is observed, the ledger call ends with `operation_failed`.
+For proposal creation, D1 atomically inserts/reuses the proposal and completes the
+originating tool call as `succeeded`; no vocabulary SQL or mutation receipt runs.
+For confirmation, a separate executor loads the immutable proposal and batches the
+domain statements, postcondition-guarded receipt, and guarded proposal transition to
+`committed`. Concurrent equivalent confirms converge on that result. Confirm/cancel
+races have one winner; the opposite decision returns conflict. A batch error is not
+retried blindly: readback first recovers a terminal proposal/receipt, then classifies
+a proven stale CAS as terminal `conflict`; an unclassified failure leaves the
+proposal pending and returns a retryable safe error.
 
 ## Turn and Retry Flow
 
@@ -293,19 +311,19 @@ none is observed, the ledger call ends with `operation_failed`.
 2. The service rebuilds bounded canonical history only before this user sequence,
    restores at most one validated continuation from the latest earlier completed
    `list_vocabulary` ledger result, builds prompt ID/version
-   `unmumble.vocabulary-practice`/`1`, creates the tool executor with
+   `unmumble.vocabulary-practice`/`2`, creates the tool executor with
    user/chat/message/attempt IDs, and
    starts a maximum five-step AI SDK loop.
 3. Each tool call is registered and fenced before execution. The hard per-turn
    budget is two calls. A pre-trace adapter fence rejects call three onward without
-   D1 trace work; same-step calls are serialized, and a failed/thrown mutation opens
+   D1 trace work; same-step calls are serialized, and a failed/thrown proposal opens
    the earlier circuit before any later queued provider tool call. Counting each
-   batch statement, current generation envelopes
-   are 35 for two maximum reads, 43 for two cold writes, 45 with one ambiguous
-   committed write, 36 for rollback/circuit, 38 for rollback plus ambiguous
-   terminal failure, and 41 for legacy-promotion rollback plus ambiguous terminal
-   failure. The same legacy rollback issued concurrently with a duplicate write
-   also remains 41 because the duplicate is rejected without D1. Maximum-size
+   batch statement, current generation envelopes are 35 for two maximum reads, 40
+   for two cold proposals, 42 with one ambiguous proposal commit, 32 for proposal
+   rollback/circuit, 34 for rollback plus ambiguous terminal failure, and 37 for a
+   meaning-update proposal rollback plus ambiguous terminal failure (including the
+   concurrent duplicate case). A separate Confirm request, including session and
+   user refresh, costs 10 statements for either one or ten bulk entries. Maximum-size
    create-chat ambiguous recovery remains 49/50. Tools are disabled for the final
    model step.
 4. Final text/usage completes only the current attempt and assistant row. Both
@@ -384,13 +402,14 @@ results, and upstream bodies.
 
 ## Local Verification
 
-Fresh 2026-08-30 exact-diff UI evidence passes focused interaction tests 95/95 and
-full `npm test` 539/539 (including the production build), plus typecheck and lint
-with zero errors plus three existing warnings. Controlled desktop/mobile browser
-checks cover word actions, current-selection translate/add payloads, native-selection
-regressions, rounded focus, compact no-scroll input, and expanded editing. Earlier
-backend evidence passes focused backend tests 219/219, Drizzle validation, dependency
-audit, lifecycle/diff/secret/ignore checks. Independent
+Fresh 2026-08-30 exact-diff evidence passes full `npm test` 564/564 (including the
+production build), plus typecheck and lint with zero errors plus three existing
+warnings. Focused proposal lifecycle, route, tool, prompt, schema/migration, bulk,
+D1-budget, and UI suites are green. Controlled 1280px and 390px browser checks of
+the actual themed card confirm three-item disclosure, 44px actions, and no horizontal
+overflow; earlier controlled chat checks cover word actions, current-selection
+translate/add payloads, native-selection regressions, rounded focus, compact no-scroll
+input, and expanded editing. Independent exact-diff review found no P0/P1.
 final review found no P0/P1. Backend commit `8f671288` is pushed and PR #32 has green CodeQL,
 Analyze, Sonar, and Workers checks. Authenticated provider-backed preview requests
 for latest ten/all available and `To Learn` each returned the account's two matching
@@ -428,7 +447,6 @@ request.
 - Whether re-activation should change recency; today `created_at` defines latest.
 - Final target/meaning controls, editable translation/meaning selection, and
   cross-surface launch.
-- Intent languages and whether deterministic write authorization should evolve
-  beyond the current Russian/English command recognizer.
+- Intent-language quality and future multilingual proposal resolution.
 - Model-allowlist governance, future fallback models, spend ownership, guest access,
   retention, monitoring thresholds, deployment, and resumable/background execution.

@@ -76,6 +76,19 @@ function createHarness(currentUserMessage) {
     },
   };
   const mutationPlanner = {
+    async planAddEntries(userId, input) {
+      calls.push({ method: "addEntries", userId, input });
+      return {
+        operation: "vocabulary.add-entries/v1",
+        targetKey: "entries",
+        canonicalArgs: input,
+        canonicalResult: {
+          ok: true,
+          saved: true,
+          entries: input.entries.map(({ text }) => ({ text, state: "added" })),
+        },
+      };
+    },
     async planAddEntry(userId, input) {
       calls.push({ method: "addEntry", userId, input });
       return {
@@ -119,6 +132,15 @@ function createHarness(currentUserMessage) {
   const scope = {
     async commitMutation(plan) {
       return plan.canonicalResult;
+    },
+    async proposeMutation(plan, publicPayload) {
+      calls.push({ method: "propose", plan, publicPayload });
+      return {
+        ok: true,
+        proposed: true,
+        approvalRequired: true,
+        proposalId: "proposal-test",
+      };
     },
   };
   const executor = {
@@ -297,6 +319,44 @@ test("read handlers bind identity on the server and return bounded vocabulary", 
     },
     { method: "search", userId: "user-a", query: "run", limit: 4 },
   ]);
+});
+
+test("natural references create one exact bulk proposal instead of requiring literal regex matches", async () => {
+  const harness = createHarness("Да, добавь их.");
+  const result = await harness.handlers.proposeVocabularyEntries({
+    entries: [
+      { text: "uncanny", translation: "странный" },
+      { text: "break even", translation: "окупаться" },
+    ],
+  }, harness.scope);
+
+  assert.deepEqual(result, {
+    ok: true,
+    proposed: true,
+    approvalRequired: true,
+    proposalId: "proposal-test",
+  });
+  assert.equal(harness.calls[0].method, "addEntries");
+  assert.deepEqual(harness.calls[0].input, {
+    entries: [
+      { text: "uncanny", translation: "странный" },
+      { text: "break even", translation: "окупаться" },
+    ],
+  });
+  assert.equal(harness.calls[1].method, "propose");
+  assert.deepEqual(harness.calls[1].publicPayload, {
+    operation: "add_vocabulary_entries",
+    items: [
+      { id: "entry-1", text: "uncanny", translation: "странный" },
+      { id: "entry-2", text: "break even", translation: "окупаться" },
+    ],
+  });
+
+  const tooMany = createHarness("Добавь их.");
+  assert.deepEqual(await tooMany.handlers.proposeVocabularyEntries({
+    entries: Array.from({ length: 11 }, (_, index) => ({ text: `word-${index}` })),
+  }, tooMany.scope), { ok: false, error: "invalid_input" });
+  assert.deepEqual(tooMany.calls, []);
 });
 
 test("list handler paginates every category with an opaque validated cursor", async () => {
@@ -874,17 +934,17 @@ test("opening message presents recent vocabulary with translations without a mod
   assert.match(bounded, /ещё 5/u);
 });
 
-test("AI SDK tool set exposes read and guarded write capabilities", () => {
+test("AI SDK tool set exposes reads and confirmation-gated proposal capabilities", () => {
   const { executor, handlers } = createHarness("Добавь слово serendipity.");
   assert.equal(typeof toolsModule.createAiVocabularyTools, "function");
   const tools = toolsModule.createAiVocabularyTools(handlers, executor);
   assert.deepEqual(Object.keys(tools).sort(), [
-    "add_vocabulary_entry",
-    "add_vocabulary_meaning",
     "find_vocabulary",
     "list_vocabulary",
-    "set_vocabulary_category",
-    "update_vocabulary_meaning",
+    "propose_vocabulary_category",
+    "propose_vocabulary_entries",
+    "propose_vocabulary_meaning",
+    "propose_vocabulary_meaning_update",
   ]);
   assert.deepEqual([...toolsModule.AI_VOCABULARY_TOOL_NAMES].sort(), Object.keys(tools).sort());
   assert.equal(
@@ -905,7 +965,7 @@ test("every vocabulary tool is constructed through one traced budget wrapper", a
   );
 });
 
-test("AI SDK tool adapters forward provider call identity, name, and arguments to the trace executor", async () => {
+test("AI SDK proposal adapters forward provider identity, name, and arguments to the trace executor", async () => {
   const currentMessage = [
     "Добавь слово serendipity — счастливая случайность.",
     "Добавь к run значение управлять.",
@@ -937,15 +997,14 @@ test("AI SDK tool adapters forward provider call identity, name, and arguments t
 
   await readTools.list_vocabulary.execute({ limit: 5 }, options("provider-read"));
   await readTools.find_vocabulary.execute({ query: "run", limit: 3 }, options("provider-search"));
-  await entryTools.add_vocabulary_entry.execute({
-    text: "serendipity",
-    translation: "счастливая случайность",
+  await entryTools.propose_vocabulary_entries.execute({
+    entries: [{ text: "serendipity", translation: "счастливая случайность" }],
   }, options("provider-add-entry"));
-  await meaningTools.add_vocabulary_meaning.execute({
+  await meaningTools.propose_vocabulary_meaning.execute({
     phraseId: "phrase-run",
     translation: "управлять",
   }, options("provider-add-meaning"));
-  await updateTools.update_vocabulary_meaning.execute({
+  await updateTools.propose_vocabulary_meaning_update.execute({
     meaningId: "meaning-owned",
     translation: "руководить",
   }, options("provider-update-meaning"));
@@ -963,23 +1022,23 @@ test("AI SDK tool adapters forward provider call identity, name, and arguments t
     },
     {
       providerToolCallId: "provider-add-entry",
-      toolName: "add_vocabulary_entry",
-      args: { text: "serendipity", translation: "счастливая случайность" },
+      toolName: "propose_vocabulary_entries",
+      args: { entries: [{ text: "serendipity", translation: "счастливая случайность" }] },
     },
     {
       providerToolCallId: "provider-add-meaning",
-      toolName: "add_vocabulary_meaning",
+      toolName: "propose_vocabulary_meaning",
       args: { phraseId: "phrase-run", translation: "управлять" },
     },
     {
       providerToolCallId: "provider-update-meaning",
-      toolName: "update_vocabulary_meaning",
+      toolName: "propose_vocabulary_meaning_update",
       args: { meaningId: "meaning-owned", translation: "руководить" },
     },
   ]);
 });
 
-test("category adapter sends the canonical write through the trace executor", async () => {
+test("category adapter sends a proposal through the trace executor", async () => {
   const harness = createHarness("Перемести слово run в Learned.");
   const invocations = [];
   const tools = toolsModule.createAiVocabularyTools(harness.handlers, {
@@ -992,7 +1051,7 @@ test("category adapter sends the canonical write through the trace executor", as
       return input.run(harness.scope);
     },
   });
-  const result = await tools.set_vocabulary_category.execute({
+  const result = await tools.propose_vocabulary_category.execute({
     phraseId: "phrase-run",
     category: "learned",
   }, {
@@ -1004,7 +1063,7 @@ test("category adapter sends the canonical write through the trace executor", as
   assert.equal(result.ok, true);
   assert.deepEqual(invocations, [{
     providerToolCallId: "provider-set-category",
-    toolName: "set_vocabulary_category",
+    toolName: "propose_vocabulary_category",
     args: { phraseId: "phrase-run", category: "learned" },
   }]);
 });
@@ -1065,8 +1124,8 @@ test("a failed mutation opens a per-turn circuit before another provider tool ca
     abortSignal: new AbortController().signal,
   });
 
-  assert.deepEqual(await tools.add_vocabulary_entry.execute(
-    { text: "uncanny" },
+  assert.deepEqual(await tools.propose_vocabulary_entries.execute(
+    { entries: [{ text: "uncanny" }] },
     options("failed-mutation"),
   ), { ok: false, error: "operation_failed" });
   assert.deepEqual(await tools.list_vocabulary.execute(

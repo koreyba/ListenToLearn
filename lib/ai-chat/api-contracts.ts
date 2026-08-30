@@ -92,6 +92,16 @@ export function readCreateMeaningPayload(
   };
 }
 
+export function readWriteProposalDecisionPayload(
+  payload: ObjectValue,
+): AiChatValidationResult<{ decision: "confirm" | "cancel" }> {
+  if (!hasExactKeys(payload, ["decision"])) return invalidRequest();
+  if (payload.decision !== "confirm" && payload.decision !== "cancel") {
+    return invalidRequest();
+  }
+  return { ok: true, value: { decision: payload.decision } };
+}
+
 export function aiChatErrorResponse(error: { code: AiChatErrorCode; status: number }) {
   return Response.json(
     { error: { code: error.code } },

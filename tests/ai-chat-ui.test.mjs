@@ -39,6 +39,23 @@ test("chat UI exposes separate list/dialog panes and contextual selection action
   assert.doesNotMatch(source, /Add saved target|Add word or phrase|Meaning scope|Request ideas/);
 });
 
+test("agent writes render as inline proposal cards and confirm without another chat turn", async () => {
+  const [source, styles] = await Promise.all([
+    readFile(componentUrl, "utf8"),
+    readFile(stylesUrl, "utf8"),
+  ]);
+  assert.match(source, /AiChatWriteProposal/);
+  assert.match(source, /\(chat\.writeProposals \|\| \[\]\)\.filter\(/);
+  assert.match(source, /write-proposals\/\$\{proposalId\}/);
+  assert.match(source, /method:\s*"PATCH"/);
+  assert.match(source, /decision:\s*"confirm"/);
+  assert.match(source, /decision:\s*"cancel"/);
+  assert.match(source, /await refresh\(\)/);
+  assert.doesNotMatch(source, /sendMessage\([^)]*proposal/u);
+  assert.match(styles, /\.ai-chat-write-proposal \{/);
+  assert.match(styles, /\.ai-chat-write-proposal-actions/);
+});
+
 test("chat selection actions reuse DeepL and vocabulary APIs without a new provider path", async () => {
   const source = await readFile(selectionActionsUrl, "utf8");
   assert.match(source, /role="toolbar"/);
@@ -74,6 +91,12 @@ test("chat styles provide responsive drawer, selection sheet, and comfortable ta
   assert.match(source, /text-decoration-style:\s*dotted/);
   assert.match(source, /min-height:\s*44px/);
   assert.match(source, /env\(safe-area-inset-bottom\)/);
+});
+
+test("signed-out chat content starts below the navigation without stretching empty grid space", async () => {
+  const source = await readFile(stylesUrl, "utf8");
+
+  assert.match(source, /\.ai-chat-shell \{[^}]*align-content:\s*start;/s);
 });
 
 test("chat list never scrolls sideways and the compact status is a centered circle", async () => {

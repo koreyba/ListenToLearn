@@ -11,10 +11,13 @@ import {
 
 export const VOCABULARY_MUTATION_OPERATIONS = Object.freeze({
   addEntry: "vocabulary.add-entry/v1",
+  addEntries: "vocabulary.add-entries/v1",
   addMeaning: "vocabulary.add-meaning/v1",
   setCategory: "vocabulary.set-category/v1",
   updateMeaning: "vocabulary.update-meaning/v1",
 } as const);
+
+export const VOCABULARY_BULK_ENTRY_LIMIT = 10;
 
 export type VocabularyMutationReceiptGuard = {
   sql: string;
@@ -44,6 +47,10 @@ export type AddVocabularyEntryMutationArgs = {
   context?: string;
 };
 
+export type AddVocabularyEntriesMutationArgs = {
+  entries: AddVocabularyEntryMutationArgs[];
+};
+
 export type AddVocabularyMeaningMutationArgs = {
   phraseId: string;
   translation: string;
@@ -67,6 +74,7 @@ export type SetVocabularyCategoryMutationInput = {
 
 export type SetVocabularyCategoryMutationArgs = {
   phraseId: string;
+  expectedStoredStatus: VocabularyStatus;
   category: VocabularyCategory;
 };
 
@@ -74,6 +82,15 @@ export type AddVocabularyEntryMutationResult = {
   ok: true;
   saved: true;
   text: string;
+};
+
+export type AddVocabularyEntriesMutationResult = {
+  ok: true;
+  saved: true;
+  entries: Array<{
+    text: string;
+    state: "added" | "already_saved";
+  }>;
 };
 
 export type AddVocabularyMeaningMutationResult = {
@@ -117,6 +134,11 @@ type VisiblePhraseRow = {
   context: string;
   source_type: "preset" | "custom";
   owner_id: string | null;
+};
+
+type BulkVisiblePhraseStateRow = {
+  ordinal: number;
+  status: VocabularyStatus | null;
 };
 
 const ACTIVE_STATUS_SQL = "'to_learn', 'learning_now', 'learnt', 'learned'";
@@ -369,6 +391,307 @@ export function createVocabularyMutationPlanner(
       entityType: "phrase",
       entityId: null,
       candidateEntityId: candidatePhraseId,
+      statements,
+      receiptGuard,
+    };
+  }
+
+  async function planAddEntries(
+    userId: string,
+    input: AddVocabularyEntriesMutationArgs,
+  ): Promise<VocabularyMutationPlan<
+    typeof VOCABULARY_MUTATION_OPERATIONS.addEntries,
+    AddVocabularyEntriesMutationArgs,
+    AddVocabularyEntriesMutationResult
+  >> {
+    assertUserId(userId);
+    if (
+      !input
+      || !Array.isArray(input.entries)
+      || input.entries.length < 1
+      || input.entries.length > VOCABULARY_BULK_ENTRY_LIMIT
+    ) {
+      invalid("Vocabulary entries are invalid.");
+    }
+    const entries: AddVocabularyEntryMutationArgs[] = [];
+    const entriesByText = new Map<string, AddVocabularyEntryMutationArgs>();
+    for (const entry of input.entries) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        invalid("Vocabulary entry is invalid.");
+      }
+      const text = cleanSingleLine(
+        entry.text,
+        VOCABULARY_LIMITS.entryTextCharacters,
+        "Vocabulary text",
+      );
+      const translation = cleanOptionalSingleLine(
+        entry.translation,
+        VOCABULARY_LIMITS.meaningCharacters,
+        "Vocabulary translation",
+      );
+      const context = cleanOptionalContext(entry.context);
+      const canonicalEntry = {
+        text,
+        ...(translation === undefined ? {} : { translation }),
+        ...(context === undefined ? {} : { context }),
+      };
+      const normalizedText = normalizeVocabularyTarget(text);
+      const duplicate = entriesByText.get(normalizedText);
+      if (duplicate) {
+        if (
+          duplicate.translation !== canonicalEntry.translation
+          || duplicate.context !== canonicalEntry.context
+        ) {
+          invalid("Vocabulary duplicate entries conflict.");
+        }
+        continue;
+      }
+      entriesByText.set(normalizedText, canonicalEntry);
+      entries.push(canonicalEntry);
+    }
+    const requestedValuesSql = entries.map(() => "(?, ?)").join(", ");
+    const requestedBindings = entries.flatMap((entry, ordinal) => [ordinal, entry.text]);
+    const visibleStates = await db.prepare(`
+      WITH requested (ordinal, text) AS (VALUES ${requestedValuesSql})
+      SELECT requested.ordinal, progress.status
+      FROM requested
+      LEFT JOIN phrases ON phrases.id = (
+        SELECT candidate.id
+        FROM phrases AS candidate
+        WHERE candidate.text = requested.text COLLATE NOCASE
+          AND (candidate.source_type = 'preset' OR candidate.owner_id = ?)
+        ORDER BY CASE WHEN candidate.owner_id = ? THEN 0 ELSE 1 END, candidate.id
+        LIMIT 1
+      )
+      LEFT JOIN phrase_progress AS progress
+        ON progress.phrase_id = phrases.id AND progress.user_id = ?
+      ORDER BY requested.ordinal
+    `).bind(
+      ...requestedBindings,
+      userId,
+      userId,
+      userId,
+    ).all<BulkVisiblePhraseStateRow>();
+    const alreadySavedOrdinals = new Set(
+      (visibleStates.results || [])
+        .filter((row) => row.status !== null && ACTIVE_STATUSES.has(row.status))
+        .map((row) => Number(row.ordinal)),
+    );
+    const timestamp = now();
+    const rows = entries.map((entry, ordinal) => ({
+      ordinal,
+      phraseId: createId("phrase"),
+      meaningId: entry.translation ? createId("meaning") : "",
+      text: entry.text,
+      translation: entry.translation || null,
+      normalizedTranslation: normalizeVocabularyMeaning(entry.translation),
+      context: entry.context ?? null,
+      contextSupplied: entry.context === undefined ? 0 : 1,
+    }));
+    const inputValuesSql = rows
+      .map(() => "(?, ?, ?, ?, ?, ?, ?, ?)")
+      .join(", ");
+    const inputBindings = rows.flatMap((row) => [
+      row.ordinal,
+      row.phraseId,
+      row.meaningId,
+      row.text,
+      row.translation,
+      row.normalizedTranslation,
+      row.context,
+      row.contextSupplied,
+    ]);
+    const inputCte = `input (
+      ordinal, phrase_id, meaning_id, text, translation,
+      normalized_translation, context, context_supplied
+    ) AS (VALUES ${inputValuesSql})`;
+    const statements = [
+      db.prepare(`
+        WITH ${inputCte}
+        INSERT OR IGNORE INTO phrases (
+          id, text, pattern, ipa, translation, context, source_type, catalog_order,
+          owner_id, status, created_at, updated_at
+        )
+        SELECT
+          input.phrase_id,
+          input.text,
+          input.text,
+          '',
+          '',
+          CASE WHEN input.translation IS NULL THEN COALESCE(input.context, '') ELSE '' END,
+          'custom',
+          NULL,
+          ?,
+          'pick',
+          ?,
+          ?
+        FROM input
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM phrases
+          WHERE phrases.text = input.text COLLATE NOCASE
+            AND (phrases.source_type = 'preset' OR phrases.owner_id = ?)
+        )
+        ORDER BY input.ordinal
+      `).bind(...inputBindings, userId, timestamp, timestamp, userId),
+      db.prepare(`
+        WITH ${inputCte}
+        INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
+        SELECT ?, phrases.id, 'to_learn', ?, ?
+        FROM input
+        JOIN phrases ON phrases.id = (
+          SELECT candidate.id
+          FROM phrases AS candidate
+          WHERE candidate.text = input.text COLLATE NOCASE
+            AND (candidate.source_type = 'preset' OR candidate.owner_id = ?)
+          ORDER BY CASE WHEN candidate.owner_id = ? THEN 0 ELSE 1 END, candidate.id
+          LIMIT 1
+        )
+        ORDER BY input.ordinal
+        ON CONFLICT(user_id, phrase_id) DO UPDATE SET
+          status = CASE
+            WHEN phrase_progress.status = 'pick' THEN 'to_learn'
+            ELSE phrase_progress.status
+          END,
+          updated_at = CASE
+            WHEN phrase_progress.status = 'pick' THEN excluded.updated_at
+            ELSE phrase_progress.updated_at
+          END
+      `).bind(
+        ...inputBindings,
+        userId,
+        timestamp,
+        timestamp,
+        userId,
+        userId,
+      ),
+      db.prepare(`
+        WITH ${inputCte}
+        INSERT INTO phrase_meanings (
+          id, user_id, phrase_id, translation, normalized_translation, context,
+          created_at, updated_at
+        )
+        SELECT
+          input.meaning_id,
+          ?,
+          phrases.id,
+          input.translation,
+          input.normalized_translation,
+          CASE
+            WHEN input.context_supplied = 1 THEN input.context
+            WHEN existing_meaning.id IS NOT NULL THEN existing_meaning.context
+            WHEN phrases.source_type = 'custom' AND trim(phrases.translation) = ''
+              THEN phrases.context
+            ELSE ''
+          END,
+          ?,
+          ?
+        FROM input
+        JOIN phrases ON phrases.id = (
+          SELECT candidate.id
+          FROM phrases AS candidate
+          WHERE candidate.text = input.text COLLATE NOCASE
+            AND (candidate.source_type = 'preset' OR candidate.owner_id = ?)
+          ORDER BY CASE WHEN candidate.owner_id = ? THEN 0 ELSE 1 END, candidate.id
+          LIMIT 1
+        )
+        JOIN phrase_progress AS progress
+          ON progress.phrase_id = phrases.id AND progress.user_id = ?
+        LEFT JOIN phrase_meanings AS existing_meaning
+          ON existing_meaning.user_id = ?
+          AND existing_meaning.phrase_id = phrases.id
+          AND existing_meaning.normalized_translation = input.normalized_translation
+        WHERE input.translation IS NOT NULL
+          AND progress.status IN (${ACTIVE_STATUS_SQL})
+        ORDER BY input.ordinal
+        ON CONFLICT(user_id, phrase_id, normalized_translation) DO UPDATE SET
+          updated_at = CASE
+            WHEN phrase_meanings.translation <> excluded.translation
+              OR phrase_meanings.context <> excluded.context
+              THEN excluded.updated_at
+            ELSE phrase_meanings.updated_at
+          END,
+          translation = excluded.translation,
+          context = excluded.context
+      `).bind(
+        ...inputBindings,
+        userId,
+        timestamp,
+        timestamp,
+        userId,
+        userId,
+        userId,
+        userId,
+      ),
+    ];
+    const expectedValuesSql = rows.map(() => "(?, ?, ?, ?, ?)").join(", ");
+    const expectedBindings = rows.flatMap((row) => [
+      row.text,
+      row.translation,
+      row.normalizedTranslation,
+      row.context,
+      row.contextSupplied,
+    ]);
+    const receiptGuard: VocabularyMutationReceiptGuard = {
+      sql: `NOT EXISTS (
+        WITH expected (
+          text, translation, normalized_translation, context, context_supplied
+        ) AS (VALUES ${expectedValuesSql})
+        SELECT 1
+        FROM expected
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM phrases
+          JOIN phrase_progress AS progress ON progress.phrase_id = phrases.id
+          WHERE phrases.id = (
+            SELECT candidate.id
+            FROM phrases AS candidate
+            WHERE candidate.text = expected.text COLLATE NOCASE
+              AND (candidate.source_type = 'preset' OR candidate.owner_id = ?)
+            ORDER BY CASE WHEN candidate.owner_id = ? THEN 0 ELSE 1 END, candidate.id
+            LIMIT 1
+          )
+            AND progress.user_id = ?
+            AND progress.status IN (${ACTIVE_STATUS_SQL})
+            AND (
+              expected.translation IS NULL
+              OR EXISTS (
+                SELECT 1
+                FROM phrase_meanings AS meanings
+                WHERE meanings.user_id = ?
+                  AND meanings.phrase_id = phrases.id
+                  AND meanings.normalized_translation = expected.normalized_translation
+                  AND meanings.translation = expected.translation
+                  AND (
+                    expected.context_supplied = 0
+                    OR meanings.context = expected.context
+                  )
+              )
+            )
+        )
+      )`,
+      bindings: [
+        ...expectedBindings,
+        userId,
+        userId,
+        userId,
+        userId,
+      ],
+    };
+    return {
+      operation: VOCABULARY_MUTATION_OPERATIONS.addEntries,
+      targetKey: "entries",
+      canonicalArgs: { entries },
+      canonicalResult: {
+        ok: true,
+        saved: true,
+        entries: entries.map(({ text }, ordinal) => ({
+          text,
+          state: alreadySavedOrdinals.has(ordinal) ? "already_saved" : "added",
+        })),
+      },
+      entityType: "phrase",
+      entityId: null,
       statements,
       receiptGuard,
     };
@@ -914,7 +1237,7 @@ export function createVocabularyMutationPlanner(
     return {
       operation: VOCABULARY_MUTATION_OPERATIONS.setCategory,
       targetKey: phraseId,
-      canonicalArgs: { phraseId, category },
+      canonicalArgs: { phraseId, expectedStoredStatus, category },
       canonicalResult: { ok: true, updated: true, phraseId, category },
       entityType: "phrase",
       entityId: phraseId,
@@ -926,6 +1249,7 @@ export function createVocabularyMutationPlanner(
 
   return {
     planAddEntry,
+    planAddEntries,
     planAddMeaning,
     planSetCategory,
     planUpdateMeaning,

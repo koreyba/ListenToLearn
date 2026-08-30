@@ -38,6 +38,12 @@ function attemptProvenanceMigrationName() {
   return matches[0];
 }
 
+function writeProposalMigrationName() {
+  const matches = migrationNames().filter((name) => name.startsWith("0021_"));
+  assert.equal(matches.length, 1, "exactly one append-only 0021 migration is required");
+  return matches[0];
+}
+
 function applyMigration(db, name) {
   db.exec(readFileSync(join(migrationsDir, name), "utf8"));
 }
@@ -85,6 +91,24 @@ test("0016 is append-only and applies on a fresh database", () => {
     columns: ["chat_id", "client_message_id", "role"],
     unique: true,
   });
+});
+
+test("0021 adds durable vocabulary write proposals without rewriting prior migrations", () => {
+  const name = writeProposalMigrationName();
+  const sql = readFileSync(join(migrationsDir, name), "utf8");
+  for (const statement of sql.split("--> statement-breakpoint").map((part) => part.trim()).filter(Boolean)) {
+    assert.match(statement, /^CREATE (?:TABLE|(?:UNIQUE )?INDEX)\b/i);
+  }
+
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  for (const migration of migrationNames()) applyMigration(db, migration);
+  assert.ok(tableNames(db).includes("ai_chat_vocabulary_write_proposals"));
+  assert.deepEqual(
+    indexColumns(db, "ai_chat_vocabulary_write_proposals")
+      .get("idx_ai_chat_write_proposals_message_operation_target"),
+    { columns: ["user_message_id", "operation", "target_key"], unique: true },
+  );
 });
 
 test("0016 preserves existing vocabulary, progress, examples, and videos", () => {

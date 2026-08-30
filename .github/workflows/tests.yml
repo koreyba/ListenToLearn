@@ -35,4 +35,6 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run lint
       - run: ./node_modules/.bin/tsc --noEmit
-      - run: npm test
+      - run: npm run build
+      - name: Run tests and publish summary
+        run: npm run test:ci

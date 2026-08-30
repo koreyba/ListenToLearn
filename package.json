@@ -16,6 +16,7 @@
     "demo:reset-practice": "node scripts/practice-demo-data.mjs reset",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run build && node --test tests/*.test.mjs",
+    "test:ci": "node --test --test-reporter=spec --test-reporter=./scripts/github-actions-test-reporter.mjs --test-reporter-destination=stdout --test-reporter-destination=stdout tests/*.test.mjs",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"
   },

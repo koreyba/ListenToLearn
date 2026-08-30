@@ -545,6 +545,10 @@ button { cursor: pointer; }
 .custom-phrase-form > div span { color: var(--muted); font-size: 11px; }
 
 .phrase-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.practice-virtual-list { position: relative; width: 100%; }
+.practice-virtual-row { position: absolute; top: 0; left: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: 100%; padding-bottom: 12px; }
+.practice-virtual-cell { display: flex; min-width: 0; }
+.practice-virtual-cell > .phrase-card { width: 100%; }
 .phrase-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; min-height: 174px; padding: 17px; border: 1px solid var(--app-card-border); border-radius: 18px; background: var(--app-card-background); box-shadow: var(--shadow-card); }
 .phrase-open { display: flex; min-width: 0; padding: 0; border: 0; background: transparent; color: inherit; flex-direction: column; align-items: flex-start; text-align: left; }
 .phrase-summary { cursor: default; }
@@ -640,6 +644,7 @@ button { cursor: pointer; }
   .add-form { width: 100%; }
   .custom-phrase-form { grid-template-columns: 1fr; }
   .phrase-grid { grid-template-columns: 1fr; }
+  .practice-virtual-row { grid-template-columns: 1fr; }
   .video-grid { grid-template-columns: 1fr; }
 }
 

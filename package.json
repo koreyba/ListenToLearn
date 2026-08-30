@@ -12,6 +12,8 @@
     "deploy:branch-preview": "node scripts/deploy-worker.mjs branch-preview",
     "deploy:preview": "node scripts/deploy-worker.mjs preview",
     "deploy:production": "node scripts/deploy-worker.mjs production",
+    "demo:seed-practice": "node scripts/practice-demo-data.mjs seed",
+    "demo:reset-practice": "node scripts/practice-demo-data.mjs reset",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run build && node --test tests/*.test.mjs",
     "test:ci": "node --test --test-reporter=spec --test-reporter=./scripts/github-actions-test-reporter.mjs --test-reporter-destination=stdout --test-reporter-destination=stdout tests/*.test.mjs",
@@ -19,6 +21,7 @@
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "3.14.10",
     "drizzle-orm": "0.45.2",
     "jose": "^6.1.0",
     "next": "16.2.6",

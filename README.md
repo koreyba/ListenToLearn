@@ -87,6 +87,24 @@ databases.
 Guest mode works locally without Cloudflare Access. Google sign-in and
 server-side integrations require additional Cloudflare configuration.
 
+### Large-list demo data
+
+Create deterministic local-only catalog data for Library and a matching guest
+state file for a large Practice list:
+
+```bash
+npm run demo:seed-practice -- 200
+npm run dev
+```
+
+The command always uses Wrangler's `--local` D1 database. It adds namespaced
+`demo-virtual-*` rows and writes the reusable guest state to
+`.wrangler/practice-demo-guest-state.json`. Remove only those fixture rows with:
+
+```bash
+npm run demo:reset-practice
+```
+
 ## Self-hosting
 
 Unmumble is a web application rather than an installable npm package. The

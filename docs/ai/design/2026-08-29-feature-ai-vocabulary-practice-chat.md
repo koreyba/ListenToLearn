@@ -44,17 +44,77 @@ Guests may render the sign-in boundary; generation and tools remain account-only
   latest 200 stored messages in ascending sequence order. The public detail mapper
   removes per-turn practice snapshots and provider/model/usage fields; attempts,
   ledger calls, and receipts never enter the chat DTO.
-- The visible UI contains chat list, `New Chat`, timeline, composer, send/retry, and
-  essential states only. Compatibility target/meaning APIs and tables may remain,
-  but the UI does not depend on them or preselect vocabulary from Library/Practice.
+- The visible UI contains a separate chat list and conversation pane, `New Chat`,
+  timeline, composer, send/retry, essential states, and one contextual action
+  surface for text selected inside a message. Compatibility target/meaning APIs
+  and tables may remain, but the UI does not depend on them or preselect vocabulary
+  from Library/Practice.
 - Compatibility target replacement is one owner-scoped atomic
   `PATCH /api/ai/chats/:id/targets` containing the complete desired array; there are
   no incremental target `POST`/`DELETE` routes. It accepts up to 12 saved/ad-hoc
   targets with `all_saved`, saved-only `selected`, or `explore` meaning mode.
-- There is no separate AI-translation route. The existing DeepL-backed
-  `/api/translate` remains a trainer capability; any future chat-selection
-  translation must reuse the traced AI runner rather than add an unmetered provider
-  path.
+- There is no separate AI-translation route. Chat selection deliberately reuses
+  the existing authenticated DeepL-backed `/api/translate`; no OpenRouter runner,
+  model call, or additional provider path is introduced.
+
+## Responsive Interaction Design
+
+The chat is a master/detail workspace rather than two vertically stacked cards.
+Desktop keeps a 280-300px chat list beside one conversation. Tablet and mobile keep
+the conversation as the primary surface and expose the list through an accessible
+drawer with an overlay, `aria-expanded`, Escape dismissal, and focus-visible
+controls. The selected chat ID is reflected in the `/chat?chat=...` URL so reload
+and browser navigation restore the same owned chat.
+
+The conversation owns a compact header, a named `role=log` transcript, and a
+composer fixed inside the pane. Enter sends on a physical keyboard, Shift+Enter
+adds a line, and IME composition never submits. Draft text is stored per chat.
+Transcript scrolling follows new content only while the learner is near the bottom;
+otherwise a `Jump to latest` control appears.
+
+The compact textarea auto-grows only from 48px to 112px and hides native resize and
+scrollbar chrome. Its focus is represented by the rounded composer shell. Once a
+draft exists, an expand control opens a full-viewport modal editor with the shared
+draft, focus trap/restoration, body-scroll lock, Escape dismissal, character count,
+and Cmd/Ctrl+Enter send. This keeps long mobile input out of a nested scrolling box.
+
+Chat opening is last-request-wins. Creating a chat is single-flight. List loading,
+empty state, chat opening, ready, submitted, streaming, retry, and fatal errors are
+rendered distinctly. Refresh reads the selected detail and list once each and never
+remounts a conversation merely because `updatedAt` changed.
+
+## Message Selection and DeepL Flow
+
+`InteractiveEnglishText` preserves the exact message while segmenting Latin-script
+word tokens into a subtle dotted-underline interaction layer. A tap/click opens the
+word action. Only one word per message is in the tab order; arrows/Home/End move the
+roving tab stop and Enter/Space activate it. A conversation-level `selectionchange`
+listener still accepts ranges only inside one message and derives bounded sentence
+context plus a viewport anchor.
+
+On coarse pointers, a >=450ms hold suppresses its following synthetic click for a
+bounded interval. Finishing any non-collapsed range also suppresses word activation.
+Native long-press handles therefore win over the word action, while a normal tap
+remains immediate. Gesture-start fingerprints distinguish a newly created range
+from a lingering old one, so the next short tap/click clears the old range and
+activates its own word.
+
+Desktop anchors one compact toolbar near the range; mobile renders it as a bottom
+sheet above the site navigation and safe area. The action identity is
+`messageId + text + context`. DeepL requests are aborted when that identity changes,
+and stale results are ignored. Translation posts the exact selection/context to
+`/api/translate`. Saving posts the exact selection/context to `/api/phrases`, adding
+the displayed translation only when it belongs to the same identity. Save remains
+available after a translation failure and is single-flight until the server result
+is known. The action panel is keyed by that identity, so a new word/range clears the
+previous translation and save result before either next request can run.
+
+Mixed Latin/Cyrillic or other-script text is intentionally stored as one exact
+selection. The MVP neither splits it nor guesses which fragment is primary. DeepL
+remains EN-to-RU and its mixed-text result is presented as best effort. A subtle
+note explains this before saving. Translation is limited to 500 characters and
+entry creation to 240; the latter action is disabled with a visible reason rather
+than truncating.
 
 ## Vocabulary Boundary
 
@@ -324,9 +384,13 @@ results, and upstream bodies.
 
 ## Local Verification
 
-Fresh exact-diff evidence passes focused backend tests 219/219, full `npm test`
-503/503, typecheck, Drizzle validation, dependency audit, lifecycle/diff/secret/
-ignore checks, and lint with zero errors plus three existing warnings. Independent
+Fresh 2026-08-30 exact-diff UI evidence passes focused interaction tests 93/93 and
+full `npm test` 525/525 (including the production build), plus typecheck and lint
+with zero errors plus three existing warnings. Controlled desktop/mobile browser
+checks cover word actions, current-selection translate/add payloads, native-selection
+regressions, rounded focus, compact no-scroll input, and expanded editing. Earlier
+backend evidence passes focused backend tests 219/219, Drizzle validation, dependency
+audit, lifecycle/diff/secret/ignore checks. Independent
 final review found no P0/P1. Backend commit `8f671288` is pushed and PR #32 has green CodeQL,
 Analyze, Sonar, and Workers checks. Authenticated provider-backed preview requests
 for latest ten/all available and `To Learn` each returned the account's two matching
@@ -362,7 +426,8 @@ request.
 ## Open Decisions
 
 - Whether re-activation should change recency; today `created_at` defines latest.
-- Final target/meaning controls, interactive translation, and cross-surface launch.
+- Final target/meaning controls, editable translation/meaning selection, and
+  cross-surface launch.
 - Intent languages and whether deterministic write authorization should evolve
   beyond the current Russian/English command recognizer.
 - Model-allowlist governance, future fallback models, spend ownership, guest access,

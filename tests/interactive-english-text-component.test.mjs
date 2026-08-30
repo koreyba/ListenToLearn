@@ -37,7 +37,7 @@ async function renderInteractiveText(props, inspect) {
 test("message rendering preserves exact text and wraps only English words", async () => {
   const text = "  Hello, мир! Don't 42 café.\n";
 
-  await renderInteractiveText({ text }, async ({ host }) => {
+  await renderInteractiveText({ text, onWordActivate: () => {} }, async ({ host }) => {
     const surface = host.firstElementChild;
     assert.equal(surface.textContent, text);
     assert.deepEqual(
@@ -48,29 +48,75 @@ test("message rendering preserves exact text and wraps only English words", asyn
   });
 });
 
+test("selection-only rendering preserves mixed-script text without per-word tab stops", async () => {
+  const text = "Please get away — пожалуйста, уйди.";
+
+  await renderInteractiveText({ text, onPhraseSelect: () => {} }, async ({ host }) => {
+    const surface = host.firstElementChild;
+    assert.equal(surface.textContent, text);
+    assert.equal(surface.querySelectorAll('[role="button"], [tabindex="0"]').length, 0);
+    assert.equal(surface.querySelectorAll("[data-interactive-english-word]").length, 0);
+  });
+});
+
+test("touch selection reports a complete mixed-language range", async () => {
+  const text = "Please get away — пожалуйста, уйди now.";
+  const actions = [];
+
+  await renderInteractiveText({
+    text,
+    onPhraseSelect: (phrase, context) => actions.push({ phrase, context }),
+  }, async ({ dom, host }) => {
+    const surface = host.firstElementChild;
+    const selected = "get away — пожалуйста, уйди";
+    const start = text.indexOf(selected);
+    const selection = dom.window.getSelection();
+    const range = dom.window.document.createRange();
+    range.setStart(surface.firstChild, start);
+    range.setEnd(surface.firstChild, start + selected.length);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    await act(async () => {
+      surface.dispatchEvent(new dom.window.Event("touchend", { bubbles: true }));
+      await new Promise((resolve) => dom.window.requestAnimationFrame(resolve));
+    });
+  });
+
+  assert.deepEqual(actions, [{ phrase: "get away — пожалуйста, уйди", context: text }]);
+});
+
 test("clicking an English word reports the word with the exact message context", async () => {
   const text = "Hello, мир — get away now.";
   const actions = [];
 
   await renderInteractiveText({
     text,
-    onWordActivate: (word, context) => actions.push({ word, context }),
+    onWordActivate: (word, context, details) => actions.push({ word, context, details }),
   }, async ({ dom, host }) => {
     const word = [...host.querySelectorAll("[data-interactive-english-word]")]
       .find((element) => element.textContent === "get");
     assert.equal(word.getAttribute("role"), "button");
-    assert.equal(word.tabIndex, 0);
-    assert.equal(word.getAttribute("aria-label"), "Translate word get");
+    assert.equal(word.tabIndex, -1);
+    assert.equal(word.getAttribute("aria-label"), "Actions for word get");
 
     await act(async () => {
       word.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
     });
   });
 
-  assert.deepEqual(actions, [{ word: "get", context: text }]);
+  assert.deepEqual(actions, [{
+    word: "get",
+    context: text,
+    details: {
+      start: text.indexOf("get"),
+      end: text.indexOf("get") + 3,
+      anchor: { left: 0, top: 0, right: 0, bottom: 0 },
+    },
+  }]);
 });
 
-test("English word activation supports Enter and Space without reacting to other keys", async () => {
+test("English word activation supports Enter and Space without reacting to unrelated keys", async () => {
   const actions = [];
 
   await renderInteractiveText({
@@ -78,7 +124,7 @@ test("English word activation supports Enter and Space without reacting to other
     onWordActivate: (word) => actions.push(word),
   }, async ({ dom, host }) => {
     const word = host.querySelector("[data-interactive-english-word]");
-    for (const key of ["Enter", " ", "ArrowRight"]) {
+    for (const key of ["Enter", " ", "Escape"]) {
       const event = new dom.window.KeyboardEvent("keydown", {
         bubbles: true,
         cancelable: true,
@@ -90,6 +136,164 @@ test("English word activation supports Enter and Space without reacting to other
   });
 
   assert.deepEqual(actions, ["Hello", "Hello"]);
+});
+
+test("English words expose one roving tab stop per message", async () => {
+  await renderInteractiveText({
+    text: "One two three",
+    onWordActivate: () => {},
+  }, async ({ dom, host }) => {
+    const words = [...host.querySelectorAll("[data-interactive-english-word]")];
+    assert.deepEqual(words.map((word) => word.tabIndex), [0, -1, -1]);
+
+    words[0].focus();
+    const next = new dom.window.KeyboardEvent("keydown", {
+      bubbles: true,
+      cancelable: true,
+      key: "ArrowRight",
+    });
+    await act(async () => words[0].dispatchEvent(next));
+
+    assert.equal(next.defaultPrevented, true);
+    assert.equal(dom.window.document.activeElement, words[1]);
+    assert.deepEqual(words.map((word) => word.tabIndex), [-1, 0, -1]);
+  });
+});
+
+test("a mobile long press never activates an interactive word", async () => {
+  const actions = [];
+
+  await renderInteractiveText({
+    text: "Hold this word",
+    onWordActivate: (word) => actions.push(word),
+  }, async ({ dom, host }) => {
+    const word = host.querySelector("[data-interactive-english-word]");
+    const touchStart = new dom.window.Event("touchstart", { bubbles: true });
+    const touchEnd = new dom.window.Event("touchend", { bubbles: true });
+    const click = new dom.window.MouseEvent("click", { bubbles: true });
+    Object.defineProperty(touchStart, "timeStamp", { value: 0 });
+    Object.defineProperty(touchEnd, "timeStamp", { value: 600 });
+    Object.defineProperty(click, "timeStamp", { value: 601 });
+    await act(async () => {
+      word.dispatchEvent(touchStart);
+      word.dispatchEvent(touchEnd);
+      word.dispatchEvent(click);
+      await new Promise((resolve) => dom.window.requestAnimationFrame(resolve));
+    });
+  });
+
+  assert.deepEqual(actions, []);
+});
+
+test("a mobile range selection reports the phrase and suppresses the synthetic word click", async () => {
+  const phraseActions = [];
+  const wordActions = [];
+  const text = "Please get away now";
+
+  await renderInteractiveText({
+    text,
+    onPhraseSelect: (phrase) => phraseActions.push(phrase),
+    onWordActivate: (word) => wordActions.push(word),
+  }, async ({ dom, host }) => {
+    const words = [...host.querySelectorAll("[data-interactive-english-word]")];
+    const get = words.find((word) => word.textContent === "get");
+    const away = words.find((word) => word.textContent === "away");
+    const selection = dom.window.getSelection();
+    const range = dom.window.document.createRange();
+
+    await act(async () => {
+      get.dispatchEvent(new dom.window.Event("touchstart", { bubbles: true }));
+      range.setStart(get.firstChild, 0);
+      range.setEnd(away.firstChild, away.textContent.length);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      away.dispatchEvent(new dom.window.Event("touchend", { bubbles: true }));
+      away.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      await new Promise((resolve) => dom.window.requestAnimationFrame(resolve));
+    });
+  });
+
+  assert.deepEqual(phraseActions, ["get away"]);
+  assert.deepEqual(wordActions, []);
+});
+
+test("a later short tap replaces a lingering mobile range with the newly tapped word", async () => {
+  const phraseActions = [];
+  const wordActions = [];
+
+  await renderInteractiveText({
+    text: "Select get away, then practise",
+    onPhraseSelect: (phrase) => phraseActions.push(phrase),
+    onWordActivate: (word) => wordActions.push(word),
+  }, async ({ dom, host }) => {
+    const surface = host.firstElementChild;
+    const words = [...surface.querySelectorAll("[data-interactive-english-word]")];
+    const get = words.find((word) => word.textContent === "get");
+    const away = words.find((word) => word.textContent === "away");
+    const practise = words.find((word) => word.textContent === "practise");
+    const selection = dom.window.getSelection();
+    const range = dom.window.document.createRange();
+    range.setStart(get.firstChild, 0);
+    range.setEnd(away.firstChild, away.textContent.length);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    const selectionEnd = new dom.window.Event("touchend", { bubbles: true });
+    Object.defineProperty(selectionEnd, "timeStamp", { value: 1_000 });
+    await act(async () => {
+      away.dispatchEvent(selectionEnd);
+      await new Promise((resolve) => dom.window.requestAnimationFrame(resolve));
+    });
+
+    const touchStart = new dom.window.Event("touchstart", { bubbles: true });
+    const touchEnd = new dom.window.Event("touchend", { bubbles: true });
+    const click = new dom.window.MouseEvent("click", { bubbles: true });
+    Object.defineProperty(touchStart, "timeStamp", { value: 2_100 });
+    Object.defineProperty(touchEnd, "timeStamp", { value: 2_200 });
+    Object.defineProperty(click, "timeStamp", { value: 2_201 });
+    await act(async () => {
+      practise.dispatchEvent(touchStart);
+      practise.dispatchEvent(touchEnd);
+      practise.dispatchEvent(click);
+      await new Promise((resolve) => dom.window.requestAnimationFrame(resolve));
+    });
+  });
+
+  assert.deepEqual(phraseActions, ["get away"]);
+  assert.deepEqual(wordActions, ["practise"]);
+});
+
+test("a later click replaces a lingering desktop range with the newly clicked word", async () => {
+  const phraseActions = [];
+  const wordActions = [];
+
+  await renderInteractiveText({
+    text: "Select get away, then practise",
+    onPhraseSelect: (phrase) => phraseActions.push(phrase),
+    onWordActivate: (word) => wordActions.push(word),
+  }, async ({ dom, host }) => {
+    const surface = host.firstElementChild;
+    const words = [...surface.querySelectorAll("[data-interactive-english-word]")];
+    const get = words.find((word) => word.textContent === "get");
+    const away = words.find((word) => word.textContent === "away");
+    const practise = words.find((word) => word.textContent === "practise");
+    const selection = dom.window.getSelection();
+    const range = dom.window.document.createRange();
+    range.setStart(get.firstChild, 0);
+    range.setEnd(away.firstChild, away.textContent.length);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    await act(async () => {
+      surface.dispatchEvent(new dom.window.MouseEvent("mouseup", { bubbles: true }));
+      practise.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true }));
+      practise.dispatchEvent(new dom.window.MouseEvent("mouseup", { bubbles: true }));
+      practise.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    });
+  });
+
+  assert.deepEqual(phraseActions, ["get away"]);
+  assert.deepEqual(wordActions, ["practise"]);
 });
 
 test("clicking a word in a long response reports a bounded nearby context", async () => {
@@ -163,6 +367,7 @@ test("repeated phrase selection uses the context of the selected occurrence", as
   await renderInteractiveText({
     text,
     onPhraseSelect: (phrase, context) => actions.push({ phrase, context }),
+    onWordActivate: () => {},
   }, async ({ dom, host }) => {
     const surface = host.firstElementChild;
     const words = [...surface.querySelectorAll("[data-interactive-english-word]")];

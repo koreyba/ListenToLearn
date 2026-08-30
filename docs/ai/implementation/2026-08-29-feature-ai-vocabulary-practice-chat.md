@@ -8,8 +8,25 @@ description: Implemented chat-only tools, attempts, ledger, and mutation receipt
 
 ## Implemented Files
 
-- `app/components/ai-practice-chat.tsx`: minimal account-gated chat list, `New
-  Chat`, messages, composer, stream state, and retry; no target/meaning/status UI.
+- `app/components/ai-practice-chat.tsx`: account-gated two-pane chat workspace with
+  a desktop list and mobile drawer, URL-backed selected chat, per-chat drafts,
+  last-request-wins switching, transcript follow/jump behavior, composer stream
+  state, and retry; no target/meaning/status setup UI.
+- `app/components/ai-chat-selection-actions.tsx`,
+  `app/components/interactive-english-text.ts`, and `lib/ai-chat/selection.ts`:
+  exact-text rendering with subtly clickable English words, one roving word tab stop
+  per message, long-press click suppression and stale-range gesture replacement,
+  desktop anchored toolbar/mobile bottom sheet, identity-keyed DeepL state, exact
+  phrase saving, mixed-script preservation,
+  and distinct 500-character translation/240-character vocabulary limits.
+- The chat composer auto-grows without resize/scrollbar chrome, uses only the rounded
+  shell for focus, and expands into a full-screen shared-draft editor with focus
+  containment/restoration, Escape dismissal, body-scroll lock, and explicit send.
+- `app/globals.css`, `public/app-theme.css`, and `public/site-navigation.css`:
+  responsive chat surfaces, >=44px interactive targets, reduced-motion handling,
+  WCAG AA action contrast, >=3:1 control boundaries, and a compact signed-in mobile
+  header. The theme toggle suppresses its intentional pre-hydration attribute
+  difference while the early theme controller remains authoritative.
 - `lib/ai-chat/chat-creation.ts` and
   `lib/ai-chat/prompts/vocabulary-practice.ts`: server-built latest-five opening,
   escaped `UNTRUSTED_VOCABULARY_OPENING`, learner-led system contract, list
@@ -39,9 +56,9 @@ description: Implemented chat-only tools, attempts, ledger, and mutation receipt
   status plus new personal meaning commit atomically.
 - `app/api/ai/chats/[chatId]/targets/route.ts`: atomic owner-scoped replacement of
   the complete saved/ad-hoc target set; no incremental target mutation routes.
-- The unused `/api/ai/translate` route and its separate provider runner were removed;
-  future AI selection translation must reuse the traced generation boundary. The
-  existing DeepL `/api/translate` remains a separate trainer capability.
+- The unused OpenRouter-backed `/api/ai/translate` route and its separate model
+  runner remain removed. Chat selection now reuses the existing server-side DeepL
+  `/api/translate`, so no second model runner or browser-visible credential is added.
 - `drizzle/0017_abandoned_molecule_man.sql`: deterministic historical
   ASCII-`NOCASE` duplicate merge, reference transfer, and per-owner uniqueness.
 - `drizzle/0018_jittery_the_liberteens.sql`: assistant attempts, tool calls, and
@@ -256,16 +273,26 @@ never copied into usage storage or the browser stream.
 
 ## Validation Evidence
 
-Fresh exact-diff evidence passes focused backend tests 219/219 (including the
-concurrent queue/circuit, cursor-compatibility, and linear-time literal-policy
-regressions), full `npm test` 503/503, typecheck, Drizzle,
-audit, lifecycle/diff/secret/ignore checks, and lint with zero errors plus three
-existing warnings. Independent final review found no P0/P1. Coverage includes the
+Fresh 2026-08-30 exact-diff evidence passes focused UI/selection tests 93/93 and
+full `npm test` 525/525 (including the production build), plus typecheck and lint
+with zero errors plus three existing warnings. The earlier focused backend 219/219,
+Drizzle, audit, lifecycle/diff/secret/ignore, and independent P0/P1 review evidence
+remains recorded for the backend commit. Coverage includes the
 six-tool registry, legacy timestamp pagination, NFC/NOCASE identity, mutation
 circuit, owner-scoped terminal paths, and exact D1 envelopes. A live direct
 OpenRouter smoke returned a DeepSeek
 `list_vocabulary` tool call; it proves model tool selection only, not authenticated
 app execution or D1 effects.
+
+A controlled local browser fixture verifies the current React surface in dark and
+light desktop layouts plus a narrow mobile viewport: drawer open/switch/close,
+URL selection, per-chat draft restoration, exact mixed-language selection, DeepL
+success, two consecutive word translations with exact current payloads, current-text
+`Saved in To Learn`, clickable-word/mobile action styling, rounded composer focus,
+compact no-scroll input, full-screen editing, no horizontal page overflow, and no
+fresh browser console warnings/errors. Provider/session responses in that visual run are local
+fixtures; it is UI integration evidence, not a live DeepL, preview, or production
+claim.
 
 Backend commit `8f671288` is pushed and PR #32 reports green CodeQL, Analyze, Sonar, and
 Workers checks. Preview 0020 is applied: configured provider/model columns are

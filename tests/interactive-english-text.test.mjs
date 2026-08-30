@@ -62,13 +62,14 @@ test("translation context stays bounded around a selection in a long message", (
 });
 
 test("an async translation result belongs only to the same selected text and context", () => {
-  const current = { text: "run", context: "She can run a company." };
+  const current = { messageId: "assistant-1", text: "run", context: "She can run a company." };
 
   assert.equal(
     interactiveText.matchesInteractiveSelection(
       current,
       "run",
       "She can run a company.",
+      "assistant-1",
     ),
     true,
   );
@@ -77,7 +78,33 @@ test("an async translation result belongs only to the same selected text and con
       current,
       "run",
       "She can run five kilometres.",
+      "assistant-1",
     ),
     false,
   );
+
+  assert.equal(
+    interactiveText.matchesInteractiveSelection(
+      current,
+      "run",
+      "She can run a company.",
+      "assistant-2",
+    ),
+    false,
+  );
+});
+
+test("selection composition recognizes mixed Latin and Cyrillic without changing text", () => {
+  assert.equal(interactiveText.classifyInteractiveSelection("get away"), "latin");
+  assert.equal(interactiveText.classifyInteractiveSelection("пожалуйста"), "other");
+  assert.equal(
+    interactiveText.classifyInteractiveSelection("get away — пожалуйста"),
+    "mixed",
+  );
+});
+
+test("single English words are distinct from multi-word and other-language selections", () => {
+  assert.equal(interactiveText.isSingleInteractiveEnglishWord("don’t"), true);
+  assert.equal(interactiveText.isSingleInteractiveEnglishWord("go ahead"), false);
+  assert.equal(interactiveText.isSingleInteractiveEnglishWord("продолжай"), false);
 });

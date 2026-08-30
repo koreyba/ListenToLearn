@@ -144,6 +144,12 @@ function token(block, name) {
   return match[1];
 }
 
+function gradientStops(block, name) {
+  const match = block.match(new RegExp(`--${name}:\\s*linear-gradient\\([^;]*?(#[0-9a-f]{6})[^;]*?(#[0-9a-f]{6})\\)`, "i"));
+  assert.ok(match, `${name} gradient is missing`);
+  return match.slice(1);
+}
+
 test("light and dark semantic palettes keep readable text and actions", async () => {
   const css = await readFile(new URL("../public/app-theme.css", import.meta.url), "utf8");
 
@@ -172,6 +178,16 @@ test("light and dark semantic palettes keep readable text and actions", async ()
       contrast(token(block, "color-on-interactive"), token(block, "color-interactive-solid")) >= 4.5,
       `${theme} interactive action must meet WCAG AA`,
     );
+    for (const stop of gradientStops(block, "color-interactive-surface")) {
+      assert.ok(
+        contrast(token(block, "color-on-interactive"), stop) >= 4.5,
+        `${theme} interactive gradient must meet WCAG AA across the full surface`,
+      );
+    }
+    assert.ok(
+      contrast(token(block, "color-control-border"), token(block, "color-control-background")) >= 3,
+      `${theme} control boundaries must meet WCAG non-text contrast`,
+    );
   }
 });
 
@@ -187,6 +203,7 @@ test("the theme controller loads before content and every navigation exposes its
   assert.match(layout, /<meta name="theme-color" content="#0d1116" \/>/);
   assert.match(layout, /<html lang="en" suppressHydrationWarning>/);
   assert.match(navigation, /data-theme-toggle/);
+  assert.match(navigation, /suppressHydrationWarning/);
   assert.match(trainer, /data-theme-toggle/);
   assert.match(trainer, /<meta name="color-scheme" content="light dark" \/>/);
   assert.match(trainer, /<meta name="theme-color" content="#0d1116" \/>/);

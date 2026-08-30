@@ -8,10 +8,14 @@ description: Delivery status for the chat-only vocabulary-agent revision
 
 ## Current Status
 
-The chat-only backend is implemented locally. Fresh exact-diff evidence passes the
-focused backend suite 219/219, full `npm test` 503/503, typecheck, Drizzle, audit,
-lifecycle/diff/secret/ignore checks, and lint with zero errors plus three existing
-warnings. Independent final review found no P0/P1. The concrete-model serializer
+The chat-only backend and responsive chat workspace are implemented locally. Fresh
+2026-08-30 exact-diff evidence passes the focused selection/UI suite 93/93 and full
+`npm test` 525/525 (including the production build), plus typecheck and lint with
+zero errors plus three existing warnings. Controlled browser verification covers
+desktop/light/dark, narrow mobile, chat drawer/switching, per-chat drafts, mixed-
+language selection, individually actionable English words, sequential current-
+selection translate/add payloads, compact/expanded composer behavior, and a clean
+fresh console. Independent backend review found no P0/P1. The concrete-model serializer
 passes. Backend commit `8f671288` is pushed; PR #32 CodeQL, Analyze, Sonar, and Workers checks
 are green. Preview 0020 is applied with configured provenance columns backfilled,
 the pending-chat index present, and foreign keys clean. Authenticated provider-
@@ -52,9 +56,10 @@ authorization remain open.
   stay out of the UI. Vocabulary-specific saved-target resolution/current-item SQL
   lives behind `lib/vocabulary/practice-reader.ts`; chat persistence retains
   ownership, ordering, validation, and atomic writes.
-- [x] **P05b · Single traced provider path** — the unused `/api/ai/translate`
-  surface is removed. DeepL `/api/translate` remains trainer-only; a future chat
-  translation capability is deferred until it can reuse the traced AI runner.
+- [x] **P05b · Single traced AI provider path** — the unused OpenRouter-backed
+  `/api/ai/translate` surface remains removed. Chat text selection reuses the
+  existing server-side DeepL `/api/translate`; it does not add a second model
+  runner or expose provider credentials to the browser.
 - [x] **P06 · Immutable attempts** — distinct numbered attempt identity per retry,
   one pending lease per chat enforced by migration 0019, stale-turn repair,
   status-plus-expiry fencing for assistant/tools/receipts, history-before-current-
@@ -108,6 +113,21 @@ authorization remain open.
 
 ## Remaining Gates
 
+- [x] **P11 · Responsive chat workspace** — keep list and dialogue visible together
+  on desktop; use a drawer on tablet/mobile; preserve selected chat in the URL,
+  per-chat drafts, last-request-wins switching, single-flight creation, honest
+  loading states, and follow-vs-jump transcript scrolling.
+- [x] **P11a · Interactive message selection** — preserve exact message text while
+  adding subtly actionable English words with one roving tab stop per message, mobile
+  long-press/synthetic-click fencing, one desktop anchored toolbar/mobile bottom
+  sheet, DeepL translation, exact `/api/phrases` saving, stale-response fencing,
+  mixed-script preservation, and distinct 500/240-character limits.
+- [x] **P11b · Visual and accessibility pass** — align chat surfaces with the site
+  theme, improve light-theme control/action contrast, provide >=44px chat targets,
+  compact the signed-in mobile header, add a compact no-scroll composer plus
+  full-screen editor, remove the textarea's inner focus frame, and verify desktop/
+  mobile overflow and focus.
+
 - [x] **P12 · Authenticated preview read smoke** — the published application used
   the provider-backed `list_vocabulary` path for latest ten/all available and
   category `To Learn`; each returned the account's two matching entries and no
@@ -115,9 +135,10 @@ authorization remain open.
 - [ ] **P12a · Extended manual smoke** — traverse more than ten entries through
   pagination/cross-turn continuation, then verify explicit write denial/commit and
   interruption/replay without duplicate mutation.
-- [x] **P13 · Final local verification/review** — focused 219/219, full `npm test`
-  503/503, typecheck, Drizzle, audit, lifecycle/diff/secret/ignore checks, and lint
-  (zero errors, three existing warnings) pass; independent review found no P0/P1.
+- [x] **P13 · Final local verification/review** — the prior focused backend 219/219
+  evidence remains green; the current exact diff passes focused UI/selection 93/93,
+  full `npm test` 525/525, typecheck, production build, and lint (zero errors, three
+  existing warnings). Controlled desktop/mobile browser verification is also green.
 - [ ] **P14 · Release decision** — assign spend/alerts/retention/key-rotation
   ownership, then obtain explicit production migration/deployment authorization.
 
@@ -125,8 +146,9 @@ authorization remain open.
 
 - “Latest” currently means first progress `created_at`; whether re-activation should
   move an item to the front needs a product/data-model decision.
-- Final direct target/meaning UX, click translation, and Library/Practice launch are
-  intentionally unresolved after simplifying to chat-only.
+- Final direct target/meaning UX, editable translation/meaning selection, and
+  Library/Practice launch remain deferred. Selection translation and exact-text
+  saving are now in scope.
 - Current explicit-write recognition is bounded Russian/English heuristics. Command
   syntax may ignore case, but persisted values require exact NFC/case/compatibility
   literals; quotes preserve meaningful terminal punctuation, and revocation is only

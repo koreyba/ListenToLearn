@@ -9,8 +9,24 @@ export function matchesInteractiveSelection<Selection extends { text: string; co
   current: Selection | null,
   text: string,
   context: string,
+  messageId?: string,
 ): current is Selection {
-  return current?.text === text && current.context === context;
+  if (current?.text !== text || current.context !== context) return false;
+  if (messageId === undefined) return true;
+  return (current as Selection & { messageId?: string }).messageId === messageId;
+}
+
+export type InteractiveSelectionComposition = "latin" | "mixed" | "other";
+
+export function classifyInteractiveSelection(value: string): InteractiveSelectionComposition {
+  let hasLatin = false;
+  let hasOtherLetters = false;
+  for (const character of value) {
+    if (/\p{Script=Latin}/u.test(character)) hasLatin = true;
+    else if (/\p{Letter}/u.test(character)) hasOtherLetters = true;
+  }
+  if (hasLatin && hasOtherLetters) return "mixed";
+  return hasLatin ? "latin" : "other";
 }
 
 const englishWordPattern = /[\p{Script=Latin}\p{M}]+(?:['’\-][\p{Script=Latin}\p{M}]+)*/gu;
@@ -31,6 +47,11 @@ export function segmentInteractiveEnglishText(source: string): InteractiveEnglis
     segments.push({ kind: "text", text: source.slice(cursor), start: cursor, end: source.length });
   }
   return segments;
+}
+
+export function isSingleInteractiveEnglishWord(value: string) {
+  const segments = segmentInteractiveEnglishText(value);
+  return segments.length === 1 && segments[0].kind === "word" && segments[0].text === value;
 }
 
 export function readInteractiveSelection(

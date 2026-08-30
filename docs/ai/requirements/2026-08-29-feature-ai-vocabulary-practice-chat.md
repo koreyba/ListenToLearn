@@ -15,10 +15,14 @@ connects the two in one focused, learner-led conversation.
 
 ## Product Boundary
 
-The current delivery is deliberately chat-only. The signed-in learner sees a chat
-list, `New Chat`, messages, composer, send/retry, and essential loading/error states.
-There are no target cards, meaning selectors, inline vocabulary/status controls, or
-Library/Practice preselection entry points in this iteration.
+The current delivery is deliberately chat-focused. The signed-in learner sees a
+separate chat list and conversation pane, `New Chat`, messages, composer,
+send/retry, and essential loading/error states. Selecting text inside one message
+opens compact translation and vocabulary actions. Each English word has a subtle
+interactive treatment and opens the same actions on tap/click without taking native
+range selection away from the learner. There are no target cards,
+meaning selectors, inline status controls, or Library/Practice preselection entry
+points in this iteration.
 
 When a chat is created, the server deterministically reads the learner's latest five
 active vocabulary entries, formats their saved meanings, and persists that offer as
@@ -45,6 +49,16 @@ reverse translation, or answer checks.
 - As a learner, AI never infers mastery or moves an item autonomously; it changes a
   category only when my current message literally commands the exact entry and
   destination.
+- As a learner, I can select a word, phrase, sentence, or mixed English/Russian
+  fragment inside one chat message, translate it through my configured DeepL
+  integration, and explicitly add the exact selection to my vocabulary.
+- As a learner, I can tap/click an English word to act on it, while a mobile long
+  press still starts native multi-word selection and never triggers the word action.
+- As a learner writing a long request, I can expand the compact composer into a
+  full-screen editor instead of scrolling inside a small input.
+- As a learner on mobile, I can move between the chat list and one conversation
+  without scrolling past the entire history list; on desktop both panes remain
+  visible together.
 
 ## Functional Requirements
 
@@ -166,10 +180,44 @@ personal meaning atomically.
   system/messages payload. Safe generation events include prompt ID/version so a
   response can be traced to the exact prompt contract without logging prompt text.
 
-There is no separate AI-translation provider path in this iteration. The existing
-DeepL-backed `/api/translate` remains a distinct trainer capability; a future
-chat-selection translation route must reuse the same traced AI runner instead of
-creating an unmetered provider entry point.
+### Interactive message selection
+
+- English word tokens preserve the exact rendered message and are marked with a
+  quiet dotted underline. Click/tap opens a word action surface. Keyboard access
+  uses one roving tab stop per message plus arrow/Home/End navigation and
+  Enter/Space activation, rather than placing every word in the page tab order.
+- A touch held for at least 450ms suppresses the following synthetic click long
+  enough for native range handles to appear. A completed non-collapsed selection
+  also suppresses word activation, so long-press and drag cannot accidentally open
+  a single-word action. A later short tap/click clears that lingering range and
+  activates the newly chosen word.
+- Text selection is accepted only when both ends of the range are inside one chat
+  message. It preserves the exact cleaned selection, including mixed scripts, as
+  one item; the client does not split text or infer a primary language.
+- `POST /api/translate` remains the one authenticated DeepL path and receives the
+  exact `{ text, context }`. Translation is English-to-Russian and best-effort for
+  mixed-language selections. A DeepL error never disables vocabulary saving.
+- `POST /api/phrases` receives the exact selection and bounded message context,
+  plus the displayed DeepL result only when it belongs to that same message/text/
+  context identity. New entries begin in `To Learn`; an existing active category
+  is preserved and reported honestly.
+- Translation accepts at most 500 characters. Vocabulary entry text accepts at
+  most 240 characters. The client never truncates silently: for selections of
+  241-500 characters, Translate remains available while Add is disabled with an
+  explanation.
+- Desktop presents a selection-anchored action surface. Mobile presents the same
+  actions as a safe-area-aware bottom sheet so native selection handles remain
+  usable. Escape closes the action surface and touch targets are at least 44px.
+
+### Composer interaction
+
+- The compact textarea grows from 48px to 112px, has no resize handle or internal
+  scrollbar, and keeps focus indication on the rounded composer shell rather than
+  drawing a rectangular outline inside it.
+- A non-empty draft exposes an expand control. It opens a full-viewport modal editor
+  with the same draft, body-scroll lock, focus trap, Escape/close dismissal, focus
+  restoration, a character counter, and Cmd/Ctrl+Enter submission. Mobile and
+  desktop share the same draft and never lose text while switching modes.
 
 ### Durable tool execution
 
@@ -263,6 +311,15 @@ outside AI generation, so it cannot consume the generation invocation's D1 budge
   persist without a synthetic user message.
 - Category listing with cross-turn cursor continuation, search, grounded practice,
   and chat reload work within the chat-only UI.
+- Desktop and mobile preserve a usable master/detail chat layout; fast chat
+  switching cannot let an older response replace the last selected chat, and a
+  refresh does not discard per-chat drafts.
+- Single-message word/phrase/mixed-text selection translates through DeepL and
+  explicitly saves the exact text without making saving depend on translation.
+- Consecutive selections reset old translation/save state; translate and add requests
+  always snapshot the current message/text/context identity.
+- Compact and expanded composers remain usable without a nested scrollbar on both
+  mobile and desktop, and the compact input has no inner rectangular focus outline.
 - Current-turn explicit-write rules, owner checks, status invariants, immutable
   attempts, ledger entries, atomic receipts, replay, conflicts, and stale-attempt
   fencing are covered by executable tests.
@@ -276,13 +333,19 @@ outside AI generation, so it cannot consume the generation invocation's D1 budge
   background run.
 - Whether “latest” should mean first activation or most recent re-activation remains
   open; the current deterministic definition is the first progress `created_at`.
-- Final direct target/meaning UI, click-to-translate, and Library/Practice launch
-  affordances remain open product decisions.
+- Final direct target/meaning UI, editable translation/meaning selection, and
+  Library/Practice launch affordances remain open product decisions.
 - Broader search semantics, supported intent languages, future fallback models,
   model-allowlist governance, spend ownership, monitoring thresholds, retention,
   and deployment are open.
 
 ## Validation Status
+
+Fresh 2026-08-30 UI evidence passes the focused interaction suite 93/93 and full
+`npm test` 525/525, including the production build, plus typecheck and lint with
+zero errors and three existing warnings. Controlled desktop/mobile browser checks
+cover word taps, sequential current-selection translate/add payloads, rounded
+composer focus, compact no-scroll input, and the full-screen editor.
 
 Fresh exact-diff evidence on 2026-08-29 passes the focused backend suite 219/219 and
 full `npm test` 503/503, plus typecheck, Drizzle validation, dependency audit,

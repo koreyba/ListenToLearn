@@ -8,10 +8,12 @@ description: Verified agent-tool contracts and remaining end-to-end gates
 
 ## Fresh Automated Evidence
 
-Fresh exact-diff evidence on 2026-08-29 passes focused backend tests 219/219 and
-full `npm test` 503/503, plus typecheck, Drizzle validation, dependency audit,
-lifecycle lint, diff check, tracked-secret check, and ignore check. Full lint has
-zero errors and three existing warnings. Independent final review found no P0/P1.
+Fresh 2026-08-30 UI evidence passes focused interaction tests 93/93 and full
+`npm test` 525/525, including the production build, plus typecheck and lint with
+zero errors and three existing warnings. Earlier exact-diff backend evidence on
+2026-08-29 passes focused backend tests 219/219, plus Drizzle validation, dependency
+audit, lifecycle lint, diff check, tracked-secret check, and ignore check.
+Independent final review found no P0/P1.
 
 ### Covered in the current test tree
 
@@ -93,6 +95,19 @@ zero errors and three existing warnings. Independent final review found no P0/P1
   transport, owner-scoped routes, and the chat-only UI source contract are covered.
   The public stream allowlist drops tool/reasoning/source/file/step/raw/provider
   metadata, and provider 429 maps to `provider_rate_limited`.
+- [x] Each English token is rendered without changing message text, exposes a subtle
+  clickable treatment, and participates in one roving tab stop per message. Keyboard
+  arrows/Home/End and Enter/Space work, while a >=450ms mobile long press or completed
+  range selection suppresses the synthetic single-word click. Separate desktop and
+  mobile regressions prove a later short tap/click replaces a still-live old range.
+- [x] Consecutive selections reset translation/save UI. Component integration proves
+  `first` then `second` sends two distinct `/api/translate` bodies and that Add sends
+  only `second` with its matching translation/context; stale identity results cannot
+  leak into the new panel.
+- [x] Compact composer CSS has no resize handle, internal scrollbar, or inner
+  textarea focus outline; the rounded shell owns focus. Source and browser checks
+  cover auto-grow, full-screen dialog, focus trap/restoration, Escape, shared draft,
+  and desktop/mobile layouts.
 - [x] Prompt tests import `lib/ai-chat/prompts/vocabulary-practice.ts`, assert ID
   `unmumble.vocabulary-practice`/version `1`, learner-led/category rules, bounded
   continuation, and prompt ID/version on allowlisted lifecycle events.
@@ -133,7 +148,8 @@ zero errors and three existing warnings. Independent final review found no P0/P1
 - [x] Fresh focused backend suite: 219/219, including the concurrent tool-call
   serialization/circuit, byte-compatible Unicode cursor, and linear-time
   adversarial literal-policy regressions.
-- [x] Fresh full `npm test`: 503/503 on the exact diff.
+- [x] Fresh focused UI/selection suite: 93/93 on the exact diff.
+- [x] Fresh full `npm test`: 525/525 on the exact diff, including production build.
 - [x] Fresh typecheck, Drizzle, dependency audit, tracked-secret, ignore, lifecycle,
   and diff checks pass; full lint has zero errors and three existing warnings.
 - [x] Independent final review reports no P0/P1.

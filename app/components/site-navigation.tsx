@@ -56,6 +56,7 @@ export function SiteNavigation({
             aria-pressed="false"
             className="theme-toggle"
             data-theme-toggle
+            suppressHydrationWarning
             type="button"
           >
             <span aria-hidden="true" className="theme-toggle-sun">☀</span>

@@ -65,7 +65,8 @@ test("AI Chat has a public shell with an explicit account boundary", async () =>
   assert.match(chat, /accountSession\(\)/);
   assert.match(chat, /setReturnTo\(`\$\{window\.location\.pathname\}\$\{window\.location\.search\}`\)/);
   assert.match(chat, /signInHref\(returnTo\)/);
-  assert.match(chat, /Practice words in context/);
+  assert.match(chat, /Turn words into conversation/);
+  assert.match(chat, /select any useful phrase to translate or add to learning/i);
   assert.match(chat, /Sign in with Google to start and keep your practice chats/);
   assert.match(styles, /\.ai-chat-shell \{/);
   assert.match(styles, /@media \(max-width: 760px\)[\s\S]*?\.ai-chat-shell \{/);

@@ -312,6 +312,250 @@ test("stale compare-and-swap becomes a terminal conflict without overwriting pro
   ).get().count, 0);
 });
 
+test("already-pending legacy category proposals remain confirmable", async () => {
+  const fixture = createFixture();
+  fixture.sqlite.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, source_type, owner_id, status, created_at, updated_at
+    ) VALUES ('phrase-run', 'run', '', 'preset', NULL, 'pick', 'now', 'now');
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
+    VALUES ('user-a', 'phrase-run', 'learning_now', 'now', 'now');
+  `);
+  await insertProposal(fixture, {
+    operation: "vocabulary.set-category/v1",
+    targetKey: "phrase-run",
+    args: {
+      phraseId: "phrase-run",
+      expectedStoredStatus: "learning_now",
+      category: "learned",
+    },
+    result: { ok: true, updated: true, phraseId: "phrase-run", category: "learned" },
+    publicPayload: {
+      operation: "set_vocabulary_category",
+      items: [{ id: "entry-1", text: "run", fromCategory: "learning", toCategory: "learned" }],
+    },
+  });
+
+  const result = await fixture.repository.decide(
+    "user-a", "chat-a", "proposal-1", "confirm",
+  );
+  assert.equal(result.status, "confirmed");
+  assert.equal(fixture.sqlite.prepare(`
+    SELECT status FROM phrase_progress
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-run'
+  `).get().status, "learnt");
+  fixture.sqlite.close();
+});
+
+test("confirmed mixed removal is owner-safe, atomic, and replayable", async () => {
+  const fixture = createFixture();
+  fixture.sqlite.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, source_type, owner_id, status, created_at, updated_at
+    ) VALUES
+      ('phrase-shared', 'shared word', '', 'preset', NULL, 'pick', 'now', 'now'),
+      ('phrase-owned', 'owned word', '', 'custom', 'user-a', 'pick', 'now', 'now');
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at) VALUES
+      ('user-a', 'phrase-shared', 'learning_now', 'now', 'now'),
+      ('user-b', 'phrase-shared', 'learnt', 'now', 'now'),
+      ('user-a', 'phrase-owned', 'to_learn', 'now', 'now');
+  `);
+  await insertProposal(fixture, {
+    operation: "vocabulary.change-state/v1",
+    targetKey: "entries",
+    args: {
+      destination: "removed",
+      entries: [
+        {
+          phraseId: "phrase-shared",
+          text: "shared word",
+          sourceType: "preset",
+          expectedStoredStatus: "learning_now",
+        },
+        {
+          phraseId: "phrase-owned",
+          text: "owned word",
+          sourceType: "custom",
+          expectedStoredStatus: "to_learn",
+        },
+      ],
+    },
+    result: {
+      ok: true,
+      updated: true,
+      entries: [
+        { phraseId: "phrase-shared", text: "shared word", state: "removed" },
+        { phraseId: "phrase-owned", text: "owned word", state: "removed" },
+      ],
+    },
+    publicPayload: {
+      operation: "change_vocabulary_state",
+      items: [
+        {
+          id: "phrase-shared",
+          text: "shared word",
+          fromCategory: "learning",
+          toCategory: "removed",
+        },
+        {
+          id: "phrase-owned",
+          text: "owned word",
+          fromCategory: "to_learn",
+          toCategory: "removed",
+        },
+      ],
+    },
+  });
+
+  const first = await fixture.repository.decide(
+    "user-a", "chat-a", "proposal-1", "confirm",
+  );
+  const replay = await fixture.repository.decide(
+    "user-a", "chat-a", "proposal-1", "confirm",
+  );
+
+  assert.equal(first.status, "confirmed");
+  assert.deepEqual(replay, first);
+  assert.equal(fixture.sqlite.prepare(`
+    SELECT status FROM phrase_progress
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-shared'
+  `).get().status, "pick");
+  assert.equal(fixture.sqlite.prepare(`
+    SELECT status FROM phrase_progress
+    WHERE user_id = 'user-b' AND phrase_id = 'phrase-shared'
+  `).get().status, "learnt");
+  assert.equal(fixture.sqlite.prepare(
+    "SELECT count(*) AS count FROM phrases WHERE id = 'phrase-shared'",
+  ).get().count, 1);
+  assert.equal(fixture.sqlite.prepare(
+    "SELECT count(*) AS count FROM phrases WHERE id = 'phrase-owned'",
+  ).get().count, 0);
+  assert.equal(fixture.sqlite.prepare(
+    "SELECT count(*) AS count FROM ai_chat_tool_mutation_receipts",
+  ).get().count, 1);
+  fixture.sqlite.close();
+});
+
+test("stale removal becomes a terminal conflict with no partial removal", async () => {
+  const fixture = createFixture();
+  fixture.sqlite.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, source_type, owner_id, status, created_at, updated_at
+    ) VALUES
+      ('phrase-shared', 'shared word', '', 'preset', NULL, 'pick', 'now', 'now'),
+      ('phrase-owned', 'owned word', '', 'custom', 'user-a', 'pick', 'now', 'now');
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at) VALUES
+      ('user-a', 'phrase-shared', 'learning_now', 'now', 'now'),
+      ('user-a', 'phrase-owned', 'to_learn', 'now', 'now');
+  `);
+  const args = {
+    destination: "removed",
+    entries: [
+      {
+        phraseId: "phrase-shared",
+        text: "shared word",
+        sourceType: "preset",
+        expectedStoredStatus: "learning_now",
+      },
+      {
+        phraseId: "phrase-owned",
+        text: "owned word",
+        sourceType: "custom",
+        expectedStoredStatus: "to_learn",
+      },
+    ],
+  };
+  await insertProposal(fixture, {
+    operation: "vocabulary.change-state/v1",
+    targetKey: "entries",
+    args,
+    result: {
+      ok: true,
+      updated: true,
+      entries: args.entries.map(({ phraseId, text }) => ({
+        phraseId,
+        text,
+        state: "removed",
+      })),
+    },
+    publicPayload: {
+      operation: "change_vocabulary_state",
+      items: args.entries.map(({ phraseId, text }) => ({
+        id: phraseId,
+        text,
+        fromCategory: "to_learn",
+        toCategory: "removed",
+      })),
+    },
+  });
+  fixture.sqlite.exec("DELETE FROM phrases WHERE id = 'phrase-owned'");
+
+  const result = await fixture.repository.decide(
+    "user-a", "chat-a", "proposal-1", "confirm",
+  );
+  assert.equal(result.status, "failed");
+  assert.equal(result.errorCode, "mutation_conflict");
+  assert.equal(fixture.sqlite.prepare(`
+    SELECT status FROM phrase_progress
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-shared'
+  `).get().status, "learning_now");
+  assert.equal(fixture.sqlite.prepare(
+    "SELECT count(*) AS count FROM ai_chat_tool_mutation_receipts",
+  ).get().count, 0);
+  fixture.sqlite.close();
+});
+
+test("cancelled removal never changes vocabulary", async () => {
+  const fixture = createFixture();
+  fixture.sqlite.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, source_type, owner_id, status, created_at, updated_at
+    ) VALUES ('phrase-owned', 'owned word', '', 'custom', 'user-a', 'pick', 'now', 'now');
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
+    VALUES ('user-a', 'phrase-owned', 'to_learn', 'now', 'now');
+  `);
+  await insertProposal(fixture, {
+    operation: "vocabulary.change-state/v1",
+    targetKey: "entries",
+    args: {
+      destination: "removed",
+      entries: [{
+        phraseId: "phrase-owned",
+        text: "owned word",
+        sourceType: "custom",
+        expectedStoredStatus: "to_learn",
+      }],
+    },
+    result: {
+      ok: true,
+      updated: true,
+      entries: [{ phraseId: "phrase-owned", text: "owned word", state: "removed" }],
+    },
+    publicPayload: {
+      operation: "change_vocabulary_state",
+      items: [{
+        id: "phrase-owned",
+        text: "owned word",
+        fromCategory: "to_learn",
+        toCategory: "removed",
+      }],
+    },
+  });
+
+  const result = await fixture.repository.decide(
+    "user-a", "chat-a", "proposal-1", "cancel",
+  );
+  assert.equal(result.status, "cancelled");
+  assert.equal(fixture.sqlite.prepare(
+    "SELECT count(*) AS count FROM phrases WHERE id = 'phrase-owned'",
+  ).get().count, 1);
+  assert.equal(fixture.sqlite.prepare(`
+    SELECT status FROM phrase_progress
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-owned'
+  `).get().status, "to_learn");
+  fixture.sqlite.close();
+});
+
 test("owner scope and ambiguous D1 outcomes fail or recover safely", async () => {
   const foreign = createFixture();
   await insertProposal(foreign);

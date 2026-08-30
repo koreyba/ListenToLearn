@@ -15,6 +15,7 @@ import {
   type VocabularyPage,
   type VocabularyPageCursor,
   type VocabularyStatus,
+  type VocabularyStateTarget,
 } from "./contracts.ts";
 import { createVocabularyMutationPlanner } from "./mutations.ts";
 
@@ -78,6 +79,14 @@ type VocabularyEntryRow = {
 type VisibleVocabularyRow = Omit<VocabularyEntryRow, "status" | "added_at"> & {
   status: VocabularyStatus | "pick";
   added_at: string | null;
+};
+
+type VocabularyStateTargetRow = {
+  ordinal: number;
+  phrase_id: string;
+  text: string;
+  source_type: "preset" | "custom";
+  status: VocabularyStatus;
 };
 
 function fail(code: VocabularyRepositoryErrorCode, message: string): never {
@@ -397,6 +406,53 @@ export function createVocabularyRepository(
           category: vocabularyCategoryFromStatus(row.status),
         }
       : null;
+  }
+
+  async function getStateTargets(
+    userId: string,
+    texts: readonly string[],
+  ): Promise<VocabularyStateTarget[]> {
+    if (texts.length < 1 || texts.length > 10) return [];
+    const requestedValuesSql = texts.map(() => "(?, ?)").join(", ");
+    const requestedBindings = texts.flatMap((text, ordinal) => [ordinal, text]);
+    const rows = await db.prepare(`
+      WITH requested (ordinal, text) AS (VALUES ${requestedValuesSql})
+      SELECT
+        requested.ordinal,
+        phrases.id AS phrase_id,
+        phrases.text,
+        phrases.source_type,
+        progress.status
+      FROM requested
+      JOIN phrases ON phrases.id = (
+        SELECT candidate.id
+        FROM phrases AS candidate
+        JOIN phrase_progress AS candidate_progress
+          ON candidate_progress.phrase_id = candidate.id
+          AND candidate_progress.user_id = ?
+          AND candidate_progress.status IN ('to_learn', 'learning_now', 'learnt', 'learned')
+        WHERE candidate.text = requested.text COLLATE NOCASE
+          AND (candidate.source_type = 'preset' OR candidate.owner_id = ?)
+        ORDER BY CASE WHEN candidate.owner_id = ? THEN 0 ELSE 1 END, candidate.id
+        LIMIT 1
+      )
+      JOIN phrase_progress AS progress
+        ON progress.phrase_id = phrases.id AND progress.user_id = ?
+      ORDER BY requested.ordinal
+    `).bind(
+      ...requestedBindings,
+      userId,
+      userId,
+      userId,
+      userId,
+    ).all<VocabularyStateTargetRow>();
+    return (rows.results || []).map((row) => ({
+      phraseId: row.phrase_id,
+      text: row.text,
+      sourceType: row.source_type,
+      storedStatus: row.status,
+      category: vocabularyCategoryFromStatus(row.status),
+    }));
   }
 
   async function getEntryForMeaning(
@@ -760,6 +816,7 @@ export function createVocabularyRepository(
     addEntry,
     addMeaning,
     getCategoryTarget,
+    getStateTargets,
     getEntry,
     getEntryForMeaning,
     listMeanings,
@@ -777,6 +834,7 @@ export {
   type VocabularyEntry,
   type VocabularyCategory,
   type VocabularyCategoryTarget,
+  type VocabularyStateTarget,
   type VocabularyCategoryFilter,
   type VocabularyMeaning,
   type VocabularyMeaningList,

@@ -9,8 +9,9 @@ description: Delivery status for the chat-only vocabulary-agent revision
 ## Current Status
 
 The chat-only backend and responsive chat workspace are implemented locally. Fresh
-2026-08-30 exact-diff evidence passes full `npm test` 564/564 (including the
-production build), typecheck, and lint with zero errors plus three existing warnings.
+2026-08-31 exact-diff evidence passes full `npm test` 598/598 (including the
+production build), typecheck, diff check, and lint with zero errors plus three
+existing warnings.
 Focused proposal/lifecycle/bulk/budget/UI suites and controlled 1280px/390px card
 verification are green. Earlier browser verification covers desktop/light/dark,
 narrow mobile, chat drawer/switching, drafts, mixed-language selection, actionable
@@ -26,8 +27,10 @@ authorization remain open.
 The approved follow-up is implemented and locally verified: immediate agent writes
 and the literal-command regex boundary are replaced by durable inline proposals,
 learner confirmation, and a true atomic 1–10 entry bulk operation. Direct selection
-Add remains immediate; the six-tool/two-call limits remain unchanged. No deployment
-is authorized.
+Add remains immediate; the six-tool/two-call limits remain unchanged. A real-model
+25-turn local run completed every turn, produced all eight expected proposals, and
+finished with six committed plus two cancelled proposals and no pending/failed
+attempts. PR-preview deployment is authorized; production is not.
 
 ## Implemented
 
@@ -47,11 +50,14 @@ is authorized.
 - [x] **P04 · Confirmation-gated agent writes** — the exact six-tool registry
   contains two reads and four proposal tools. Natural references resolve through
   bounded canonical context; the model can only persist an immutable proposal.
-  Category and meaning proposals resolve exact owner-visible entities and capture
+  State and meaning proposals resolve exact owner-visible entities and capture
   owner-scoped CAS values; only the learner's later Confirm executes the write.
 - [x] **P05 · Category-safe domain plans** — new/`pick` add initializes `to_learn`;
-  entry/meaning writes preserve active category, while only the explicit category
-  plan changes it through owner-scoped CAS. Preset legacy data is immutable and
+  reactivation refreshes recency while an active duplicate preserves it; entry/
+  meaning writes preserve active category, while only an explicit state proposal
+  changes it through owner-scoped CAS. Confirmed removal hides a shared preset only
+  from this learner's Practice and deletes an owned custom row only for its owner.
+  Preset legacy data is immutable and
   personal meanings are owner scoped; historical custom legacy values promote
   safely. Manual preset `PATCH` batches personal fallback meaning with its requested
   status outside the agent boundary.
@@ -84,7 +90,8 @@ is authorized.
   NFC/whitespace cleanup and SQLite-compatible ASCII casefold without NFKC folding,
   leaving compatibility forms and Unicode case variants distinct by contract.
 - [x] **P09 · Bounded orchestration** — two tool calls, five model steps, tools
-  disabled on the final step, and a provider-adapter pre-trace fence that rejects
+  disabled after the second call and on the final step, and a provider-adapter
+  pre-trace fence that rejects
   call three onward without D1 queries. Same-step calls serialize before shared
   limit/circuit checks; a failed or thrown proposal opens the circuit, so no later
   queued provider tool reaches D1. Exact generation envelopes are 35 for two reads,
@@ -92,7 +99,8 @@ is authorized.
   rollback/circuit, 34 for rollback plus ambiguous terminal failure, and 37 for a
   meaning-update proposal rollback plus ambiguous terminal failure. Confirming a
   bulk proposal costs 10 statements including auth/user refresh for both one and
-  ten entries; maximum create-chat recovery remains 49/50.
+  ten entries; proposing removal costs 30 statements for both one and ten entries,
+  and its confirmation costs 10; maximum create-chat recovery remains 49/50.
 - [x] **P09a · Bounded public transport** — 100 chats per account/list, latest 200
   detail messages, 40/32,000 model history, explicit public DTOs, provider-stream
   allowlisting, and stable `provider_rate_limited` mapping.
@@ -105,13 +113,15 @@ is authorized.
   before D1 turn creation/provider work when unavailable.
 - [x] **P09c · Safe operational events** — exact-field events cover generation
   start/completion/failure and rate-limit rejection without prompts, vocabulary,
-  tool payloads/results, credentials, or provider bodies; configured and actual
-  model provenance remain distinct.
+  tool payloads/results, credentials, or provider bodies. Bounded elapsed, finish,
+  step/tool-count, and output-size metrics make terminal failures diagnosable;
+  configured and actual model provenance remain distinct. Required-tool recovery
+  adds only bounded retry/fallback counters, never user text or tool arguments.
 - [x] **P09d · Auth migration isolation** — ordinary `ensureUser` stays cheap;
   atomic idempotent legacy-owner transfer runs only on login/session bootstrap.
 - [x] **P10 · Versioned prompt and SRP tools** — prompt path
   `lib/ai-chat/prompts/vocabulary-practice.ts` exposes ID
-  `unmumble.vocabulary-practice`/version `2` and reports that identity in safe
+  `unmumble.vocabulary-practice`/version `4` and reports that identity in safe
   events. Six vocabulary tools are split into contracts/results/handlers/registry/
   pagination; `vocabulary-tools.ts` is a thin facade and every active tool shares
   one traced budget wrapper. The legacy literal parser is not registered on the
@@ -127,6 +137,17 @@ is authorized.
   races, cancellation, stale CAS, ambiguous D1 completion, owner isolation, direct
   selection-write preservation, and fresh sub-50 D1 statement envelopes. The UI
   safely defaults an older chat DTO without `writeProposals` to an empty list.
+
+- [x] **P15a · Stable generation and Practice removal** — raise complete-response
+  capacity to 2,400 tokens, enforce structured 45/25/20/20/5-second deadlines,
+  preserve a final text-only step after two tool calls, classify non-stop output as
+  retryable `response_incomplete`, classify cancellation truthfully, add atomic
+  owner-safe 1–10 removal, require same-turn reads for current/latest claims, and
+  refresh recency only when reactivating from `pick`. Routed mutation turns expose
+  only the intended proposal tool and require a tool call. Text-only provider drift
+  is buffered and retried at most twice more under the same deadlines; after that,
+  a conservative explicit-value parser may create the same pending proposal, still
+  requiring Confirm. Ambiguous references fail instead of authorizing a write.
 
 - [x] **P11 · Responsive chat workspace** — keep list and dialogue visible together
   on desktop; use a drawer on tablet/mobile; preserve selected chat in the URL,
@@ -151,18 +172,20 @@ is authorized.
   pagination/cross-turn continuation, then verify proposal Confirm/Cancel and
   interruption/replay without duplicate mutation after an authorized deployment.
 - [x] **P13 · Final local verification/review** — the current exact diff passes
-  production build, full `npm test` 564/564, typecheck, and lint with zero errors
-  plus three existing warnings. Focused proposal, lifecycle, route, tool, prompt,
+  production build, full `npm test` 598/598, typecheck, diff check, and lint with
+  zero errors plus three existing warnings. Focused proposal, lifecycle, route,
+  required-tool recovery, tool, prompt,
   schema/migration, bulk, budget, and UI suites are green. Controlled 1280px/390px
   card verification confirms 44px actions, disclosure, and no horizontal overflow.
-  Independent exact-diff review found no P0/P1.
+  A real-model 25-turn run completed with zero failed attempts and D1-confirmed
+  fresh reads after mutations. Independent exact-diff review found no P0/P1.
 - [ ] **P14 · Release decision** — assign spend/alerts/retention/key-rotation
   ownership, then obtain explicit production migration/deployment authorization.
 
 ## Open Product and Technical Decisions
 
-- “Latest” currently means first progress `created_at`; whether re-activation should
-  move an item to the front needs a product/data-model decision.
+- “Latest” is the most recent activation: reactivation from `pick` refreshes
+  progress `created_at`; active duplicates retain their existing recency.
 - Final direct target/meaning UX, editable translation/meaning selection, and
   Library/Practice launch remain deferred. Selection translation and exact-text
   saving are now in scope.

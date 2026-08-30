@@ -290,7 +290,7 @@ async function runWorstCaseColdTurn({
     }),
     buildPrompt: () => ({
       id: "unmumble.vocabulary-practice",
-      version: "2",
+      version: "3",
       system: "system",
       messages: [],
     }),
@@ -454,6 +454,101 @@ async function runWorstCaseColdTurn({
   return fixture;
 }
 
+async function runStateChangeProposalTurn(entryCount) {
+  const fixture = await createFixture();
+  const entries = [];
+  for (let index = 0; index < entryCount; index += 1) {
+    const sourceType = index % 2 === 0 ? "custom" : "preset";
+    const phraseId = `phrase-remove-${index}`;
+    const text = `remove word ${index}`;
+    fixture.sqlite.prepare(`
+      INSERT INTO phrases (
+        id, text, pattern, source_type, owner_id, status, created_at, updated_at
+      ) VALUES (?, ?, '', ?, ?, 'pick', 'now', 'now')
+    `).run(phraseId, text, sourceType, sourceType === "custom" ? USER.subject : null);
+    fixture.sqlite.prepare(`
+      INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
+      VALUES (?, ?, 'to_learn', 'now', 'now')
+    `).run(USER.subject, phraseId);
+    entries.push({ text });
+  }
+  fixture.database.resetStatementCount();
+  const resolved = await resolveAppSession(new Request("https://unmumble.online/", {
+    headers: { Cookie: `${APP_SESSION_COOKIE}=${SESSION_TOKEN}` },
+  }), d1AppSessionStore(fixture.database), {
+    now: new Date("2026-08-29T10:00:00.000Z"),
+  });
+  assert.deepEqual(resolved, USER);
+  await ensureUserOnColdPath(fixture.database);
+
+  let generationInput;
+  let vocabularyTools;
+  const generation = await prepareAiChatGeneration({
+    userId: USER.subject,
+    chatId: "chat-a",
+    message: {
+      clientMessageId: `remove-budget-${entryCount}`,
+      content: `Remove ${entries.map(({ text }) => text).join(", ")} from Practice.`,
+    },
+    serverConfig: { apiKey: "test", model: "test/model" },
+    chatRepository: fixture.chatRepository,
+    vocabularyRepository: fixture.vocabularyRepository,
+    vocabularyMutationPlanner: fixture.mutationPlanner,
+    toolTraceRepository: fixture.toolTraceRepository,
+  }, {
+    createRuntime: () => ({
+      ok: true,
+      value: {
+        model: {},
+        provenance: { provider: "openrouter", model: "test/model" },
+        timeoutMs: 20_000,
+        maxOutputTokens: 800,
+      },
+    }),
+    buildPrompt: () => ({
+      id: "unmumble.vocabulary-practice",
+      version: "3",
+      system: "system",
+      messages: [],
+    }),
+    createVocabularyTools(input) {
+      vocabularyTools = createAiVocabularyTools(
+        createAiVocabularyToolHandlers(input),
+        input.executor,
+      );
+      return vocabularyTools;
+    },
+    recordOperationalEvent() {},
+    startGeneration(input) {
+      generationInput = input;
+      return { kind: "test-stream" };
+    },
+  });
+  assert.equal(generation.ok, true);
+  const proposed = await vocabularyTools.propose_vocabulary_state_change.execute({
+    entries,
+    destination: "removed",
+  }, {
+    toolCallId: `remove-state-${entryCount}`,
+    messages: [],
+    abortSignal: new AbortController().signal,
+  });
+  assert.equal(proposed.ok, true);
+  assert.equal(proposed.proposed, true);
+  await generationInput.repository.completePendingAssistant({
+    assistantId: generationInput.pendingAssistant.id,
+    text: "I prepared the requested removal for review.",
+    provider: "openrouter",
+    model: "test/model",
+    usage: { inputTokens: 10, outputTokens: 4, totalTokens: 14 },
+  });
+  assert.equal(fixture.sqlite.prepare(`
+    SELECT COUNT(*) AS count FROM phrase_progress
+    WHERE user_id = 'user-a' AND status = 'to_learn'
+  `).get().count, entryCount);
+  return { fixture, proposalId: proposed.proposalId };
+}
+
 test("a cold two-proposal turn stays within D1 Free's statement limit", async () => {
   const fixture = await runWorstCaseColdTurn();
   assert.equal(fixture.database.statementCount, 40);
@@ -582,6 +677,37 @@ test("confirming one or ten bulk entries has the same bounded D1 statement cost"
 
   assert.deepEqual(observed, [10, 10]);
   assert.ok(observed.every((count) => count <= 50));
+});
+
+test("proposing and confirming removal stay set-based for one or ten entries", async () => {
+  const proposalCounts = [];
+  const confirmCounts = [];
+  for (const entryCount of [1, 10]) {
+    const { fixture, proposalId } = await runStateChangeProposalTurn(entryCount);
+    proposalCounts.push(fixture.database.statementCount);
+    fixture.database.resetStatementCount();
+
+    const resolved = await resolveAppSession(new Request("https://unmumble.online/", {
+      headers: { Cookie: `${APP_SESSION_COOKIE}=${SESSION_TOKEN}` },
+    }), d1AppSessionStore(fixture.database), {
+      now: new Date("2026-08-29T10:00:00.000Z"),
+    });
+    assert.deepEqual(resolved, USER);
+    await ensureUserOnColdPath(fixture.database);
+    const result = await createAiChatWriteProposalRepository(
+      fixture.database,
+      fixture.mutationPlanner,
+    ).decide(USER.subject, "chat-a", proposalId, "confirm");
+
+    assert.equal(result.status, "confirmed");
+    assert.equal(result.result.entries.length, entryCount);
+    confirmCounts.push(fixture.database.statementCount);
+    fixture.sqlite.close();
+  }
+
+  assert.deepEqual(proposalCounts, [30, 30]);
+  assert.deepEqual(confirmCounts, [10, 10]);
+  assert.ok([...proposalCounts, ...confirmCounts].every((count) => count <= 50));
 });
 
 test("ambiguous max-target chat creation recovers within D1 Free's statement limit", async () => {

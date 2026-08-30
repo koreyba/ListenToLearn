@@ -1,6 +1,10 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import type { LanguageModel } from "ai";
-import { AI_CHAT_ERROR_CODES, AI_CHAT_LIMITS } from "./contracts.ts";
+import {
+  AI_CHAT_ERROR_CODES,
+  AI_CHAT_GENERATION_TIMEOUT,
+  AI_CHAT_LIMITS,
+} from "./contracts.ts";
 
 export const AI_CHAT_OPENROUTER_MODELS = Object.freeze([
   "deepseek/deepseek-v4-flash-0731",
@@ -40,7 +44,7 @@ export type AiChatRuntime = {
     provider: string;
     model: string;
   };
-  timeoutMs: number;
+  timeout: typeof AI_CHAT_GENERATION_TIMEOUT;
   maxOutputTokens: number;
   normalizeTelemetry(steps: readonly { providerMetadata?: unknown }[]): AiChatProviderTelemetry;
   mapFailure(error: unknown, context?: { timedOut?: boolean }): AiChatRuntimeFailure;
@@ -185,7 +189,7 @@ export function createAiChatRuntime(
         },
       }),
       provenance: configuredProvenance,
-      timeoutMs: AI_CHAT_LIMITS.upstreamTimeoutMs,
+      timeout: AI_CHAT_GENERATION_TIMEOUT,
       maxOutputTokens: AI_CHAT_LIMITS.outputTokens,
       normalizeTelemetry: extractAiChatOpenRouterTelemetry,
       mapFailure: mapAiChatRuntimeFailure,

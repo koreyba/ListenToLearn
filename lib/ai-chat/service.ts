@@ -49,6 +49,7 @@ export type AiChatServiceVocabularyRepository = Pick<
   | "getCategoryTarget"
   | "getEntry"
   | "getEntryForMeaning"
+  | "getStateTargets"
   | "listPage"
   | "search"
 >;
@@ -58,6 +59,7 @@ export type AiChatServiceMutationPlanner = Pick<
   | "planAddEntry"
   | "planAddEntries"
   | "planAddMeaning"
+  | "planChangeState"
   | "planSetCategory"
   | "planUpdateMeaning"
 >;
@@ -276,6 +278,7 @@ export async function prepareAiChatGeneration(
               model: completion.model,
               promptId: prompt.id,
               promptVersion: prompt.version,
+              ...completion.terminal,
             });
           },
           failPendingAssistant: async (failure) => {
@@ -295,6 +298,7 @@ export async function prepareAiChatGeneration(
               errorCode: failure.errorCode,
               promptId: prompt.id,
               promptVersion: prompt.version,
+              ...failure.terminal,
             });
           },
         },

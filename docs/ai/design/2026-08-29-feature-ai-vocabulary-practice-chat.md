@@ -195,7 +195,7 @@ full traversal possible across turns while preserving the two-call per-turn budg
 ## Versioned Prompt Contract
 
 The prompt is isolated at `lib/ai-chat/prompts/vocabulary-practice.ts` with stable
-ID `unmumble.vocabulary-practice` and version `2`. Its contract is learner-led,
+ID `unmumble.vocabulary-practice` and version `4`. Its contract is learner-led,
 plain-text, treats openings/targets/tool results as untrusted data, forbids inferred
 writes or autonomous category changes, and carries only a validated list cursor for
 continuation. Natural user references may resolve against bounded canonical history,
@@ -207,15 +207,23 @@ into privacy-safe lifecycle events; prompt text itself is never logged.
 
 The model has four proposal tools: `propose_vocabulary_entries`,
 `propose_vocabulary_meaning`, `propose_vocabulary_meaning_update`, and
-`propose_vocabulary_category`. Together with the two reads this remains an exact
+`propose_vocabulary_state_change`. Together with the two reads this remains an exact
 six-tool registry with the existing two-call turn budget. JSON Schemas reject extra
-properties and omit identity/raw stored status. Entry proposals accept 1–10 items.
+properties and omit identity/raw stored status. Entry and state-change proposals
+accept 1–10 exact texts; state destinations are `to_learn`, `learning`, `learned`,
+or `removed`.
 
 There is no regex or current-turn literal policy. The model may resolve natural
 references from bounded canonical history, then the server enriches entity-changing
 proposals with the current owner-visible IDs and compare-and-swap values. The tool
 atomically stores immutable canonical arguments plus a bounded public display model
 and returns `pending_confirmation`; it never executes the domain mutation.
+
+State-change texts resolve in one owner-scoped set query. Confirmation applies the
+whole immutable snapshot atomically: removal resets only this learner's shared
+preset progress to `pick`, while an owned custom phrase and its owned children are
+deleted. Shared Library rows and another learner's rows are never deleted. One- and
+ten-entry proposal/confirm paths use the same statement counts rather than N writes.
 
 The inline card is the authorization surface. Confirm and Cancel remain visible for
 a pending proposal and use at least 44px semantic buttons. Long entry batches show
@@ -249,7 +257,7 @@ history. Migration 0019 repairs historical duplicate pending attempts and adds a
 partial unique index on `chat_id`, allowing only one `pending` attempt across a
 chat. Migration 0020 stores the configured provider/model on the attempt before
 generation, independently from terminal provider/model and sanitized routed-provider
-telemetry. The 30-second lease expires abandoned work; a fresh second turn returns
+telemetry. The 55-second lease expires abandoned work; a fresh second turn returns
 `turn_in_progress`. Finish/fail/tool SQL is fenced by the exact current attempt with
 both `status = pending` and an unexpired
 `lease_expires_at`. The same lease predicate protects assistant terminal writes,
@@ -311,7 +319,7 @@ proposal pending and returns a retryable safe error.
 2. The service rebuilds bounded canonical history only before this user sequence,
    restores at most one validated continuation from the latest earlier completed
    `list_vocabulary` ledger result, builds prompt ID/version
-   `unmumble.vocabulary-practice`/`2`, creates the tool executor with
+   `unmumble.vocabulary-practice`/`4`, creates the tool executor with
    user/chat/message/attempt IDs, and
    starts a maximum five-step AI SDK loop.
 3. Each tool call is registered and fenced before execution. The hard per-turn
@@ -342,10 +350,22 @@ ambiguous after commit, readback accepts only those exact fresh user/assistant a
 attempt IDs as the operation's own result (`created`/`retrying`), allowing the
 service to continue generation rather than return a false conflict.
 
-The provider timeout is 20 seconds and the pending lease is 30 seconds. Complete or
+Generation uses a 45-second total deadline, 25 seconds per model step, 20 seconds
+to the first chunk, 20 seconds between chunks, and 5 seconds per tool execution;
+the pending lease is 55 seconds. Complete or
 fresh-pending duplicate client turns return conflict/existing state rather than
 starting another paid request; reuse with different user content is rejected. A
 fresh pending attempt for any other turn in the same chat is also rejected.
+
+Mutation intent routing exposes only the matching proposal tool and uses required
+tool choice. Its stream is buffered until a tool call is observed, so provider prose
+cannot become a false proposal claim. A text-only result is discarded and retried
+up to two additional times inside the same first-chunk and step deadlines. If all
+three attempts drift, a conservative current-message parser may synthesize that
+same tool call only for explicit values; ambiguous references, negation, or missing
+values fail with a retryable public error. The synthetic call still creates only a
+pending durable proposal and therefore cannot bypass learner Confirm. Ordinary
+non-mutation chat keeps direct streaming and is not buffered by this adapter.
 
 Provider stream data passes through a public allowlist: start, remapped text
 start/delta/end, sanitized finish, stable error, and abort. Tool, reasoning, source,
@@ -378,16 +398,19 @@ not globally atomic or exact spend accounting.
 
 The service emits only four allowlisted structured events: generation started,
 completed, failed, and rate-limit rejected. Generation events include bounded
-attempt, provider/configured-or-actual-model, prompt ID/version, and safe error
-identifiers; prompts, messages, vocabulary, tool arguments/results, credentials,
-and upstream bodies are excluded.
+attempt, provider/configured-or-actual-model, prompt ID/version, safe error
+identifiers, and terminal elapsed/finish/step/tool/output-size plus required-tool
+retry/fallback counters; prompts,
+messages, vocabulary, tool arguments/results, credentials, and upstream bodies are
+excluded.
 
 ## Limits and Privacy
 
 Existing chat ceilings remain: 16,384 request bytes; 4,000 message characters;
 100 chats per account/list response; latest 200 messages per detail; 40 complete
-model-history messages/32,000 characters; 800 output tokens; 20-second provider
-timeout. Vocabulary page/search limits are 10 entries per result, 240 entry
+model-history messages/32,000 characters; 2,400 output tokens; structured
+45/25/20/20/5-second total/step/first-chunk/chunk/tool deadlines. Vocabulary
+page/search limits are 10 entries per result, 240 entry
 characters, 1,000 meaning/context characters, and six bounded provider meanings per
 entry. A list has no overall entry cap and advances by a <=512-character opaque
 cursor. A successful compact result is capped at 7,800 JSON characters. Practice target
@@ -402,16 +425,20 @@ results, and upstream bodies.
 
 ## Local Verification
 
-Fresh 2026-08-30 exact-diff evidence passes full `npm test` 564/564 (including the
-production build), plus typecheck and lint with zero errors plus three existing
-warnings. Focused proposal lifecycle, route, tool, prompt, schema/migration, bulk,
-D1-budget, and UI suites are green. Controlled 1280px and 390px browser checks of
-the actual themed card confirm three-item disclosure, 44px actions, and no horizontal
-overflow; earlier controlled chat checks cover word actions, current-selection
-translate/add payloads, native-selection regressions, rounded focus, compact no-scroll
-input, and expanded editing. Independent exact-diff review found no P0/P1.
-final review found no P0/P1. Backend commit `8f671288` is pushed and PR #32 has green CodeQL,
-Analyze, Sonar, and Workers checks. Authenticated provider-backed preview requests
+Fresh 2026-08-31 exact-diff evidence passes full `npm test` 598/598 (including the
+production build), plus typecheck, diff check, and lint with zero errors plus three
+existing warnings. Focused proposal lifecycle, intent routing, required-tool
+recovery, route, tool, prompt, schema/migration, bulk, D1-budget, and UI suites are
+green. A real-model 25-turn local run completed every response and proposal flow;
+D1 ended with 25 complete/zero failed attempts, six committed/two cancelled/zero
+pending proposals, and same-turn list/find traces after relevant mutations.
+Controlled 1280px and 390px browser checks of the actual themed card confirm
+three-item disclosure, 44px actions, and no horizontal overflow; earlier controlled
+chat checks cover word actions, current-selection translate/add payloads,
+native-selection regressions, rounded focus, compact no-scroll input, and expanded
+editing. Independent exact-diff review found no P0/P1. Backend commit `8f671288` is
+pushed and PR #32 has green CodeQL, Analyze, Sonar, and Workers checks.
+Authenticated provider-backed preview requests
 for latest ten/all available and `To Learn` each returned the account's two matching
 entries without a user-data mutation. These close local/published read-path gates, not manual >10
 cross-turn traversal, write/replay, or production rollout gates.
@@ -444,7 +471,8 @@ request.
 
 ## Open Decisions
 
-- Whether re-activation should change recency; today `created_at` defines latest.
+- Re-activation from `pick` refreshes `created_at`; already-active duplicates keep
+  their existing recency.
 - Final target/meaning controls, editable translation/meaning selection, and
   cross-surface launch.
 - Intent-language quality and future multilingual proposal resolution.

@@ -20,6 +20,19 @@ test("signed-in chat uses AI SDK useChat with the compact canonical transport", 
   assert.doesNotMatch(source, /dangerouslySetInnerHTML/);
 });
 
+test("retryable terminal failures explain incomplete and stopped responses", async () => {
+  const source = await readFile(componentUrl, "utf8");
+
+  assert.match(
+    source,
+    /case "response_incomplete": return "The response ended before completion\. Retry the same message\.";/,
+  );
+  assert.match(
+    source,
+    /case "generation_cancelled": return "The response was stopped\. Retry it if needed\.";/,
+  );
+});
+
 test("chat UI exposes separate list/dialog panes and contextual selection actions", async () => {
   const source = await readFile(componentUrl, "utf8");
   assert.match(source, /<nav[^>]+aria-label="Practice chats"/s);

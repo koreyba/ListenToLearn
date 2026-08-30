@@ -47,6 +47,8 @@ function apiError(payload: ApiError, fallback: string) {
     case "provider_rate_limited": return "The AI usage limit has been reached. Try again later.";
     case "turn_in_progress": return "Another message is still being answered in this chat.";
     case "provider_failed": return "The model could not answer. Retry the same message.";
+    case "response_incomplete": return "The response ended before completion. Retry the same message.";
+    case "generation_cancelled": return "The response was stopped. Retry it if needed.";
     case "conflict": return "This turn is already being processed. Reopen the chat.";
     default: return fallback;
   }

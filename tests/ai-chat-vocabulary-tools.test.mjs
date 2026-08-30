@@ -60,6 +60,18 @@ function createHarness(currentUserMessage) {
           }
         : null;
     },
+    async getStateTargets(userId, texts) {
+      calls.push({ method: "getStateTargets", userId, texts });
+      return texts.includes(savedEntry.text)
+        ? [{
+            phraseId: savedEntry.phraseId,
+            text: savedEntry.text,
+            storedStatus: savedEntry.status,
+            category: "learning",
+            sourceType: savedEntry.sourceType,
+          }]
+        : [];
+    },
     async getEntryForMeaning(userId, meaningId) {
       calls.push({ method: "getEntryForMeaning", userId, meaningId });
       return meaningId === "meaning-owned"
@@ -125,6 +137,23 @@ function createHarness(currentUserMessage) {
           updated: true,
           phraseId: input.phraseId,
           category: input.category,
+        },
+      };
+    },
+    async planChangeState(userId, input) {
+      calls.push({ method: "changeState", userId, input });
+      return {
+        operation: "vocabulary.change-state/v1",
+        targetKey: "entries",
+        canonicalArgs: input,
+        canonicalResult: {
+          ok: true,
+          updated: true,
+          entries: input.entries.map((item) => ({
+            phraseId: item.phraseId,
+            text: item.text,
+            state: input.destination,
+          })),
         },
       };
     },
@@ -941,10 +970,10 @@ test("AI SDK tool set exposes reads and confirmation-gated proposal capabilities
   assert.deepEqual(Object.keys(tools).sort(), [
     "find_vocabulary",
     "list_vocabulary",
-    "propose_vocabulary_category",
     "propose_vocabulary_entries",
     "propose_vocabulary_meaning",
     "propose_vocabulary_meaning_update",
+    "propose_vocabulary_state_change",
   ]);
   assert.deepEqual([...toolsModule.AI_VOCABULARY_TOOL_NAMES].sort(), Object.keys(tools).sort());
   assert.equal(
@@ -1038,8 +1067,8 @@ test("AI SDK proposal adapters forward provider identity, name, and arguments to
   ]);
 });
 
-test("category adapter sends a proposal through the trace executor", async () => {
-  const harness = createHarness("Перемести слово run в Learned.");
+test("state-change adapter proposes exact current targets, including removal, without writing", async () => {
+  const harness = createHarness("Удали run из моего Practice.");
   const invocations = [];
   const tools = toolsModule.createAiVocabularyTools(harness.handlers, {
     async execute(input) {
@@ -1051,20 +1080,96 @@ test("category adapter sends a proposal through the trace executor", async () =>
       return input.run(harness.scope);
     },
   });
-  const result = await tools.propose_vocabulary_category.execute({
-    phraseId: "phrase-run",
-    category: "learned",
+  const result = await tools.propose_vocabulary_state_change.execute({
+    entries: [{ text: "run" }],
+    destination: "removed",
   }, {
-    toolCallId: "provider-set-category",
+    toolCallId: "provider-change-state",
     messages: [],
     abortSignal: new AbortController().signal,
   });
 
   assert.equal(result.ok, true);
   assert.deepEqual(invocations, [{
-    providerToolCallId: "provider-set-category",
-    toolName: "propose_vocabulary_category",
-    args: { phraseId: "phrase-run", category: "learned" },
+    providerToolCallId: "provider-change-state",
+    toolName: "propose_vocabulary_state_change",
+    args: { entries: [{ text: "run" }], destination: "removed" },
+  }]);
+  assert.deepEqual(harness.calls, [{
+    method: "getStateTargets",
+    userId: "user-a",
+    texts: ["run"],
+  }, {
+    method: "changeState",
+    userId: "user-a",
+    input: {
+      destination: "removed",
+      entries: [{
+        phraseId: "phrase-run",
+        text: "run",
+        sourceType: "preset",
+        expectedStoredStatus: "learning_now",
+      }],
+    },
+  }, {
+    method: "propose",
+    plan: {
+      operation: "vocabulary.change-state/v1",
+      targetKey: "entries",
+      canonicalArgs: {
+        destination: "removed",
+        entries: [{
+          phraseId: "phrase-run",
+          text: "run",
+          sourceType: "preset",
+          expectedStoredStatus: "learning_now",
+        }],
+      },
+      canonicalResult: {
+        ok: true,
+        updated: true,
+        entries: [{ phraseId: "phrase-run", text: "run", state: "removed" }],
+      },
+    },
+    publicPayload: {
+      operation: "change_vocabulary_state",
+      items: [{
+        id: "phrase-run",
+        text: "run",
+        fromCategory: "learning",
+        toCategory: "removed",
+      }],
+    },
+  }]);
+});
+
+test("state-change schema bounds one exact-text batch to ten entries and all destinations", () => {
+  const { executor, handlers } = createHarness("change them");
+  const tools = toolsModule.createAiVocabularyTools(handlers, executor);
+  const schema = tools.propose_vocabulary_state_change.inputSchema.jsonSchema;
+  assert.equal(schema.properties.entries.minItems, 1);
+  assert.equal(schema.properties.entries.maxItems, 10);
+  assert.deepEqual(schema.properties.entries.items.required, ["text"]);
+  assert.deepEqual(schema.properties.destination.enum, [
+    "to_learn",
+    "learning",
+    "learned",
+    "removed",
+  ]);
+  assert.deepEqual(schema.required, ["entries", "destination"]);
+});
+
+test("state-change resolves the whole batch once and rejects any missing owner-visible phrase", async () => {
+  const harness = createHarness("Удали run и missing из Practice.");
+  const result = await harness.handlers.proposeVocabularyStateChange({
+    entries: [{ text: "run" }, { text: "missing" }],
+    destination: "removed",
+  }, harness.scope);
+  assert.deepEqual(result, { ok: false, error: "mutation_conflict" });
+  assert.deepEqual(harness.calls, [{
+    method: "getStateTargets",
+    userId: "user-a",
+    texts: ["run", "missing"],
   }]);
 });
 
@@ -1107,6 +1212,61 @@ test("over-budget provider calls are rejected before consuming D1 trace queries"
     options("over-budget"),
   ), { ok: false, error: "tool_budget_exceeded" });
   assert.equal(tracedCalls, 2);
+});
+
+test("AI SDK abort signal promptly stops an active traced tool execution", async () => {
+  const harness = createHarness("Покажи последние слова.");
+  let markStarted;
+  const started = new Promise((resolve) => {
+    markStarted = resolve;
+  });
+  const neverFinishes = new Promise(() => {});
+  const tools = toolsModule.createAiVocabularyTools(harness.handlers, {
+    async execute() {
+      markStarted();
+      return neverFinishes;
+    },
+  });
+  const controller = new AbortController();
+  const timeout = new DOMException("tool timed out", "TimeoutError");
+
+  const result = tools.list_vocabulary.execute({ limit: 5 }, {
+    toolCallId: "provider-timeout",
+    messages: [],
+    abortSignal: controller.signal,
+  });
+  await started;
+  controller.abort(timeout);
+
+  await assert.rejects(Promise.race([
+    result,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error("tool execution ignored abort signal")), 25);
+    }),
+  ]), (error) => error === timeout);
+});
+
+test("a pre-aborted tool never reaches the trace executor", async () => {
+  const harness = createHarness("Покажи последние слова.");
+  let tracedCalls = 0;
+  const tools = toolsModule.createAiVocabularyTools(harness.handlers, {
+    async execute(input) {
+      tracedCalls += 1;
+      return input.run(harness.scope);
+    },
+  });
+  const controller = new AbortController();
+  const timeout = new DOMException("tool timed out", "TimeoutError");
+  controller.abort(timeout);
+
+  const result = tools.list_vocabulary.execute({ limit: 5 }, {
+    toolCallId: "provider-pre-aborted",
+    messages: [],
+    abortSignal: controller.signal,
+  });
+
+  await assert.rejects(result, (error) => error === timeout);
+  assert.equal(tracedCalls, 0);
 });
 
 test("a failed mutation opens a per-turn circuit before another provider tool call", async () => {

@@ -1,3 +1,11 @@
+export const AI_CHAT_GENERATION_TIMEOUT = Object.freeze({
+  totalMs: 45_000,
+  stepMs: 25_000,
+  firstChunkMs: 20_000,
+  chunkMs: 20_000,
+  toolMs: 5_000,
+});
+
 export const AI_CHAT_LIMITS = Object.freeze({
   bodyBytes: 16_384,
   targetCount: 12,
@@ -11,8 +19,8 @@ export const AI_CHAT_LIMITS = Object.freeze({
   messageCharacters: 4_000,
   historyMessages: 40,
   historyCharacters: 32_000,
-  outputTokens: 800,
-  upstreamTimeoutMs: 20_000,
+  outputTokens: 2_400,
+  upstreamTimeoutMs: AI_CHAT_GENERATION_TIMEOUT.totalMs,
 });
 
 export const AI_CHAT_MEANING_MODES = ["all_saved", "selected", "explore"] as const;
@@ -35,6 +43,8 @@ export const AI_CHAT_ERROR_CODES = Object.freeze({
   providerTimeout: "provider_timeout",
   providerRateLimited: "provider_rate_limited",
   providerFailed: "provider_failed",
+  responseIncomplete: "response_incomplete",
+  generationCancelled: "generation_cancelled",
   emptyResponse: "empty_response",
   internalError: "internal_error",
 } as const);

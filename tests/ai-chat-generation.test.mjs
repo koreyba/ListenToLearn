@@ -25,8 +25,14 @@ function createHarness() {
     runtime: {
       model,
       provenance: { provider: "openrouter", model: "configured/model" },
-      timeoutMs: 20_000,
-      maxOutputTokens: 800,
+      timeout: {
+        totalMs: 45_000,
+        stepMs: 25_000,
+        firstChunkMs: 20_000,
+        chunkMs: 20_000,
+        toolMs: 5_000,
+      },
+      maxOutputTokens: 2_400,
       normalizeTelemetry: () => ({
         routedProviders: [],
         cost: null,
@@ -58,6 +64,12 @@ function createHarness() {
     },
   };
   const dependencies = {
+    now: () => calls.now ?? 1_000,
+    wrapLanguageModel(options) {
+      calls.wrapLanguageModel = options;
+      calls.wrappedModel = { provider: "wrapped", modelId: "wrapped/model" };
+      return calls.wrappedModel;
+    },
     streamText(options) {
       calls.streamText = options;
       return { stream: providerStream };
@@ -112,15 +124,32 @@ test("generation streams only canonical server prompt with a stable assistant id
       model: harness.model,
       system: "server system",
       messages: harness.input.prompt.messages,
-      maxOutputTokens: 800,
-      timeout: 20_000,
+      maxOutputTokens: 2_400,
+      timeout: {
+        totalMs: 45_000,
+        stepMs: 25_000,
+        firstChunkMs: 20_000,
+        chunkMs: 20_000,
+        toolMs: 5_000,
+      },
       maxRetries: 0,
       abortSignal: harness.input.abortSignal,
       tools: harness.input.tools,
     },
   );
   assert.equal(typeof harness.calls.streamText.stopWhen, "function");
-  assert.deepEqual(harness.calls.streamText.prepareStep({ stepNumber: 3 }), undefined);
+  assert.deepEqual(harness.calls.streamText.prepareStep({
+    stepNumber: 2,
+    steps: [{ toolCalls: [{}] }],
+  }), undefined);
+  assert.deepEqual(harness.calls.streamText.prepareStep({
+    stepNumber: 2,
+    steps: [{ toolCalls: [{}, {}] }],
+  }), {
+    activeTools: [],
+    toolChoice: "none",
+  });
+  assert.deepEqual(harness.calls.streamText.prepareStep({ stepNumber: 3, steps: [] }), undefined);
   assert.deepEqual(harness.calls.streamText.prepareStep({ stepNumber: 4 }), {
     activeTools: [],
     toolChoice: "none",
@@ -146,6 +175,134 @@ test("generation streams only canonical server prompt with a stable assistant id
   );
   assert.equal(harness.calls.toUIMessageStream.sendReasoning, false);
   assert.equal(harness.calls.toUIMessageStream.sendSources, false);
+});
+
+test("generation forces a routed proposal tool only on the first model step", () => {
+  for (const [message, toolName] of [
+    ["Добавь их в словарь.", "propose_vocabulary_entries"],
+    ["Remove run from Practice.", "propose_vocabulary_state_change"],
+  ]) {
+    const harness = createHarness();
+    harness.input.prompt.messages.at(-1).content = message;
+
+    generationModule.startAiChatGeneration(harness.input, harness.dependencies);
+
+    assert.equal(harness.calls.wrapLanguageModel.model, harness.model);
+    assert.equal(typeof harness.calls.wrapLanguageModel.middleware.wrapStream, "function");
+    assert.equal(harness.calls.streamText.model, harness.calls.wrappedModel);
+
+    assert.deepEqual(
+      harness.calls.streamText.prepareStep({ stepNumber: 0, steps: [] }),
+      {
+        activeTools: [toolName],
+        toolChoice: "required",
+      },
+      message,
+    );
+    assert.equal(
+      harness.calls.streamText.prepareStep({
+        stepNumber: 1,
+        steps: [{ toolCalls: [{}] }],
+      }),
+      undefined,
+    );
+    assert.deepEqual(
+      harness.calls.streamText.prepareStep({
+        stepNumber: 2,
+        steps: [{ toolCalls: [{}, {}] }],
+      }),
+      { activeTools: [], toolChoice: "none" },
+    );
+  }
+});
+
+test("generation reports privacy-safe required-tool retry counts", async () => {
+  const harness = createHarness();
+  harness.input.prompt.messages.at(-1).content = "Добавь их в словарь.";
+  generationModule.startAiChatGeneration(harness.input, harness.dependencies);
+  const ignored = new ReadableStream({
+    start(controller) {
+      controller.enqueue({ type: "text-delta", delta: "invented proposal" });
+      controller.close();
+    },
+  });
+  const called = new ReadableStream({
+    start(controller) {
+      controller.enqueue({ type: "tool-call", toolName: "propose_vocabulary_entries" });
+      controller.close();
+    },
+  });
+  const attempts = [{ stream: ignored }, { stream: called }];
+  const retried = await harness.calls.wrapLanguageModel.middleware.wrapStream({
+    doStream: async () => attempts.shift(),
+    params: { toolChoice: { type: "required" } },
+    model: harness.model,
+  });
+  const drained = [];
+  for await (const chunk of retried.stream) drained.push(chunk);
+  assert.equal(drained.length, 1);
+
+  await harness.calls.streamText.onEnd({
+    text: "Proposal ready for review.",
+    finishReason: "stop",
+    usage: {},
+    steps: [{ toolCalls: [{}] }],
+    finalStep: { response: { modelId: "configured/model" } },
+  });
+
+  assert.equal(harness.calls.completions[0].terminal.requiredToolRetries, 1);
+});
+
+test("generation wires a conservative fallback and reports its aggregate count", async () => {
+  const harness = createHarness();
+  harness.input.prompt.messages.at(-1).content = "Перемести quiet comet в категорию Learning.";
+  generationModule.startAiChatGeneration(harness.input, harness.dependencies);
+  let attempts = 0;
+  const retried = await harness.calls.wrapLanguageModel.middleware.wrapStream({
+    doStream: async () => {
+      attempts += 1;
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: "stream-start", warnings: [] });
+            controller.enqueue({ type: "text-delta", delta: `ignored-${attempts}` });
+            controller.enqueue({
+              type: "finish",
+              usage: {},
+              finishReason: { unified: "stop", raw: "stop" },
+            });
+            controller.close();
+          },
+        }),
+      };
+    },
+    params: { toolChoice: { type: "required" } },
+    model: harness.model,
+  });
+  const chunks = [];
+  for await (const chunk of retried.stream) chunks.push(chunk);
+  const fallback = chunks.find((chunk) => chunk.type === "tool-call");
+  assert.equal(attempts, 3);
+  assert.equal(fallback.toolName, "propose_vocabulary_state_change");
+  assert.deepEqual(JSON.parse(fallback.input), {
+    entries: [{ text: "quiet comet" }],
+    destination: "learning",
+  });
+
+  await harness.calls.streamText.onEnd({
+    text: "Proposal ready for review.",
+    finishReason: "stop",
+    usage: {},
+    steps: [{ toolCalls: [{}] }],
+    finalStep: { response: { modelId: "configured/model" } },
+  });
+  assert.deepEqual(
+    {
+      retries: harness.calls.completions[0].terminal.requiredToolRetries,
+      fallbacks: harness.calls.completions[0].terminal.requiredToolFallbacks,
+    },
+    { retries: 2, fallbacks: 1 },
+  );
 });
 
 test("browser stream exposes only assistant text and stable public failures", async () => {
@@ -264,8 +421,30 @@ test("consumer cancellation marks the pending assistant retryable", async () => 
   await stream.cancel("browser disconnected");
 
   assert.deepEqual(harness.calls.failures, [
-    { assistantId: "assistant-stable-id", errorCode: "provider_timeout" },
+    {
+      assistantId: "assistant-stable-id",
+      errorCode: "generation_cancelled",
+      terminal: { elapsedMs: 0 },
+    },
   ]);
+});
+
+test("consumer cancellation wins when source cancellation immediately aborts generation", async () => {
+  const harness = createHarness();
+  harness.dependencies.toUIMessageStream = () => new ReadableStream({
+    cancel() {
+      return harness.calls.streamText.onAbort({ steps: [] });
+    },
+  });
+  const stream = generationModule.startAiChatGeneration(harness.input, harness.dependencies);
+
+  await stream.cancel("browser disconnected");
+
+  assert.deepEqual(harness.calls.failures, [{
+    assistantId: "assistant-stable-id",
+    errorCode: "generation_cancelled",
+    terminal: { elapsedMs: 0 },
+  }]);
 });
 
 test("onEnd persists the routed model and only privacy-safe aggregate telemetry", async () => {
@@ -276,6 +455,7 @@ test("onEnd persists the routed model and only privacy-safe aggregate telemetry"
 
   await harness.calls.streamText.onEnd({
     text: "  First line\r\nSecond line  ",
+    finishReason: "stop",
     model: {
       provider: "openrouter.chat",
       modelId: "configured/model",
@@ -341,6 +521,13 @@ test("onEnd persists the routed model and only privacy-safe aggregate telemetry"
         cost: 0.004,
         upstreamInferenceCost: 0.0025,
       },
+      terminal: {
+        elapsedMs: 0,
+        finishReason: "stop",
+        stepCount: 2,
+        toolCallCount: 1,
+        outputCharacters: 22,
+      },
     },
   ]);
   assert.equal(harness.calls.failures, undefined);
@@ -367,6 +554,7 @@ test("generation delegates telemetry and failure mapping to the configured provi
 
   await harness.calls.streamText.onEnd({
     text: "Provider-neutral answer",
+    finishReason: "stop",
     usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
     steps,
     finalStep: { response: { modelId: "adapter/routed-model" } },
@@ -395,6 +583,7 @@ test("onEnd marks an empty assistant response failed", async () => {
 
   await harness.calls.streamText.onEnd({
     text: " \r\n ",
+    finishReason: "stop",
     model: { provider: "openrouter", modelId: "configured/model" },
     usage: {},
   });
@@ -404,8 +593,51 @@ test("onEnd marks an empty assistant response failed", async () => {
     {
       assistantId: "assistant-stable-id",
       errorCode: "empty_response",
+      terminal: {
+        elapsedMs: 0,
+        finishReason: "stop",
+        stepCount: 0,
+        toolCallCount: 0,
+        outputCharacters: 0,
+      },
     },
   ]);
+});
+
+test("non-stop terminal reasons keep partial responses retryable", async () => {
+  for (const finishReason of [
+    "length",
+    "content-filter",
+    "tool-calls",
+    "error",
+    "other",
+    "unknown",
+  ]) {
+    const harness = createHarness();
+    generationModule.startAiChatGeneration(harness.input, harness.dependencies);
+
+    await harness.calls.streamText.onEnd({
+      text: "Partial answer",
+      finishReason,
+      usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+      steps: [{ toolCalls: [{ toolCallId: "private-call" }] }],
+      finalStep: { response: { modelId: "configured/model" } },
+    });
+
+    assert.equal(harness.calls.completions, undefined);
+    assert.deepEqual(harness.calls.failures, [{
+      assistantId: "assistant-stable-id",
+      errorCode: "response_incomplete",
+      terminal: {
+        elapsedMs: 0,
+        finishReason,
+        stepCount: 1,
+        toolCallCount: 1,
+        outputCharacters: 14,
+      },
+    }]);
+    assert.equal(JSON.stringify(harness.calls.failures).includes("private-call"), false);
+  }
 });
 
 test("onError and onAbort persist only stable failure codes", async () => {
@@ -442,17 +674,45 @@ test("onError and onAbort persist only stable failure codes", async () => {
   generationModule.startAiChatGeneration(abortHarness.input, abortHarness.dependencies);
   await abortHarness.calls.streamText.onAbort({ steps: [] });
 
+  const cancelledHarness = createHarness();
+  cancelledHarness.input.abortSignal = AbortSignal.abort("browser stopped");
+  generationModule.startAiChatGeneration(cancelledHarness.input, cancelledHarness.dependencies);
+  await cancelledHarness.calls.streamText.onAbort({ steps: [] });
+
   assert.deepEqual(providerHarness.calls.failures, [
-    { assistantId: "assistant-stable-id", errorCode: "provider_failed" },
+    {
+      assistantId: "assistant-stable-id",
+      errorCode: "provider_failed",
+      terminal: { elapsedMs: 0 },
+    },
   ]);
   assert.deepEqual(rateLimitHarness.calls.failures, [
-    { assistantId: "assistant-stable-id", errorCode: "provider_rate_limited" },
+    {
+      assistantId: "assistant-stable-id",
+      errorCode: "provider_rate_limited",
+      terminal: { elapsedMs: 0 },
+    },
   ]);
   assert.deepEqual(timeoutHarness.calls.failures, [
-    { assistantId: "assistant-stable-id", errorCode: "provider_timeout" },
+    {
+      assistantId: "assistant-stable-id",
+      errorCode: "provider_timeout",
+      terminal: { elapsedMs: 0 },
+    },
   ]);
   assert.deepEqual(abortHarness.calls.failures, [
-    { assistantId: "assistant-stable-id", errorCode: "provider_timeout" },
+    {
+      assistantId: "assistant-stable-id",
+      errorCode: "provider_timeout",
+      terminal: { elapsedMs: 0, stepCount: 0, toolCallCount: 0 },
+    },
+  ]);
+  assert.deepEqual(cancelledHarness.calls.failures, [
+    {
+      assistantId: "assistant-stable-id",
+      errorCode: "generation_cancelled",
+      terminal: { elapsedMs: 0, stepCount: 0, toolCallCount: 0 },
+    },
   ]);
   assert.equal(
     JSON.stringify([
@@ -460,6 +720,7 @@ test("onError and onAbort persist only stable failure codes", async () => {
       rateLimitHarness.calls.failures,
       timeoutHarness.calls.failures,
       abortHarness.calls.failures,
+      cancelledHarness.calls.failures,
     ]).includes("private"),
     false,
   );
@@ -477,6 +738,7 @@ test("terminal generation callbacks are idempotent", async () => {
     failureHarness.calls.streamText.onAbort({ steps: [] }),
     failureHarness.calls.streamText.onEnd({
       text: "",
+      finishReason: "stop",
       model: { provider: "openrouter", modelId: "configured/model" },
       usage: {},
     }),
@@ -489,6 +751,7 @@ test("terminal generation callbacks are idempotent", async () => {
   );
   const successfulEnd = {
     text: "Completed once",
+    finishReason: "stop",
     model: { provider: "openrouter", modelId: "configured/model" },
     usage: { inputTokens: 4, outputTokens: 2, totalTokens: 6 },
   };
@@ -499,7 +762,11 @@ test("terminal generation callbacks are idempotent", async () => {
   ]);
 
   assert.deepEqual(failureHarness.calls.failures, [
-    { assistantId: "assistant-stable-id", errorCode: "provider_failed" },
+    {
+      assistantId: "assistant-stable-id",
+      errorCode: "provider_failed",
+      terminal: { elapsedMs: 0 },
+    },
   ]);
   assert.equal(failureHarness.calls.completions, undefined);
   assert.equal(completionHarness.calls.completions.length, 1);
@@ -516,6 +783,7 @@ test("a failed terminal persistence attempt does not permanently latch the turn"
   generationModule.startAiChatGeneration(harness.input, harness.dependencies);
   const completion = {
     text: "Completed after persistence recovered",
+    finishReason: "stop",
     model: { provider: "openrouter", modelId: "configured/model" },
     usage: {},
   };

@@ -44,3 +44,70 @@ test("AI operational logger rejects unknown events and swallows sink failures", 
     throw new Error("logging backend unavailable");
   }), false);
 });
+
+test("terminal generation events keep useful bounded telemetry and no raw content", () => {
+  const records = [];
+  observability.recordAiChatOperationalEvent({
+    event: "ai_chat_generation_failed",
+    attemptId: "attempt-1",
+    errorCode: "response_incomplete",
+    promptId: "unmumble.vocabulary-practice",
+    promptVersion: "1",
+    elapsedMs: 45_001,
+    finishReason: "length",
+    stepCount: 3,
+    toolCallCount: 2,
+    outputCharacters: 8_200,
+    requiredToolRetries: 2,
+    text: "PRIVATE_PARTIAL_RESPONSE",
+    rawFinishReason: "PRIVATE_PROVIDER_REASON",
+  }, (record) => records.push(record));
+  observability.recordAiChatOperationalEvent({
+    event: "ai_chat_generation_completed",
+    attemptId: "attempt-2",
+    provider: "openrouter",
+    model: "routed/model",
+    promptId: "unmumble.vocabulary-practice",
+    promptVersion: "1",
+    elapsedMs: 4_321,
+    finishReason: "stop",
+    stepCount: 2,
+    toolCallCount: 1,
+    outputCharacters: 240,
+    requiredToolRetries: 2,
+    requiredToolFallbacks: 1,
+    text: "PRIVATE_COMPLETE_RESPONSE",
+  }, (record) => records.push(record));
+
+  assert.deepEqual(records, [
+    {
+      event: "ai_chat_generation_failed",
+      attemptId: "attempt-1",
+      errorCode: "response_incomplete",
+      promptId: "unmumble.vocabulary-practice",
+      promptVersion: "1",
+      elapsedMs: 45_001,
+      finishReason: "length",
+      stepCount: 3,
+      toolCallCount: 2,
+      outputCharacters: 8_200,
+      requiredToolRetries: 2,
+    },
+    {
+      event: "ai_chat_generation_completed",
+      attemptId: "attempt-2",
+      provider: "openrouter",
+      model: "routed/model",
+      promptId: "unmumble.vocabulary-practice",
+      promptVersion: "1",
+      elapsedMs: 4_321,
+      finishReason: "stop",
+      stepCount: 2,
+      toolCallCount: 1,
+      outputCharacters: 240,
+      requiredToolRetries: 2,
+      requiredToolFallbacks: 1,
+    },
+  ]);
+  assert.doesNotMatch(JSON.stringify(records), /PRIVATE/u);
+});

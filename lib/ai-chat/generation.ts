@@ -2,15 +2,22 @@ import {
   stepCountIs,
   streamText,
   toUIMessageStream,
+  wrapLanguageModel,
   type TextStreamPart,
   type ToolSet,
 } from "ai";
 import { AI_CHAT_ERROR_CODES, type AiChatErrorCode } from "./contracts.ts";
 import type { AiChatPrompt } from "./prompts/vocabulary-practice.ts";
+import { AI_VOCABULARY_MAX_TOOL_CALLS_PER_TURN } from "./tools/vocabulary/contracts.ts";
 import {
   normalizeAiChatAssistantText,
   type AiChatRuntime,
 } from "./runtime.ts";
+import {
+  parseAiChatProposalFallback,
+  routeAiChatProposalIntent,
+} from "./proposal-intent.ts";
+import { createRequiredToolRetryMiddleware } from "./required-tool-retry.ts";
 
 export type AiChatPendingAssistantTurn = {
   id: string;
@@ -28,6 +35,16 @@ export type AiChatGenerationUsage = {
   upstreamInferenceCost: number | null;
 };
 
+export type AiChatGenerationTerminalTelemetry = {
+  elapsedMs: number;
+  finishReason?: string;
+  stepCount?: number;
+  toolCallCount?: number;
+  outputCharacters?: number;
+  requiredToolRetries?: number;
+  requiredToolFallbacks?: number;
+};
+
 export type AiChatGenerationRepository = {
   completePendingAssistant(input: {
     assistantId: string;
@@ -35,10 +52,12 @@ export type AiChatGenerationRepository = {
     provider: string;
     model: string;
     usage: AiChatGenerationUsage;
+    terminal: AiChatGenerationTerminalTelemetry;
   }): Promise<void>;
   failPendingAssistant(input: {
     assistantId: string;
     errorCode: AiChatErrorCode;
+    terminal: AiChatGenerationTerminalTelemetry;
   }): Promise<void>;
 };
 
@@ -54,12 +73,39 @@ export type AiChatGenerationInput = {
 type AiChatGenerationDependencies = {
   streamText: typeof streamText;
   toUIMessageStream: typeof toUIMessageStream;
+  wrapLanguageModel?: typeof wrapLanguageModel;
+  now?: () => number;
 };
 
 const defaultDependencies: AiChatGenerationDependencies = {
   streamText,
   toUIMessageStream,
 };
+
+type AiChatGenerationStep = { toolCalls?: readonly unknown[] };
+
+const PUBLIC_FINISH_REASONS = new Set([
+  "stop",
+  "length",
+  "content-filter",
+  "tool-calls",
+  "error",
+  "other",
+  "unknown",
+]);
+
+function publicFinishReason(value: unknown) {
+  return typeof value === "string" && PUBLIC_FINISH_REASONS.has(value)
+    ? value
+    : "unknown";
+}
+
+function providerToolCallCount(steps: readonly AiChatGenerationStep[] | undefined) {
+  return (steps || []).reduce(
+    (total, step) => total + (Array.isArray(step.toolCalls) ? step.toolCalls.length : 0),
+    0,
+  );
+}
 
 function publicTokenCount(value: unknown): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
@@ -156,8 +202,9 @@ function withConsumerCancellation<Chunk>(
       }
     },
     async cancel(reason) {
+      const terminalCancellation = onCancel();
       const sourceCancellation = reader.cancel(reason).catch(() => undefined);
-      await onCancel();
+      await terminalCancellation;
       await sourceCancellation;
     },
   });
@@ -186,6 +233,58 @@ export function startAiChatGeneration(
   input: AiChatGenerationInput,
   dependencies: AiChatGenerationDependencies = defaultDependencies,
 ) {
+  const currentUserMessage = [...input.prompt.messages]
+    .reverse()
+    .find((message) => message.role === "user")?.content || "";
+  const routedProposalTool = routeAiChatProposalIntent(currentUserMessage);
+  const proposalFallback = routedProposalTool
+    ? parseAiChatProposalFallback(currentUserMessage)
+    : null;
+  let requiredToolRetries = 0;
+  let requiredToolFallbacks = 0;
+  const model = routedProposalTool && typeof input.runtime.model !== "string"
+    ? (dependencies.wrapLanguageModel || wrapLanguageModel)({
+        model: input.runtime.model,
+        middleware: createRequiredToolRetryMiddleware({
+          onRetry: () => {
+            requiredToolRetries += 1;
+          },
+          fallbackToolCall: () => (
+            proposalFallback?.toolName === routedProposalTool
+              ? proposalFallback
+              : null
+          ),
+          onFallback: () => {
+            requiredToolFallbacks += 1;
+          },
+        }),
+      })
+    : input.runtime.model;
+  const now = dependencies.now || Date.now;
+  const startedAt = now();
+  const terminalTelemetry = (options: {
+    finishReason?: unknown;
+    steps?: readonly AiChatGenerationStep[];
+    text?: string;
+  } = {}): AiChatGenerationTerminalTelemetry => ({
+    elapsedMs: Math.max(0, Math.trunc(now() - startedAt)),
+    ...(options.finishReason === undefined
+      ? {}
+      : { finishReason: publicFinishReason(options.finishReason) }),
+    ...(options.steps === undefined
+      ? {}
+      : {
+          stepCount: options.steps.length,
+          toolCallCount: providerToolCallCount(options.steps),
+        }),
+    ...(options.text === undefined
+      ? {}
+      : {
+          outputCharacters: [...options.text.replace(/\r\n?/gu, "\n").trim()].length,
+        }),
+    ...(requiredToolRetries > 0 ? { requiredToolRetries } : {}),
+    ...(requiredToolFallbacks > 0 ? { requiredToolFallbacks } : {}),
+  });
   let terminalTransitionComplete = false;
   let activeTerminalTransition: Promise<void> | null = null;
   const finalizeOnce = async (transition: () => Promise<void>) => {
@@ -212,29 +311,50 @@ export function startAiChatGeneration(
       return;
     }
   };
-  const failPendingAssistant = (errorCode: AiChatErrorCode) => finalizeOnce(
+  const failPendingAssistant = (
+    errorCode: AiChatErrorCode,
+    terminal: AiChatGenerationTerminalTelemetry,
+  ) => finalizeOnce(
     () => input.repository.failPendingAssistant({
       assistantId: input.pendingAssistant.id,
       errorCode,
+      terminal,
     }),
   );
   const result = dependencies.streamText({
-    model: input.runtime.model,
+    model,
     abortSignal: input.abortSignal,
     system: input.prompt.system,
     messages: input.prompt.messages,
     maxOutputTokens: input.runtime.maxOutputTokens,
-    timeout: input.runtime.timeoutMs,
+    timeout: input.runtime.timeout,
     maxRetries: 0,
     tools: input.tools,
     stopWhen: stepCountIs(5),
-    prepareStep: ({ stepNumber }) => stepNumber >= 4
-      ? { activeTools: [], toolChoice: "none" }
-      : undefined,
-    onEnd: async ({ text, usage, steps, finalStep }) => {
+    prepareStep: ({ stepNumber, steps }) => {
+      if (
+        stepNumber >= 4
+        || providerToolCallCount(steps) >= AI_VOCABULARY_MAX_TOOL_CALLS_PER_TURN
+      ) {
+        return { activeTools: [], toolChoice: "none" };
+      }
+      if (stepNumber === 0 && routedProposalTool) {
+        return {
+          activeTools: [routedProposalTool],
+          toolChoice: "required",
+        };
+      }
+      return undefined;
+    },
+    onEnd: async ({ text, finishReason, usage, steps, finalStep }) => {
+      const terminal = terminalTelemetry({ finishReason, steps: steps || [], text });
+      if (terminal.finishReason !== "stop") {
+        await failPendingAssistant(AI_CHAT_ERROR_CODES.responseIncomplete, terminal);
+        return;
+      }
       const normalizedText = normalizeAiChatAssistantText(text);
       if (!normalizedText.ok) {
-        await failPendingAssistant(normalizedText.error.code);
+        await failPendingAssistant(normalizedText.error.code, terminal);
         return;
       }
       const configuredModel = normalizeModelId(input.runtime.provenance.model, "unknown");
@@ -254,14 +374,23 @@ export function startAiChatGeneration(
             promptVersion: input.prompt.version,
             ...telemetry,
           },
+          terminal,
         }),
       );
     },
     onError: async ({ error }) => {
-      await failPendingAssistant(input.runtime.mapFailure(error).code);
+      await failPendingAssistant(
+        input.runtime.mapFailure(error).code,
+        terminalTelemetry(),
+      );
     },
-    onAbort: async () => {
-      await failPendingAssistant(AI_CHAT_ERROR_CODES.providerTimeout);
+    onAbort: async ({ steps }) => {
+      await failPendingAssistant(
+        input.abortSignal?.aborted
+          ? AI_CHAT_ERROR_CODES.generationCancelled
+          : AI_CHAT_ERROR_CODES.providerTimeout,
+        terminalTelemetry({ steps }),
+      );
     },
   });
 
@@ -274,6 +403,9 @@ export function startAiChatGeneration(
   });
   return withConsumerCancellation(
     uiStream,
-    () => failPendingAssistant(AI_CHAT_ERROR_CODES.providerTimeout),
+    () => failPendingAssistant(
+      AI_CHAT_ERROR_CODES.generationCancelled,
+      terminalTelemetry(),
+    ),
   );
 }

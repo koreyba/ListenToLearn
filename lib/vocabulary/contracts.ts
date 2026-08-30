@@ -24,9 +24,14 @@ export function readScopedLegacyMeaningId(value: string) {
 export type VocabularyStatus = "to_learn" | "learning_now" | "learnt" | "learned";
 
 export const VOCABULARY_CATEGORIES = ["to_learn", "learning", "learned"] as const;
+export const VOCABULARY_STATE_DESTINATIONS = [
+  ...VOCABULARY_CATEGORIES,
+  "removed",
+] as const;
 
 export type VocabularyCategory = (typeof VOCABULARY_CATEGORIES)[number];
 export type VocabularyCategoryFilter = VocabularyCategory | "all";
+export type VocabularyStateDestination = (typeof VOCABULARY_STATE_DESTINATIONS)[number];
 
 export function isVocabularyCategoryFilter(
   value: unknown,
@@ -34,6 +39,13 @@ export function isVocabularyCategoryFilter(
   return value === "all"
     || (typeof value === "string"
       && (VOCABULARY_CATEGORIES as readonly string[]).includes(value));
+}
+
+export function isVocabularyStateDestination(
+  value: unknown,
+): value is VocabularyStateDestination {
+  return typeof value === "string"
+    && (VOCABULARY_STATE_DESTINATIONS as readonly string[]).includes(value);
 }
 
 export function vocabularyCategoryFromStatus(
@@ -106,6 +118,10 @@ export type VocabularyCategoryTarget = {
   text: string;
   storedStatus: VocabularyStatus;
   category: VocabularyCategory;
+};
+
+export type VocabularyStateTarget = VocabularyCategoryTarget & {
+  sourceType: "preset" | "custom";
 };
 
 export function normalizeVocabularyMeaning(value: unknown): string {

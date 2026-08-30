@@ -252,3 +252,126 @@ test("meaning and category proposals use operation-specific copy", async () => {
     });
   }
 });
+
+const removalItems = Array.from({ length: 10 }, (_, index) => ({
+  id: `phrase-${index + 1}`,
+  text: `practice entry ${index + 1}`,
+  fromCategory: index % 2 === 0 ? "To Learn" : "Learning",
+  toCategory: "removed",
+}));
+
+test("a removal proposal reviews the exact 1-10 entry set inline", async () => {
+  const actions = [];
+
+  await renderProposal({
+    proposalId: "proposal-remove-ten",
+    operation: "change_vocabulary_state",
+    items: removalItems,
+    status: "pending",
+    onConfirm: (proposalId) => actions.push(["confirm", proposalId]),
+    onCancel: (proposalId) => actions.push(["cancel", proposalId]),
+  }, async ({ host }) => {
+    const card = host.querySelector("section");
+    assert.ok(card);
+    assert.equal(card.getAttribute("aria-modal"), null);
+    assert.equal(card.querySelector("h3")?.textContent, "Remove from Practice");
+    assert.equal(card.querySelector(".ai-chat-write-proposal-count")?.textContent, "10 entries");
+    assert.equal(
+      card.querySelector('[role="status"]')?.textContent,
+      "Review 10 entries before removing them from Practice.",
+    );
+
+    const list = card.querySelector("ol");
+    const toggle = card.querySelector(".ai-chat-write-proposal-toggle");
+    assert.equal(list?.querySelectorAll("li").length, 3);
+    assert.equal(toggle?.textContent, "Show 7 more");
+    await act(async () => toggle.click());
+    assert.deepEqual(
+      [...list.querySelectorAll("li")].map((item) => item.textContent),
+      removalItems.map((item) => (
+        `${item.text}${item.fromCategory} → Removed from Practice`
+      )),
+    );
+
+    const buttons = [...card.querySelectorAll(".ai-chat-write-proposal-actions button")];
+    assert.deepEqual(buttons.map((button) => button.textContent), ["Cancel", "Confirm"]);
+    await act(async () => buttons[1].click());
+    await act(async () => buttons[0].click());
+  });
+
+  assert.deepEqual(actions, [
+    ["confirm", "proposal-remove-ten"],
+    ["cancel", "proposal-remove-ten"],
+  ]);
+});
+
+test("removal proposals expose busy, confirmed, cancelled, failed, and retry states", async () => {
+  const cases = [
+    {
+      status: "busy",
+      message: "Applying your decision…",
+      role: "status",
+      buttons: ["Cancel", "Applying…"],
+      disabled: true,
+    },
+    {
+      status: "confirmed",
+      message: "10 entries removed from Practice.",
+      role: "status",
+      buttons: [],
+    },
+    {
+      status: "cancelled",
+      message: "Removal cancelled. Nothing was removed from Practice.",
+      role: "status",
+      buttons: [],
+    },
+    {
+      status: "failed",
+      message: "The selected entries changed. Nothing was removed.",
+      errorMessage: "The selected entries changed. Nothing was removed.",
+      role: "alert",
+      buttons: [],
+    },
+    {
+      status: "pending",
+      message: "The request did not complete. Review the list, then choose Cancel or Confirm again.",
+      errorMessage: "The request was interrupted.",
+      role: "status",
+      buttons: ["Cancel", "Confirm"],
+      disabled: false,
+    },
+  ];
+
+  for (const state of cases) {
+    const actions = [];
+    await renderProposal({
+      proposalId: `proposal-remove-${state.status}`,
+      operation: "change_vocabulary_state",
+      items: removalItems,
+      status: state.status,
+      errorMessage: state.errorMessage,
+      onConfirm: (proposalId) => actions.push(["confirm", proposalId]),
+      onCancel: (proposalId) => actions.push(["cancel", proposalId]),
+    }, async ({ host }) => {
+      const card = host.querySelector("section");
+      const region = card.querySelector(`[role="${state.role}"]`);
+      const buttons = [...card.querySelectorAll(".ai-chat-write-proposal-actions button")];
+      assert.equal(region?.textContent, state.message);
+      assert.deepEqual(buttons.map((button) => button.textContent), state.buttons);
+      for (const button of buttons) {
+        assert.equal(button.disabled, state.disabled);
+        await act(async () => button.click());
+      }
+    });
+
+    if (state.status === "pending") {
+      assert.deepEqual(actions, [
+        ["cancel", "proposal-remove-pending"],
+        ["confirm", "proposal-remove-pending"],
+      ]);
+    } else {
+      assert.deepEqual(actions, []);
+    }
+  }
+});

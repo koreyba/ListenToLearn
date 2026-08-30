@@ -30,13 +30,14 @@ description: Implemented chat-only tools, attempts, ledger, and mutation receipt
 - `lib/ai-chat/chat-creation.ts` and
   `lib/ai-chat/prompts/vocabulary-practice.ts`: server-built latest-five opening,
   escaped `UNTRUSTED_VOCABULARY_OPENING`, learner-led system contract, list
-  continuation, and prompt ID `unmumble.vocabulary-practice` version `1`.
+  continuation, fresh-read rules, and prompt ID `unmumble.vocabulary-practice`
+  version `4`.
 - `lib/vocabulary/contracts.ts`, `repository.ts`, `mutations.ts`,
   `practice-reader.ts`: reusable bounded vocabulary reads, a read-only saved-target/
   practice projection boundary, and composable mutation plans. The chat repository
   no longer owns SQL for `phrases` or `phrase_meanings`.
 - `lib/ai-chat/tools/vocabulary/{contracts,policy,results,handlers,registry,pagination}.ts`:
-  six tool contracts, exact current-turn policy, result compaction, domain
+  six active proposal/read contracts, result compaction, domain
   orchestration, one traced AI SDK registry wrapper, and opaque cross-turn cursors.
   `lib/ai-chat/vocabulary-tools.ts` is a thin re-export facade.
 - `lib/ai-chat/tool-trace.ts`: durable invocation registration, execution ledger,
@@ -84,46 +85,34 @@ description: Implemented chat-only tools, attempts, ledger, and mutation receipt
   phrase text, legacy translation, and only the current owner's personal saved
   translations, with exact match first and then deterministic recency. Queries are
   at most 48 characters and the escaped wildcard pattern at most 50 UTF-8 bytes.
-- `add_vocabulary_entry({ text, translation?, context? })` returns the committed
-  bounded result `{ ok: true, saved: true, text }`.
-- `add_vocabulary_meaning({ phraseId, translation, context? })` returns
-  `{ ok: true, saved: true, phraseId, translation }`.
-- `update_vocabulary_meaning({ meaningId, translation, context? })` returns
-  `{ ok: true, updated: true, meaningId, translation }`.
-- `set_vocabulary_category({ phraseId, category })` accepts only
-  `to_learn|learning|learned` and returns the receipt-backed canonical category.
+- `propose_vocabulary_entries({ entries })` accepts 1–10 exact text/optional
+  translation/context items and stores one immutable review proposal.
+- `propose_vocabulary_meaning({ phraseId, translation, context? })` and
+  `propose_vocabulary_meaning_update({ meaningId, translation, context? })` resolve
+  owner-scoped snapshots and store proposals only.
+- `propose_vocabulary_state_change({ entries, destination })` resolves 1–10 exact
+  texts in one owner-scoped query and accepts
+  `to_learn|learning|learned|removed`.
 
-The two IDs used by meaning writes come from owner-scoped reads, not user identity.
-Every text value persisted must also appear literally in the persisted current user
-message, which must itself match a direct vocabulary-write command. Extra tool
-fields are rejected; the category tool accepts the public category, never raw D1
-status or identity.
-
-Command detection remains case-insensitive where appropriate, while value binding
-preserves exact case and compatibility characters: `Polish` cannot authorize
-`polish`, and full-width text cannot authorize normalized ASCII. Revocation phrases
-are recognized only outside the literal value span, so saving `never mind` remains
-valid. Matching quotes preserve meaningful terminal punctuation (`"wow!"`), while
-unquoted terminal punctuation remains command syntax.
-
-Update authorization also requires the current translation and affected entry text
-literally in the current message. The handler reads the owned meaning snapshot and
-the planner compares owner, phrase ID, meaning ID, old translation, and old context
-in its SQL/postcondition. Missing or concurrently changed state is recorded as
-`mutation_conflict`, not applied as a stale overwrite.
-
-Category authorization similarly parses one direct current-turn command, requires
-the resolved entry text plus exact canonical destination, and rejects practice,
-description, negation, revocation, wrong entry, or wrong destination. The planner
-compare-and-swaps the owner-scoped stored status; the prompt separately forbids any
-autonomous mastery/category inference.
+The IDs used by meaning and state proposals come from owner-scoped reads, not the
+browser or model. Natural references may be resolved from canonical conversation
+context; the exact values are then displayed in the inline card. No active tool
+uses the legacy regex/literal-current-turn gate. Extra fields are rejected, and
+identity, raw D1 status, and mutation SQL never enter public tool arguments.
+Meaning and state planners compare owner plus the complete immutable snapshot in
+their SQL/postconditions. Missing or concurrently changed state is recorded as
+`mutation_conflict`, not applied as a stale overwrite. Confirmed removal changes a
+shared preset only to this learner's `pick` progress; an owned custom phrase and
+its foreign-key children are deleted only for that owner. Historical pending
+`vocabulary.set-category/v1` proposals remain confirmable for compatibility.
 
 The compatibility target contract accepts at most 12 saved or ad-hoc entries with
 `all_saved`, saved-only `selected`, or `explore` meaning mode. It is mutated only by
 one whole-array `PATCH`; the chat-only browser does not render these controls.
 
-New/unsaved entries begin in `to_learn`; adding a duplicate preserves any active
-status. Every new supplied translation is a normalized owner-scoped personal
+New/unsaved entries begin in `to_learn`; re-adding a `pick` entry refreshes its
+activation `created_at`, while adding an already-active duplicate preserves status
+and recency. Every new supplied translation is a normalized owner-scoped personal
 meaning, including the first translation of a new custom entry. Preset legacy
 fields cannot be changed. Historical owner-custom legacy fields are exposed with a
 phrase-scoped ID; an authorized CAS update creates/updates a personal meaning and
@@ -217,18 +206,20 @@ preserves deterministic non-empty translation/context and the latest `updated_at
 
 ## Bounds and Failure Handling
 
-The AI SDK uses `stepCountIs(5)` and disables tools from step 4 onward; handlers
-allow two total tool invocations. A separate provider-adapter fence rejects the
+The AI SDK uses `stepCountIs(5)` and disables tools after two provider tool calls
+and from step 4 onward, preserving a final text-only answer step. Handlers allow
+two total tool invocations. A separate provider-adapter fence rejects the
 third and later calls before trace persistence, while a failed mutation opens the
 per-turn circuit before any following tool. This reserves headroom below D1 Free's
 50-query Worker-invocation budget. Instrumented generation envelopes are 35
-statements for two maximum reads, 43 for two cold writes, 45 with one ambiguous
-committed write, 36 for rollback/circuit, 38 for rollback plus ambiguous terminal
-failure, and 41 for legacy-promotion rollback plus ambiguous terminal failure.
+statements for two maximum reads, 40 for two cold proposals, 42 with one ambiguous
+proposal commit, 32 for proposal rollback/circuit, 34 for rollback plus ambiguous
+terminal failure, and 37 for meaning-update proposal rollback plus ambiguous
+terminal failure.
 Maximum 12-target chat creation with an ambiguous committed response remains the
 exact worst case at 49/50 statements. The Promise-all legacy-promotion regression
 combines a full rollback, concurrent duplicate update, and ambiguous failed terminal
-at 41 statements; the queued duplicate is rejected without D1. Provider output includes
+at 37 statements; the queued duplicate is rejected without D1. Provider output includes
 at most six meanings. The complete successful tool result is compacted to at most
 7,800 JSON characters by dropping extra meanings and then contexts, with
 `meaningCount`, `meaningsTruncated`, and `detailsTruncated`. Tool trace args/results
@@ -238,11 +229,24 @@ remain limited to 4,096/8,192 canonical JSON characters.
 optional legacy meaning; `meaningCount` preserves the full visible count and
 `meaningsTruncated` makes personal-meaning truncation explicit.
 
-Existing chat limits remain 16,384 request bytes, 4,000 message characters,
-40/32,000 canonical history messages/characters, 800 output tokens, 20-second
-timeout, and 30-second attempt lease. Abort, cancellation, provider failure, and
-empty output fail the current attempt with a safe code. A retry of an older turn
-loads only messages before that turn and can replay committed receipts.
+Existing chat limits remain 16,384 request bytes, 4,000 message characters, and
+40/32,000 canonical history messages/characters. Output is capped at 2,400 tokens;
+generation deadlines are 45 seconds total, 25 seconds per step, 20 seconds to the
+first chunk, 20 seconds between chunks, and 5 seconds for tool execution. The
+attempt lease is 55 seconds. A non-`stop` finish reason is retryable
+`response_incomplete`; explicit cancellation is `generation_cancelled`. Provider
+failure and empty output also fail truthfully. A retry of an older turn loads only
+messages before that turn and can replay committed receipts.
+
+`proposal-intent.ts` routes explicit add versus state-change intent without using
+the removed literal-command authorization regex. Routed mutation turns expose only
+that proposal tool with required tool choice. `required-tool-retry.ts` buffers only
+those streams, discards text-only drift, and permits three bounded provider attempts
+inside the existing deadlines. After exhaustion it can synthesize the same tool
+call only from conservative explicit values in the current message; ambiguous or
+referential commands fail safely. Every successful path still produces a pending
+proposal that requires the existing separate confirmation endpoint. Ordinary chat
+streaming is unchanged.
 
 The browser stream receives only allowlisted start/text/finish/error/abort chunks;
 text IDs are remapped and raw finish/provider data is removed. Tool, reasoning,
@@ -268,21 +272,25 @@ DeepSeek prompt-prefix caching remains automatic without extra application setti
 Terminal persistence keeps the configured model separately from the sanitized
 actual routed model. Internal usage stores only token totals, unique bounded routed
 provider names, and finite nonnegative OpenRouter-reported cost/upstream-cost sums
-across steps. Raw provider metadata, reasoning, tool inputs, and response bodies are
-never copied into usage storage or the browser stream.
+across steps. Operational completion/failure adds only bounded elapsed, finish,
+step/tool-count, output-size, and required-tool retry/fallback counters. Raw
+provider metadata, reasoning, tool
+inputs, and response bodies are never copied into usage storage, logs, or the
+browser stream.
 
 ## Validation Evidence
 
-Fresh 2026-08-30 exact-diff evidence passes focused UI/selection tests 95/95 and
-full `npm test` 539/539 (including the production build), plus typecheck and lint
-with zero errors plus three existing warnings. The earlier focused backend 219/219,
+Fresh 2026-08-31 exact-diff evidence passes full `npm test` 598/598 (including the
+production build), plus typecheck, diff check, and lint with zero errors plus three
+existing warnings. The earlier focused UI/selection 95/95 and backend 219/219,
 Drizzle, audit, lifecycle/diff/secret/ignore, and independent P0/P1 review evidence
 remains recorded for the backend commit. Coverage includes the
 six-tool registry, legacy timestamp pagination, NFC/NOCASE identity, mutation
 circuit, owner-scoped terminal paths, and exact D1 envelopes. A live direct
-OpenRouter smoke returned a DeepSeek
-`list_vocabulary` tool call; it proves model tool selection only, not authenticated
-app execution or D1 effects.
+OpenRouter smoke returned a DeepSeek `list_vocabulary` tool call. A later
+authenticated local real-model run completed 25/25 turns: all eight expected
+proposals appeared, six were committed, two were cancelled, and D1 recorded zero
+failed/pending attempts plus fresh list/find calls after mutations.
 
 A controlled local browser fixture verifies the current React surface in dark and
 light desktop layouts plus a narrow mobile viewport: drawer open/switch/close,

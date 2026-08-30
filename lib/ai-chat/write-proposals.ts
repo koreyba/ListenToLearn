@@ -1,6 +1,7 @@
 import type {
   AddVocabularyEntriesMutationArgs,
   AddVocabularyMeaningMutationArgs,
+  ChangeVocabularyStateMutationInput,
   SetVocabularyCategoryMutationInput,
   UpdateVocabularyMeaningMutationArgs,
   createVocabularyMutationPlanner,
@@ -17,6 +18,7 @@ export type AiChatWriteProposalOperation =
   | "add_vocabulary_entries"
   | "add_vocabulary_meaning"
   | "update_vocabulary_meaning"
+  | "change_vocabulary_state"
   | "set_vocabulary_category";
 
 export type AiChatWriteProposalItem = {
@@ -93,6 +95,7 @@ const PUBLIC_OPERATIONS = new Set<AiChatWriteProposalOperation>([
   "add_vocabulary_entries",
   "add_vocabulary_meaning",
   "update_vocabulary_meaning",
+  "change_vocabulary_state",
   "set_vocabulary_category",
 ]);
 
@@ -301,6 +304,12 @@ export function createAiChatWriteProposalRepository(
         plan = await mutationPlanner.planUpdateMeaning(
           userId,
           envelope.args as UpdateVocabularyMeaningMutationArgs,
+        );
+        break;
+      case VOCABULARY_MUTATION_OPERATIONS.changeState:
+        plan = await mutationPlanner.planChangeState(
+          userId,
+          envelope.args as ChangeVocabularyStateMutationInput,
         );
         break;
       case VOCABULARY_MUTATION_OPERATIONS.setCategory:

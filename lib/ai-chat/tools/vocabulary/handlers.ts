@@ -1,12 +1,15 @@
 import { AI_CHAT_LIMITS } from "../../contracts.ts";
 import {
   isVocabularyCategoryFilter,
+  isVocabularyStateDestination,
+  normalizeVocabularyTarget,
   type VocabularyCategoryFilter,
 } from "../../../vocabulary/contracts.ts";
 import type {
   AddVocabularyEntriesMutationResult,
   AddVocabularyEntryMutationResult,
   AddVocabularyMeaningMutationResult,
+  ChangeVocabularyStateMutationResult,
   SetVocabularyCategoryMutationResult,
   UpdateVocabularyMeaningMutationResult,
 } from "../../../vocabulary/mutations.ts";
@@ -23,6 +26,7 @@ import {
   type FindVocabularyInput,
   type ListVocabularyInput,
   type ProposeVocabularyEntriesInput,
+  type ProposeVocabularyStateChangeInput,
   type SetVocabularyCategoryInput,
   type ToolPolicyError,
   type ToolResult,
@@ -254,31 +258,61 @@ export function createAiVocabularyToolHandlers(input: {
       });
     },
 
-    async proposeVocabularyCategory(
-      input: SetVocabularyCategoryInput,
+    async proposeVocabularyStateChange(
+      input: ProposeVocabularyStateChangeInput,
       scope: AiChatToolExecutionScope,
     ) {
       const budgetError = reserveToolCall();
       if (budgetError) return budgetError;
-      const phraseId = cleanSingleLine(input.phraseId, 120);
-      if (!phraseId || !["to_learn", "learning", "learned"].includes(input.category)) {
+      if (
+        !input
+        || !Array.isArray(input.entries)
+        || input.entries.length < 1
+        || input.entries.length > VOCABULARY_BULK_ENTRY_LIMIT
+        || !isVocabularyStateDestination(input.destination)
+      ) {
         return { ok: false, error: "invalid_input" } as const;
       }
-      const target = await repository.getCategoryTarget(userId, phraseId);
-      if (!target) return { ok: false, error: "mutation_conflict" } as const;
-      const plan = await mutationPlanner.planSetCategory(userId, {
-        phraseId,
-        expectedStoredStatus: target.storedStatus,
-        category: input.category,
+      const texts: string[] = [];
+      const normalizedTexts = new Set<string>();
+      for (const entry of input.entries) {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          return { ok: false, error: "invalid_input" } as const;
+        }
+        const text = cleanSingleLine(entry.text, AI_CHAT_LIMITS.targetTextCharacters);
+        const normalizedText = normalizeVocabularyTarget(text);
+        if (!text || normalizedTexts.has(normalizedText)) {
+          return { ok: false, error: "invalid_input" } as const;
+        }
+        normalizedTexts.add(normalizedText);
+        texts.push(text);
+      }
+      const targets = await repository.getStateTargets(userId, texts);
+      if (
+        targets.length !== texts.length
+        || targets.some((target, index) => (
+          normalizeVocabularyTarget(target.text) !== normalizeVocabularyTarget(texts[index])
+        ))
+      ) {
+        return { ok: false, error: "mutation_conflict" } as const;
+      }
+      const plan = await mutationPlanner.planChangeState(userId, {
+        destination: input.destination,
+        entries: targets.map((target) => ({
+          phraseId: target.phraseId,
+          text: target.text,
+          sourceType: target.sourceType,
+          expectedStoredStatus: target.storedStatus,
+        })),
       });
-      return scope.proposeMutation(plan, {
-        operation: "set_vocabulary_category",
-        items: [{
-          id: "entry-1",
+      return scope.proposeMutation<ChangeVocabularyStateMutationResult>(plan, {
+        operation: "change_vocabulary_state",
+        items: targets.map((target) => ({
+          id: target.phraseId,
           text: target.text,
           fromCategory: target.category,
-          toCategory: input.category,
-        }],
+          toCategory: input.destination,
+        })),
       });
     },
 

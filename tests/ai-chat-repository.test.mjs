@@ -524,6 +524,42 @@ test("category mutation target is owner-scoped and does not load meanings", asyn
   sqlite.close();
 });
 
+test("state-change targets resolve an exact batch owner-scoped with owned custom precedence", async () => {
+  const { sqlite, vocabulary } = createFixture();
+  sqlite.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, source_type, owner_id, status, created_at, updated_at
+    ) VALUES ('phrase-owned-run', 'run', '', 'custom', 'user-a', 'pick', 'now', 'now');
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at) VALUES
+      ('user-a', 'phrase-a', 'learning_now', 'now', 'now'),
+      ('user-a', 'phrase-owned-run', 'to_learn', 'now', 'now'),
+      ('user-b', 'phrase-b', 'to_learn', 'now', 'now');
+  `);
+
+  assert.deepEqual(await vocabulary.getStateTargets("user-a", [
+    "run",
+    "figure out",
+    "get away",
+    "missing",
+  ]), [
+    {
+      phraseId: "phrase-owned-run",
+      text: "run",
+      sourceType: "custom",
+      storedStatus: "to_learn",
+      category: "to_learn",
+    },
+    {
+      phraseId: "phrase-a",
+      text: "figure out",
+      sourceType: "custom",
+      storedStatus: "learning_now",
+      category: "learning",
+    },
+  ]);
+  sqlite.close();
+});
+
 test("vocabulary search rejects LIKE patterns above 50 UTF-8 bytes after escaping", async () => {
   assert.equal(typeof vocabularyModule.createVocabularySearchPattern, "function");
   assert.deepEqual(vocabularyModule.createVocabularySearchPattern(`  ${"%".repeat(24)}  `), {

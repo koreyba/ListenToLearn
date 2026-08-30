@@ -1307,3 +1307,247 @@ test("set-category plans canonicalize Learned and enforce owner-scoped compare-a
   );
   sqlite.close();
 });
+
+test("re-adding a removed entry refreshes recency while an active duplicate keeps it", async () => {
+  const { database, planner, sqlite } = createSqliteFixture();
+  sqlite.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, translation, context, source_type, owner_id, status,
+      created_at, updated_at
+    ) VALUES
+      ('phrase-single-pick', 'single pick', '', '', '', 'preset', NULL, 'pick', 'old', 'old'),
+      ('phrase-single-active', 'single active', '', '', '', 'preset', NULL, 'pick', 'old', 'old'),
+      ('phrase-bulk-pick', 'bulk pick', '', '', '', 'preset', NULL, 'pick', 'old', 'old'),
+      ('phrase-bulk-active', 'bulk active', '', '', '', 'preset', NULL, 'pick', 'old', 'old');
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at) VALUES
+      ('user-a', 'phrase-single-pick', 'pick', '2026-08-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z'),
+      ('user-a', 'phrase-single-active', 'learning_now', '2026-08-02T00:00:00.000Z', '2026-08-02T00:00:00.000Z'),
+      ('user-a', 'phrase-bulk-pick', 'pick', '2026-08-03T00:00:00.000Z', '2026-08-03T00:00:00.000Z'),
+      ('user-a', 'phrase-bulk-active', 'learnt', '2026-08-04T00:00:00.000Z', '2026-08-04T00:00:00.000Z');
+  `);
+
+  for (const text of ["single pick", "single active"]) {
+    const plan = await planner.planAddEntry("user-a", { text });
+    assert.equal(await executePlan(database, plan, `receipt-${text}`), 1);
+  }
+  const bulk = await planner.planAddEntries("user-a", {
+    entries: [{ text: "bulk pick" }, { text: "bulk active" }],
+  });
+  assert.equal(await executePlan(database, bulk, "receipt-bulk-recency"), 1);
+
+  const rows = Object.fromEntries(sqlite.prepare(`
+    SELECT phrase_id, status, created_at, updated_at
+    FROM phrase_progress
+    WHERE user_id = 'user-a'
+  `).all().map((row) => [row.phrase_id, { ...row }]));
+  assert.deepEqual(rows["phrase-single-pick"], {
+    phrase_id: "phrase-single-pick",
+    status: "to_learn",
+    created_at: "2026-08-29T12:00:00.000Z",
+    updated_at: "2026-08-29T12:00:00.000Z",
+  });
+  assert.deepEqual(rows["phrase-single-active"], {
+    phrase_id: "phrase-single-active",
+    status: "learning_now",
+    created_at: "2026-08-02T00:00:00.000Z",
+    updated_at: "2026-08-02T00:00:00.000Z",
+  });
+  assert.deepEqual(rows["phrase-bulk-pick"], {
+    phrase_id: "phrase-bulk-pick",
+    status: "to_learn",
+    created_at: "2026-08-29T12:00:00.002Z",
+    updated_at: "2026-08-29T12:00:00.002Z",
+  });
+  assert.deepEqual(rows["phrase-bulk-active"], {
+    phrase_id: "phrase-bulk-active",
+    status: "learnt",
+    created_at: "2026-08-04T00:00:00.000Z",
+    updated_at: "2026-08-04T00:00:00.000Z",
+  });
+  sqlite.close();
+});
+
+test("remove-state deletes only owned custom data and only hides a shared preset for this learner", async () => {
+  const { database, planner, sqlite } = createSqliteFixture();
+  sqlite.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, translation, context, source_type, owner_id, status,
+      created_at, updated_at
+    ) VALUES
+      ('phrase-preset', 'shared word', '', 'общий', '', 'preset', NULL, 'pick', 'now', 'now'),
+      ('phrase-custom-a', 'my word', '', '', '', 'custom', 'user-a', 'pick', 'now', 'now'),
+      ('phrase-custom-b', 'my word', '', '', '', 'custom', 'user-b', 'pick', 'now', 'now');
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at) VALUES
+      ('user-a', 'phrase-preset', 'learning_now', 'now', 'now'),
+      ('user-b', 'phrase-preset', 'learnt', 'now', 'now'),
+      ('user-a', 'phrase-custom-a', 'to_learn', 'now', 'now'),
+      ('user-b', 'phrase-custom-b', 'to_learn', 'now', 'now');
+    INSERT INTO phrase_meanings (
+      id, user_id, phrase_id, translation, normalized_translation, context,
+      created_at, updated_at
+    ) VALUES ('meaning-custom-a', 'user-a', 'phrase-custom-a', 'моё', 'моё', '', 'now', 'now');
+    INSERT INTO phrase_examples (
+      id, user_id, phrase_id, provider, external_id, query, caption, accent, metadata, created_at
+    ) VALUES ('example-custom-a', 'user-a', 'phrase-custom-a', 'test', '1', 'my word', '', '', '{}', 'now');
+    INSERT INTO ai_chats (id, user_id, title, explanation_language, created_at, updated_at)
+    VALUES ('chat-remove', 'user-a', '', 'ru', 'now', 'now');
+    INSERT INTO ai_chat_practice_items (
+      id, chat_id, phrase_id, text_snapshot, meaning_mode, selected_meaning_id,
+      selected_meaning_snapshot, created_at, updated_at
+    ) VALUES (
+      'practice-custom-a', 'chat-remove', 'phrase-custom-a', 'my word', 'selected',
+      'meaning-custom-a', 'моё', 'now', 'now'
+    );
+  `);
+
+  const plan = await planner.planChangeState("user-a", {
+    destination: "removed",
+    entries: [
+      {
+        phraseId: "phrase-preset",
+        text: "shared word",
+        sourceType: "preset",
+        expectedStoredStatus: "learning_now",
+      },
+      {
+        phraseId: "phrase-custom-a",
+        text: "my word",
+        sourceType: "custom",
+        expectedStoredStatus: "to_learn",
+      },
+    ],
+  });
+  assert.deepEqual(plan.canonicalResult, {
+    ok: true,
+    updated: true,
+    entries: [
+      { phraseId: "phrase-preset", text: "shared word", state: "removed" },
+      { phraseId: "phrase-custom-a", text: "my word", state: "removed" },
+    ],
+  });
+  assert.equal(await executePlan(database, plan, "receipt-remove-mixed"), 1);
+
+  assert.deepEqual(sqlite.prepare(`
+    SELECT user_id, status FROM phrase_progress
+    WHERE phrase_id = 'phrase-preset' ORDER BY user_id
+  `).all().map((row) => ({ ...row })), [
+    { user_id: "user-a", status: "pick" },
+    { user_id: "user-b", status: "learnt" },
+  ]);
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT id, source_type, owner_id, translation FROM phrases WHERE id = 'phrase-preset'
+  `).get() }, {
+    id: "phrase-preset",
+    source_type: "preset",
+    owner_id: null,
+    translation: "общий",
+  });
+  assert.equal(sqlite.prepare(
+    "SELECT count(*) AS count FROM phrases WHERE id = 'phrase-custom-a'",
+  ).get().count, 0);
+  assert.equal(sqlite.prepare(
+    "SELECT count(*) AS count FROM phrase_meanings WHERE id = 'meaning-custom-a'",
+  ).get().count, 0);
+  assert.equal(sqlite.prepare(
+    "SELECT count(*) AS count FROM phrase_examples WHERE id = 'example-custom-a'",
+  ).get().count, 0);
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT phrase_id, selected_meaning_id, text_snapshot, selected_meaning_snapshot
+    FROM ai_chat_practice_items WHERE id = 'practice-custom-a'
+  `).get() }, {
+    phrase_id: null,
+    selected_meaning_id: null,
+    text_snapshot: "my word",
+    selected_meaning_snapshot: "моё",
+  });
+  assert.equal(sqlite.prepare(
+    "SELECT count(*) AS count FROM phrases WHERE id = 'phrase-custom-b' AND owner_id = 'user-b'",
+  ).get().count, 1);
+  sqlite.close();
+});
+
+test("state-change updates an active batch with one owner-scoped CAS snapshot", async () => {
+  const { database, planner, sqlite } = createSqliteFixture();
+  sqlite.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, source_type, owner_id, status, created_at, updated_at
+    ) VALUES
+      ('phrase-preset', 'shared word', '', 'preset', NULL, 'pick', 'now', 'now'),
+      ('phrase-custom', 'my word', '', 'custom', 'user-a', 'pick', 'now', 'now');
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at) VALUES
+      ('user-a', 'phrase-preset', 'learning_now', 'now', 'now'),
+      ('user-a', 'phrase-custom', 'to_learn', 'now', 'now');
+  `);
+
+  const plan = await planner.planChangeState("user-a", {
+    destination: "learned",
+    entries: [
+      {
+        phraseId: "phrase-preset",
+        text: "shared word",
+        sourceType: "preset",
+        expectedStoredStatus: "learning_now",
+      },
+      {
+        phraseId: "phrase-custom",
+        text: "my word",
+        sourceType: "custom",
+        expectedStoredStatus: "to_learn",
+      },
+    ],
+  });
+  assert.equal(await executePlan(database, plan, "receipt-state-learned"), 1);
+  assert.deepEqual(sqlite.prepare(`
+    SELECT phrase_id, status FROM phrase_progress
+    WHERE user_id = 'user-a' ORDER BY phrase_id
+  `).all().map((row) => ({ ...row })), [
+    { phrase_id: "phrase-custom", status: "learnt" },
+    { phrase_id: "phrase-preset", status: "learnt" },
+  ]);
+  sqlite.close();
+});
+
+test("remove-state is atomic when any immutable snapshot is stale or missing", async () => {
+  const { database, planner, sqlite } = createSqliteFixture();
+  sqlite.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, source_type, owner_id, status, created_at, updated_at
+    ) VALUES
+      ('phrase-preset', 'shared word', '', 'preset', NULL, 'pick', 'now', 'now'),
+      ('phrase-custom', 'my word', '', 'custom', 'user-a', 'pick', 'now', 'now');
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at) VALUES
+      ('user-a', 'phrase-preset', 'learning_now', 'now', 'now'),
+      ('user-a', 'phrase-custom', 'to_learn', 'now', 'now');
+  `);
+  const plan = await planner.planChangeState("user-a", {
+    destination: "removed",
+    entries: [
+      {
+        phraseId: "phrase-preset",
+        text: "shared word",
+        sourceType: "preset",
+        expectedStoredStatus: "learning_now",
+      },
+      {
+        phraseId: "phrase-custom",
+        text: "my word",
+        sourceType: "custom",
+        expectedStoredStatus: "to_learn",
+      },
+    ],
+  });
+  sqlite.exec("DELETE FROM phrases WHERE id = 'phrase-custom'");
+
+  await assert.rejects(
+    executePlan(database, plan, "receipt-remove-stale"),
+    /CHECK constraint failed/u,
+  );
+  assert.equal(sqlite.prepare(`
+    SELECT status FROM phrase_progress
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-preset'
+  `).get().status, "learning_now");
+  assert.equal(sqlite.prepare(
+    "SELECT count(*) AS count FROM mutation_receipts WHERE id = 'receipt-remove-stale'",
+  ).get().count, 0);
+  sqlite.close();
+});

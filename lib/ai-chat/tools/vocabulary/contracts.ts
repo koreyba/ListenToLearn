@@ -2,6 +2,7 @@ import type {
   VocabularyCategory,
   VocabularyCategoryFilter,
   VocabularyPageCursor,
+  VocabularyStateDestination,
 } from "../../../vocabulary/contracts.ts";
 import type { createVocabularyMutationPlanner } from "../../../vocabulary/mutations.ts";
 import type {
@@ -10,6 +11,7 @@ import type {
   VocabularyEntryForMeaning,
   VocabularyMeaning,
   VocabularyPage,
+  VocabularyStateTarget,
 } from "../../../vocabulary/repository.ts";
 import type { createAiChatToolExecutor } from "../../tool-trace.ts";
 
@@ -23,7 +25,7 @@ export const AI_VOCABULARY_TOOL_NAMES = Object.freeze([
   "propose_vocabulary_entries",
   "propose_vocabulary_meaning",
   "propose_vocabulary_meaning_update",
-  "propose_vocabulary_category",
+  "propose_vocabulary_state_change",
 ] as const);
 
 export type VocabularyToolName = (typeof AI_VOCABULARY_TOOL_NAMES)[number];
@@ -43,6 +45,7 @@ export type VocabularyToolRepository = {
     userId: string,
     phraseId: string,
   ): Promise<VocabularyCategoryTarget | null>;
+  getStateTargets(userId: string, texts: readonly string[]): Promise<VocabularyStateTarget[]>;
   getEntryForMeaning(
     userId: string,
     meaningId: string,
@@ -54,6 +57,7 @@ export type VocabularyMutationPlanner = Pick<
   | "planAddEntry"
   | "planAddEntries"
   | "planAddMeaning"
+  | "planChangeState"
   | "planSetCategory"
   | "planUpdateMeaning"
 >;
@@ -105,6 +109,11 @@ export type UpdateVocabularyMeaningInput = {
 export type SetVocabularyCategoryInput = {
   phraseId: string;
   category: VocabularyCategory;
+};
+
+export type ProposeVocabularyStateChangeInput = {
+  entries: Array<{ text: string }>;
+  destination: VocabularyStateDestination;
 };
 
 export type AiVocabularyToolEntry = Pick<

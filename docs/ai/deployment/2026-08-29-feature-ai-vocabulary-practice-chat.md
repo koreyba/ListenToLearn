@@ -19,6 +19,12 @@ and category `To Learn`; both responses returned the account's two matching entr
 with no user-data mutation. No production code
 deploy, production migration, or production secret change is claimed.
 
+The 2026-08-31 stability/removal follow-up passes local `npm test` 598/598,
+typecheck, diff check, and lint with zero errors plus three existing warnings. Its
+real-model 25-turn local smoke completed every turn and all expected Confirm/Cancel
+flows with clean terminal D1 state. This revision is authorized for the PR #32
+preview only; current-revision preview checks and authenticated smoke remain a gate.
+
 ## Configuration
 
 - `OPENROUTER_API_KEY`: Cloudflare Worker secret, never a committed var.
@@ -29,7 +35,7 @@ deploy, production migration, or production secret change is claimed.
   caching is no longer configured; DeepSeek prompt caching remains automatic and
   requires no application setting.
 - Prompt contract: `lib/ai-chat/prompts/vocabulary-practice.ts`, ID
-  `unmumble.vocabulary-practice`, version `1`; ID/version are allowlisted operational
+  `unmumble.vocabulary-practice`, version `4`; ID/version are allowlisted operational
   metadata, while prompt text remains private.
 - `AI_CHAT_USER_RATE_LIMITER`: 10 authenticated generation requests/minute per
   SHA-256 account key; `AI_CHAT_EDGE_AGGREGATE_RATE_LIMITER`: approximate aggregate
@@ -67,8 +73,8 @@ keys, the per-chat pending-attempt index, and configured-provenance columns/back
 
 ## Release Gates
 
-- [x] Fresh exact-diff focused backend tests pass 219/219; full `npm test` passes
-  503/503.
+- [x] Fresh exact-diff full `npm test` passes 598/598, including the production
+  build; earlier focused backend evidence passes 219/219.
 - [x] Typecheck, Drizzle, dependency audit, lifecycle/diff/secret/ignore checks pass;
   full lint has zero errors and three existing warnings.
 - [x] Independent final review reports no P0/P1.
@@ -85,9 +91,9 @@ keys, the per-chat pending-attempt index, and configured-provenance columns/back
 - [x] Concrete code-allowlisted DeepSeek model, privacy/local-tool fence, and
   10/account plus approximate 100/location per-minute edge abuse limits are explicit
   in deployment configuration.
-- [x] Instrumented generation envelopes are 35/43/45/36/38/41 statements for the
+- [x] Instrumented generation envelopes are 35/40/42/32/34/37 statements for the
   documented read/write/ambiguity/rollback cases; serialized concurrent legacy
-  rollback remains 41, and maximum-size create recovery is the exact 49/50 maximum.
+  rollback remains 37, and maximum-size create recovery is the exact 49/50 maximum.
 - [x] Direct live OpenRouter smoke confirms DeepSeek can select the locally declared
   `list_vocabulary` schema; this is not application smoke.
 - [ ] Spend cap ownership, alerts, retention, and rotation owner are approved.
@@ -96,6 +102,11 @@ keys, the per-chat pending-attempt index, and configured-provenance columns/back
 - [x] Authenticated provider-backed preview smoke requested latest ten/all available
   entries and category `To Learn`; each response returned the account's two matching
   entries without user-data mutation.
+- [x] Authenticated local real-model smoke completed 25/25 turns, including bulk
+  add/remove/move, Confirm/Cancel, mixed-language input, and fresh post-mutation
+  reads; D1 recorded zero failed/pending attempts and proposals.
+- [ ] Push this stability/removal revision to PR #32, wait for its checks and branch
+  preview, then run an authenticated preview write/read smoke.
 - [ ] Manually verify pagination/cross-turn continuation with more than ten entries.
 - [ ] Manually verify explicit write denial/commit and interruption/replay without
   duplicate mutation.

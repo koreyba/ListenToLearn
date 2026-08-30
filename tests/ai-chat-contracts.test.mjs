@@ -4,6 +4,13 @@ import test from "node:test";
 const contracts = await import("../lib/ai-chat/contracts.ts").catch(() => ({}));
 
 test("AI chat exposes conservative paid-request safety limits", () => {
+  assert.deepEqual(contracts.AI_CHAT_GENERATION_TIMEOUT, {
+    totalMs: 45_000,
+    stepMs: 25_000,
+    firstChunkMs: 20_000,
+    chunkMs: 20_000,
+    toolMs: 5_000,
+  });
   assert.deepEqual(contracts.AI_CHAT_LIMITS, {
     bodyBytes: 16_384,
     targetCount: 12,
@@ -17,8 +24,8 @@ test("AI chat exposes conservative paid-request safety limits", () => {
     messageCharacters: 4_000,
     historyMessages: 40,
     historyCharacters: 32_000,
-    outputTokens: 800,
-    upstreamTimeoutMs: 20_000,
+    outputTokens: 2_400,
+    upstreamTimeoutMs: 45_000,
   });
 });
 
@@ -148,6 +155,8 @@ test("chat failures use a stable public error-code vocabulary", () => {
     providerTimeout: "provider_timeout",
     providerRateLimited: "provider_rate_limited",
     providerFailed: "provider_failed",
+    responseIncomplete: "response_incomplete",
+    generationCancelled: "generation_cancelled",
     emptyResponse: "empty_response",
     internalError: "internal_error",
   });

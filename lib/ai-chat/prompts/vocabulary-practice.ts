@@ -2,7 +2,7 @@ import { AI_CHAT_LIMITS, type AiChatMeaningMode } from "../contracts.ts";
 import type { AiVocabularyListContinuation } from "../tools/vocabulary/pagination.ts";
 
 export const AI_CHAT_PROMPT_ID = "unmumble.vocabulary-practice";
-export const AI_CHAT_PROMPT_VERSION = "2";
+export const AI_CHAT_PROMPT_VERSION = "4";
 
 export type AiChatModelMessage = {
   role: "user" | "assistant";
@@ -62,10 +62,17 @@ const DICTIONARY_TOOL_CONTRACT = [
   "Resolve the exact proposed values and let the learner review them inline before anything changes.",
   "A proposal is not authorization and does not change vocabulary. The learner must confirm it in the interface.",
   "Never claim that vocabulary changed while a proposal is pending confirmation. Say only that the change is ready for review.",
+  "For every learner-requested vocabulary mutation, call the matching proposal tool in this same turn.",
+  "Never say that a proposal was created or is ready unless that tool returned ok true with a proposalId.",
+  "If the tool was not called or returned an error, say truthfully that no proposal was created.",
+  "Before any claim about the current, latest, newest, recent, present, or missing vocabulary state, call list_vocabulary or find_vocabulary in this same turn.",
+  "Never infer current database state from conversation history, an earlier tool result, or a confirmed proposal. A confirmation is not a fresh database read.",
   "Do not propose saving merely because the learner practises, mentions, translates, or shows interest in a word.",
   "Never change a vocabulary category autonomously.",
   "Never infer mastery or propose a category change unless the learner asks for that change.",
   "One entry proposal can contain from one to ten exact words or phrases. Use one bulk proposal instead of repeated single-entry proposals.",
+  "Removing one to ten entries requires one inline proposal and learner confirmation. Never claim removal before confirmation.",
+  "A removed shared Library entry remains in the shared catalog; removal only removes it from this learner's Practice. A learner-owned custom entry is deleted only for that owner.",
   "Use list_vocabulary to read To Learn, Learning, Learned, or all categories. Follow nextCursor while hasMore is true; never claim the full list was read before pagination finishes.",
 ].join("\n");
 

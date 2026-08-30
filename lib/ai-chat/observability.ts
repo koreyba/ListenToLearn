@@ -3,6 +3,16 @@ import {
   type AiChatErrorCode,
 } from "./contracts.ts";
 
+type AiChatTerminalOperationalTelemetry = {
+  elapsedMs?: number;
+  finishReason?: string;
+  stepCount?: number;
+  toolCallCount?: number;
+  outputCharacters?: number;
+  requiredToolRetries?: number;
+  requiredToolFallbacks?: number;
+};
+
 export type AiChatOperationalEvent =
   | {
       event: "ai_chat_generation_started";
@@ -19,20 +29,20 @@ export type AiChatOperationalEvent =
       model: string;
       promptId: string;
       promptVersion: string;
-    }
+    } & AiChatTerminalOperationalTelemetry
   | {
       event: "ai_chat_generation_failed";
       attemptId: string;
       errorCode: AiChatErrorCode;
       promptId?: string;
       promptVersion?: string;
-    }
+    } & AiChatTerminalOperationalTelemetry
   | {
       event: "ai_chat_generation_rejected";
       errorCode: AiChatErrorCode;
     };
 
-type OperationalRecord = Record<string, string>;
+type OperationalRecord = Record<string, string | number>;
 type OperationalSink = (record: OperationalRecord) => void;
 
 const knownErrorCodes = new Set<string>(Object.values(AI_CHAT_ERROR_CODES));
@@ -51,6 +61,38 @@ function safeErrorCode(value: unknown) {
   return typeof value === "string" && knownErrorCodes.has(value)
     ? value
     : AI_CHAT_ERROR_CODES.internalError;
+}
+
+function safeMetric(value: unknown, maximum: number) {
+  return typeof value === "number"
+    && Number.isSafeInteger(value)
+    && value >= 0
+    && value <= maximum
+    ? value
+    : null;
+}
+
+function terminalRecord(event: AiChatTerminalOperationalTelemetry): OperationalRecord {
+  const elapsedMs = safeMetric(event.elapsedMs, 86_400_000);
+  const stepCount = safeMetric(event.stepCount, 100);
+  const toolCallCount = safeMetric(event.toolCallCount, 100);
+  const outputCharacters = safeMetric(event.outputCharacters, 1_000_000);
+  const requiredToolRetries = safeMetric(event.requiredToolRetries, 10);
+  const requiredToolFallbacks = safeMetric(event.requiredToolFallbacks, 10);
+  const finishReason = typeof event.finishReason === "string"
+    && ["stop", "length", "content-filter", "tool-calls", "error", "other", "unknown"]
+      .includes(event.finishReason)
+    ? event.finishReason
+    : null;
+  return {
+    ...(elapsedMs === null ? {} : { elapsedMs }),
+    ...(finishReason === null ? {} : { finishReason }),
+    ...(stepCount === null ? {} : { stepCount }),
+    ...(toolCallCount === null ? {} : { toolCallCount }),
+    ...(outputCharacters === null ? {} : { outputCharacters }),
+    ...(requiredToolRetries === null ? {} : { requiredToolRetries }),
+    ...(requiredToolFallbacks === null ? {} : { requiredToolFallbacks }),
+  };
 }
 
 function allowlistedRecord(event: AiChatOperationalEvent): OperationalRecord | null {
@@ -72,6 +114,7 @@ function allowlistedRecord(event: AiChatOperationalEvent): OperationalRecord | n
         model: safeTag(event.model),
         promptId: safeTag(event.promptId, 120),
         promptVersion: safeTag(event.promptVersion, 40),
+        ...terminalRecord(event),
       };
     case "ai_chat_generation_failed":
       return {
@@ -84,6 +127,7 @@ function allowlistedRecord(event: AiChatOperationalEvent): OperationalRecord | n
               promptVersion: safeTag(event.promptVersion, 40),
             }
           : {}),
+        ...terminalRecord(event),
       };
     case "ai_chat_generation_rejected":
       return {

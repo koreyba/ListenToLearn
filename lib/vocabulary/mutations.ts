@@ -1,18 +1,21 @@
 import {
   normalizeVocabularyMeaning,
   normalizeVocabularyTarget,
+  isVocabularyStateDestination,
   readScopedLegacyMeaningId,
   vocabularyStatusForCategory,
   VOCABULARY_CATEGORIES,
   VOCABULARY_LIMITS,
   type VocabularyCategory,
   type VocabularyStatus,
+  type VocabularyStateDestination,
 } from "./contracts.ts";
 
 export const VOCABULARY_MUTATION_OPERATIONS = Object.freeze({
   addEntry: "vocabulary.add-entry/v1",
   addEntries: "vocabulary.add-entries/v1",
   addMeaning: "vocabulary.add-meaning/v1",
+  changeState: "vocabulary.change-state/v1",
   setCategory: "vocabulary.set-category/v1",
   updateMeaning: "vocabulary.update-meaning/v1",
 } as const);
@@ -78,6 +81,20 @@ export type SetVocabularyCategoryMutationArgs = {
   category: VocabularyCategory;
 };
 
+export type ChangeVocabularyStateMutationEntry = {
+  phraseId: string;
+  text: string;
+  sourceType: "preset" | "custom";
+  expectedStoredStatus: VocabularyStatus;
+};
+
+export type ChangeVocabularyStateMutationInput = {
+  entries: ChangeVocabularyStateMutationEntry[];
+  destination: VocabularyStateDestination;
+};
+
+export type ChangeVocabularyStateMutationArgs = ChangeVocabularyStateMutationInput;
+
 export type AddVocabularyEntryMutationResult = {
   ok: true;
   saved: true;
@@ -112,6 +129,16 @@ export type SetVocabularyCategoryMutationResult = {
   updated: true;
   phraseId: string;
   category: VocabularyCategory;
+};
+
+export type ChangeVocabularyStateMutationResult = {
+  ok: true;
+  updated: true;
+  entries: Array<{
+    phraseId: string;
+    text: string;
+    state: VocabularyStateDestination;
+  }>;
 };
 
 export class VocabularyMutationPlanError extends Error {
@@ -284,6 +311,10 @@ export function createVocabularyMutationPlanner(
         status = CASE
           WHEN phrase_progress.status = 'pick' THEN 'to_learn'
           ELSE phrase_progress.status
+        END,
+        created_at = CASE
+          WHEN phrase_progress.status = 'pick' THEN excluded.created_at
+          ELSE phrase_progress.created_at
         END,
         updated_at = CASE
           WHEN phrase_progress.status = 'pick' THEN excluded.updated_at
@@ -552,6 +583,10 @@ export function createVocabularyMutationPlanner(
           status = CASE
             WHEN phrase_progress.status = 'pick' THEN 'to_learn'
             ELSE phrase_progress.status
+          END,
+          created_at = CASE
+            WHEN phrase_progress.status = 'pick' THEN excluded.created_at
+            ELSE phrase_progress.created_at
           END,
           updated_at = CASE
             WHEN phrase_progress.status = 'pick' THEN excluded.updated_at
@@ -1247,10 +1282,262 @@ export function createVocabularyMutationPlanner(
     };
   }
 
+  async function planChangeState(
+    userId: string,
+    input: ChangeVocabularyStateMutationInput,
+  ): Promise<VocabularyMutationPlan<
+    typeof VOCABULARY_MUTATION_OPERATIONS.changeState,
+    ChangeVocabularyStateMutationArgs,
+    ChangeVocabularyStateMutationResult
+  >> {
+    assertUserId(userId);
+    if (
+      !input
+      || !Array.isArray(input.entries)
+      || input.entries.length < 1
+      || input.entries.length > VOCABULARY_BULK_ENTRY_LIMIT
+      || !isVocabularyStateDestination(input.destination)
+    ) {
+      invalid("Vocabulary state change is invalid.");
+    }
+    const entries: ChangeVocabularyStateMutationEntry[] = [];
+    const phraseIds = new Set<string>();
+    const normalizedTexts = new Set<string>();
+    for (const entry of input.entries) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        invalid("Vocabulary state entry is invalid.");
+      }
+      const phraseId = cleanSingleLine(entry.phraseId, 120, "Phrase identity");
+      const text = cleanSingleLine(
+        entry.text,
+        VOCABULARY_LIMITS.entryTextCharacters,
+        "Vocabulary text",
+      );
+      if (
+        (entry.sourceType !== "preset" && entry.sourceType !== "custom")
+        || !ACTIVE_STATUSES.has(entry.expectedStoredStatus)
+        || phraseIds.has(phraseId)
+        || normalizedTexts.has(normalizeVocabularyTarget(text))
+      ) {
+        invalid("Vocabulary state entry is invalid.");
+      }
+      phraseIds.add(phraseId);
+      normalizedTexts.add(normalizeVocabularyTarget(text));
+      entries.push({
+        phraseId,
+        text,
+        sourceType: entry.sourceType,
+        expectedStoredStatus: entry.expectedStoredStatus,
+      });
+    }
+
+    const destination = input.destination;
+    const timestamp = now();
+    const expectedValuesSql = entries.map(() => "(?, ?, ?, ?, ?)").join(", ");
+    const expectedBindings = entries.flatMap((entry, ordinal) => [
+      ordinal,
+      entry.phraseId,
+      entry.text,
+      entry.sourceType,
+      entry.expectedStoredStatus,
+    ]);
+    const expectedCte = `expected (
+      ordinal, phrase_id, text, source_type, expected_status
+    ) AS (VALUES ${expectedValuesSql})`;
+    const activeSnapshotGuard: VocabularyMutationReceiptGuard = {
+      sql: `NOT EXISTS (
+        WITH ${expectedCte}
+        SELECT 1
+        FROM expected
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM phrase_progress AS progress
+          JOIN phrases ON phrases.id = progress.phrase_id
+          WHERE progress.user_id = ?
+            AND progress.phrase_id = expected.phrase_id
+            AND progress.status = expected.expected_status
+            AND progress.status IN (${ACTIVE_STATUS_SQL})
+            AND phrases.text = expected.text
+            AND phrases.source_type = expected.source_type
+            AND (phrases.source_type = 'preset' OR phrases.owner_id = ?)
+        )
+      )`,
+      bindings: [...expectedBindings, userId, userId],
+    };
+    const canonicalResult: ChangeVocabularyStateMutationResult = {
+      ok: true,
+      updated: true,
+      entries: entries.map(({ phraseId, text }) => ({
+        phraseId,
+        text,
+        state: destination,
+      })),
+    };
+
+    if (destination !== "removed") {
+      const storedStatus = vocabularyStatusForCategory(destination);
+      const statements = [
+        db.prepare(`
+          WITH ${expectedCte}
+          UPDATE phrase_progress
+          SET
+            status = ?,
+            updated_at = CASE WHEN status <> ? THEN ? ELSE updated_at END
+          WHERE user_id = ?
+            AND EXISTS (
+              SELECT 1
+              FROM expected
+              JOIN phrases ON phrases.id = expected.phrase_id
+              WHERE expected.phrase_id = phrase_progress.phrase_id
+                AND expected.expected_status = phrase_progress.status
+                AND expected.text = phrases.text
+                AND expected.source_type = phrases.source_type
+                AND (phrases.source_type = 'preset' OR phrases.owner_id = ?)
+            )
+        `).bind(
+          ...expectedBindings,
+          storedStatus,
+          storedStatus,
+          timestamp,
+          userId,
+          userId,
+        ),
+        db.prepare(`
+          UPDATE users SET id = id
+          WHERE id = ? AND changes() = ?
+        `).bind(userId, entries.length),
+      ];
+      const receiptGuard: VocabularyMutationReceiptGuard = {
+        sql: `changes() = 1 AND NOT EXISTS (
+          WITH ${expectedCte}
+          SELECT 1
+          FROM expected
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM phrase_progress AS progress
+            JOIN phrases ON phrases.id = progress.phrase_id
+            WHERE progress.user_id = ?
+              AND progress.phrase_id = expected.phrase_id
+              AND progress.status = ?
+              AND phrases.text = expected.text
+              AND phrases.source_type = expected.source_type
+              AND (phrases.source_type = 'preset' OR phrases.owner_id = ?)
+          )
+        )`,
+        bindings: [...expectedBindings, userId, storedStatus, userId],
+      };
+      return {
+        operation: VOCABULARY_MUTATION_OPERATIONS.changeState,
+        targetKey: "entries",
+        canonicalArgs: { entries, destination },
+        canonicalResult,
+        entityType: "phrase",
+        entityId: null,
+        statements,
+        receiptGuard,
+        conflictGuard: activeSnapshotGuard,
+      };
+    }
+
+    const presetCount = entries.filter((entry) => entry.sourceType === "preset").length;
+    const customCount = entries.length - presetCount;
+    const removedPostconditionSql = `NOT EXISTS (
+      WITH ${expectedCte}
+      SELECT 1
+      FROM expected
+      WHERE (
+        expected.source_type = 'preset'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM phrases
+          JOIN phrase_progress AS progress ON progress.phrase_id = phrases.id
+          WHERE phrases.id = expected.phrase_id
+            AND phrases.text = expected.text
+            AND phrases.source_type = 'preset'
+            AND progress.user_id = ?
+            AND progress.status = 'pick'
+        )
+      ) OR (
+        expected.source_type = 'custom'
+        AND EXISTS (SELECT 1 FROM phrases WHERE phrases.id = expected.phrase_id)
+      )
+    )`;
+    const removedPostconditionBindings = [...expectedBindings, userId];
+    const statements = [
+      db.prepare(`
+        WITH ${expectedCte}
+        UPDATE phrase_progress
+        SET status = 'pick', updated_at = ?
+        WHERE user_id = ?
+          AND EXISTS (
+            SELECT 1
+            FROM expected
+            JOIN phrases ON phrases.id = expected.phrase_id
+            WHERE expected.source_type = 'preset'
+              AND phrases.source_type = 'preset'
+              AND expected.phrase_id = phrase_progress.phrase_id
+              AND expected.expected_status = phrase_progress.status
+              AND expected.text = phrases.text
+          )
+      `).bind(...expectedBindings, timestamp, userId),
+      db.prepare(`
+        UPDATE users SET id = id
+        WHERE id = ? AND changes() = ?
+      `).bind(userId, presetCount),
+      db.prepare(`
+        WITH ${expectedCte}
+        DELETE FROM phrases
+        WHERE phrases.source_type = 'custom'
+          AND phrases.owner_id = ?
+          AND changes() = 1
+          AND EXISTS (
+            SELECT 1
+            FROM expected
+            WHERE expected.source_type = 'custom'
+              AND expected.phrase_id = phrases.id
+              AND expected.text = phrases.text
+              AND EXISTS (
+                SELECT 1
+                FROM phrase_progress AS progress
+                WHERE progress.user_id = ?
+                  AND progress.phrase_id = phrases.id
+                  AND progress.status = expected.expected_status
+                  AND progress.status IN (${ACTIVE_STATUS_SQL})
+              )
+          )
+      `).bind(...expectedBindings, userId, userId),
+      db.prepare(`
+        UPDATE users SET id = id
+        WHERE id = ?
+          AND changes() = ?
+          AND (${removedPostconditionSql})
+      `).bind(
+        userId,
+        customCount,
+        ...removedPostconditionBindings,
+      ),
+    ];
+    return {
+      operation: VOCABULARY_MUTATION_OPERATIONS.changeState,
+      targetKey: "entries",
+      canonicalArgs: { entries, destination },
+      canonicalResult,
+      entityType: "phrase",
+      entityId: null,
+      statements,
+      receiptGuard: {
+        sql: `changes() = 1 AND (${removedPostconditionSql})`,
+        bindings: removedPostconditionBindings,
+      },
+      conflictGuard: activeSnapshotGuard,
+    };
+  }
+
   return {
     planAddEntry,
     planAddEntries,
     planAddMeaning,
+    planChangeState,
     planSetCategory,
     planUpdateMeaning,
   };

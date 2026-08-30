@@ -8,9 +8,9 @@ description: Verified agent-tool contracts and remaining end-to-end gates
 
 ## Fresh Automated Evidence
 
-Fresh 2026-08-30 UI evidence passes focused interaction tests 95/95 and full
-`npm test` 539/539, including the production build, plus typecheck and lint with
-zero errors and three existing warnings. Earlier exact-diff backend evidence on
+Fresh 2026-08-31 evidence passes full `npm test` 598/598, including the production
+build, plus typecheck, diff check, and lint with zero errors and three existing
+warnings. Earlier focused UI evidence passes 95/95 and exact-diff backend evidence on
 2026-08-29 passes focused backend tests 219/219, plus Drizzle validation, dependency
 audit, lifecycle lint, diff check, tracked-secret check, and ignore check.
 Independent final review found no P0/P1.
@@ -32,9 +32,11 @@ Independent final review found no P0/P1.
   `{ category, cursor }` to a later turn for continuation.
 - [x] Search rejects queries over 48 characters and escaped wildcard patterns over
   50 UTF-8 bytes, including Unicode and escape-expansion boundaries.
-- [x] Direct write-command recognition rejects practice sentences, examples,
-  negation, implied/history-only intent, and values absent from the current message.
-- [x] Literal binding preserves case and compatibility characters (`Polish` is not
+- [x] Legacy, unregistered direct-write compatibility handlers still reject
+  practice sentences, examples, negation, implied/history-only intent, and values
+  absent from the current message; active provider tools use reviewable proposals
+  and do not use this regex gate.
+- [x] Legacy literal binding preserves case and compatibility characters (`Polish` is not
   `polish`), while command parsing still recognizes its grammar; revocation text
   inside the literal phrase (for example `never mind`) is not treated as cancellation.
   Quoted terminal punctuation is preserved (`"wow!"` cannot authorize `wow`). Write
@@ -48,7 +50,9 @@ Independent final review found no P0/P1.
   traced `mutation_conflict`. Historical owner-custom legacy meanings promote to a
   personal meaning and clear legacy fields atomically.
 - [x] New/`pick` add becomes `to_learn`; all already active statuses remain
-  unchanged across entry duplicates and meaning writes. `set_vocabulary_category`
+  unchanged across entry duplicates and meaning writes. Reactivating `pick`
+  refreshes progress `created_at`, while active duplicates preserve recency.
+  Historical `set_vocabulary_category`
   changes only one owner-visible entry after a literal current-turn entry/category
   command and CAS; practice, description, wrong destination, negation, revocation,
   and autonomous mastery inference are denied.
@@ -72,13 +76,18 @@ Independent final review found no P0/P1.
   ambiguous post-commit response resolves from the receipt, and changed arguments
   at the same `(userMessage, operation, target)` conflict.
 - [x] Instrumented cold full-turn tests count each D1 statement inside a batch:
-  maximum reads use 35, two cold writes 43, one ambiguous write 45,
-  rollback/circuit 36, rollback plus ambiguous terminal failure 38, and legacy-
-  promotion rollback plus ambiguous terminal failure 41. Maximum 12-target create-
+  maximum reads use 35, two cold proposals 40, one ambiguous proposal 42,
+  proposal rollback/circuit 32, rollback plus ambiguous terminal failure 34, and
+  meaning-update rollback plus ambiguous terminal failure 37. Maximum 12-target create-
   chat ambiguous recovery remains the exact 49/50 worst case. Call three is
   rejected before trace work. A Promise-all regression combines legacy full
-  rollback, a concurrent duplicate update, and ambiguous failed terminal at 41;
+  rollback, a concurrent duplicate update, and ambiguous failed terminal at 37;
   the duplicate is rejected without D1.
+- [x] One and ten exact state-change targets resolve in one set query. Removal
+  proposal generation costs 30 D1 statements for either size; confirmation costs
+  10 for either size. Mixed preset/custom confirmation is atomic and owner-safe,
+  stale snapshots fully roll back, cancel performs no domain write, shared Library
+  rows remain, and owned custom children cascade.
 - [x] A mutation-batch failure is never retried blindly. Tests distinguish receipt
   recovery, stale-attempt rejection, proven CAS `mutation_conflict`, and otherwise
   `operation_failed`, without a partial mutation.
@@ -91,10 +100,18 @@ Independent final review found no P0/P1.
   redundant ownership query and return normal successful terminal state without an
   unconditional readback; ambiguous/failed-postcondition paths use exact readback.
   Failed attempts retain configured provider/model provenance.
-- [x] Prompt, generation, abort/cancel/error mapping, five-step bound, compact HTTP
+- [x] Prompt, structured generation timeouts, 2,400-token output, abort/cancel/error
+  mapping, five-step/two-tool bound with a final text-only step, compact HTTP
   transport, owner-scoped routes, and the chat-only UI source contract are covered.
+  Any non-`stop` finish is retryable `response_incomplete`; explicit cancellation
+  wins the abort race as `generation_cancelled`.
   The public stream allowlist drops tool/reasoning/source/file/step/raw/provider
   metadata, and provider 429 maps to `provider_rate_limited`.
+- [x] Mutation intent routing exposes only the intended proposal tool with required
+  tool choice. Required-tool recovery buffers only mutation streams, discards and
+  retries text-only provider drift at most twice, then permits a conservative
+  explicit-value fallback that still creates only a pending proposal. Tests reject
+  ambiguous/reference/negated fallbacks and prove ordinary chat remains streamed.
 - [x] Each English token is rendered without changing message text, exposes a subtle
   clickable treatment, and participates in one roving tab stop per message. Keyboard
   arrows/Home/End and Enter/Space work, while a >=450ms mobile long press or completed
@@ -109,8 +126,9 @@ Independent final review found no P0/P1.
   cover auto-grow, full-screen dialog, focus trap/restoration, Escape, shared draft,
   and desktop/mobile layouts.
 - [x] Prompt tests import `lib/ai-chat/prompts/vocabulary-practice.ts`, assert ID
-  `unmumble.vocabulary-practice`/version `1`, learner-led/category rules, bounded
-  continuation, and prompt ID/version on allowlisted lifecycle events.
+  `unmumble.vocabulary-practice`/version `4`, learner-led/category/removal rules,
+  same-turn fresh reads for current/latest claims, bounded continuation, and prompt
+  ID/version on allowlisted lifecycle events.
 - [x] Compatibility targets accept bounded saved/ad-hoc entries and all three
   meaning modes through atomic whole-array `PATCH` only. The unused standalone AI
   translation route/module are absent, preventing a second untraced provider path.
@@ -135,8 +153,10 @@ Independent final review found no P0/P1.
   before D1/provider work and fail closed when bindings are absent or fail.
   Deployment configs bind 10/account/minute and approximate 100/location/minute
   guards with distinct namespaces; tests do not claim global atomicity.
-- [x] Operational events expose only the exact safe metadata allowlist; unknown
-  events/logger failures cannot affect persistence or leak private payloads.
+- [x] Operational events expose only the exact safe metadata allowlist, including
+  bounded terminal elapsed/finish/step/tool/output-size and required-tool
+  retry/fallback fields; unknown events or
+  logger failures cannot affect persistence or leak private payloads.
 - [x] Server/browser use shared explicit public DTOs and every vocabulary tool is
   constructed through one traced budget wrapper/registry. Source-boundary tests
   keep contracts/policy/results/handlers/registry/pagination separate and the old
@@ -149,7 +169,7 @@ Independent final review found no P0/P1.
   serialization/circuit, byte-compatible Unicode cursor, and linear-time
   adversarial literal-policy regressions.
 - [x] Fresh focused UI/selection suite: 95/95 on the exact diff.
-- [x] Fresh full `npm test`: 539/539 on the exact diff, including production build.
+- [x] Fresh full `npm test`: 598/598 on the exact diff, including production build.
 - [x] Fresh typecheck, Drizzle, dependency audit, tracked-secret, ignore, lifecycle,
   and diff checks pass; full lint has zero errors and three existing warnings.
 - [x] Independent final review reports no P0/P1.
@@ -184,6 +204,11 @@ Independent final review found no P0/P1.
 - [x] Authenticated provider-backed preview requests for latest ten/all available
   and category `To Learn` each returned the account's two matching entries. They
   performed no user-data mutation.
+- [x] Authenticated local real-model stability smoke completed 25/25 turns with a
+  2,067-character long answer, all eight expected inline proposals, six confirms,
+  two cancels, and zero failed/pending attempts or proposals. Direct D1 audit found
+  fresh same-turn list/find tool traces after mutations and six distinct committed
+  receipts.
 - [ ] With an account containing more than ten entries, manually verify pagination
   and cross-turn continuation beyond the first page.
 - [ ] Manually verify explicit write denial/commit and interruption/replay without a

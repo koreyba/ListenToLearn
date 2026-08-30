@@ -6,7 +6,8 @@ export type AiWriteProposalOperation =
   | "add_vocabulary_entries"
   | "add_vocabulary_meaning"
   | "update_vocabulary_meaning"
-  | "set_vocabulary_category";
+  | "set_vocabulary_category"
+  | "change_vocabulary_state";
 
 export type AiWriteProposalStatus =
   | "pending"
@@ -43,10 +44,31 @@ function entryCountLabel(count: number) {
   return `${count} ${count === 1 ? "entry" : "entries"}`;
 }
 
-function proposalTitle(operation: AiWriteProposalOperation) {
+function isRemovalProposal(
+  operation: AiWriteProposalOperation,
+  items: readonly AiWriteProposalItem[],
+) {
+  return operation === "change_vocabulary_state"
+    && items.length > 0
+    && items.every((item) => item.toCategory === "removed");
+}
+
+function categoryLabel(category: string) {
+  if (category === "to_learn") return "To Learn";
+  if (category === "learning") return "Learning";
+  if (category === "learned") return "Learned";
+  if (category === "removed") return "Removed from Practice";
+  return category;
+}
+
+function proposalTitle(operation: AiWriteProposalOperation, removal: boolean) {
+  if (removal) return "Remove from Practice";
   if (operation === "add_vocabulary_meaning") return "Add meaning";
   if (operation === "update_vocabulary_meaning") return "Update meaning";
-  if (operation === "set_vocabulary_category") return "Change learning status";
+  if (
+    operation === "set_vocabulary_category"
+    || operation === "change_vocabulary_state"
+  ) return "Change learning status";
   return "Add to vocabulary";
 }
 
@@ -56,8 +78,23 @@ function proposalStatusMessage(
   count: number,
   errorMessage: string | undefined,
   result: unknown,
+  removal: boolean,
 ) {
   const entries = entryCountLabel(count);
+  if (removal) {
+    if (status === "busy") return "Applying your decision…";
+    if (status === "confirmed") return `${entries} removed from Practice.`;
+    if (status === "cancelled") {
+      return "Removal cancelled. Nothing was removed from Practice.";
+    }
+    if (status === "failed") {
+      return errorMessage?.trim() || "The selected entries could not be removed from Practice.";
+    }
+    if (errorMessage?.trim()) {
+      return "The request did not complete. Review the list, then choose Cancel or Confirm again.";
+    }
+    return `Review ${entries} before removing ${count === 1 ? "it" : "them"} from Practice.`;
+  }
   if (status === "busy") return "Applying change…";
   if (status === "confirmed") {
     if (operation !== "add_vocabulary_entries") return "Vocabulary updated.";
@@ -111,6 +148,7 @@ export function AiChatWriteProposal({
   const listId = useId();
   const [expanded, setExpanded] = useState(false);
   const count = items.length;
+  const removal = isRemovalProposal(operation, items);
   const previewCount = Math.max(1, Math.floor(collapsedItemCount));
   const expandable = count > previewCount;
   const visibleItems = expandable && !expanded
@@ -130,7 +168,7 @@ export function AiChatWriteProposal({
     >
       <header className="ai-chat-write-proposal-heading">
         <div>
-          <h3 id={titleId}>{proposalTitle(operation)}</h3>
+          <h3 id={titleId}>{proposalTitle(operation, removal)}</h3>
           <p className="ai-chat-write-proposal-count">{entryCountLabel(count)}</p>
         </div>
       </header>
@@ -143,7 +181,7 @@ export function AiChatWriteProposal({
               <span>{item.previousTranslation} → {item.translation}</span>
             ) : item.translation ? <span>{item.translation}</span> : null}
             {item.fromCategory && item.toCategory && (
-              <span>{item.fromCategory} → {item.toCategory}</span>
+              <span>{categoryLabel(item.fromCategory)} → {categoryLabel(item.toCategory)}</span>
             )}
           </li>
         ))}
@@ -164,7 +202,7 @@ export function AiChatWriteProposal({
         aria-live={statusRole === "alert" ? "assertive" : "polite"}
         role={statusRole}
       >
-        {proposalStatusMessage(operation, status, count, errorMessage, result)}
+        {proposalStatusMessage(operation, status, count, errorMessage, result, removal)}
       </p>
 
       {showActions && errorMessage && (

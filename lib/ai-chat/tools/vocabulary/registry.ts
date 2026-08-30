@@ -16,12 +16,37 @@ import {
   type FindVocabularyInput,
   type ListVocabularyInput,
   type ProposeVocabularyEntriesInput,
-  type SetVocabularyCategoryInput,
+  type ProposeVocabularyStateChangeInput,
   type ToolPolicyError,
   type UpdateVocabularyMeaningInput,
 } from "./contracts.ts";
 import type { AiVocabularyToolHandlers } from "./handlers.ts";
 import { AI_VOCABULARY_LIST_CURSOR_MAX_CHARACTERS } from "./pagination.ts";
+
+function rejectWhenAborted<Result>(
+  operation: Promise<Result>,
+  abortSignal: AbortSignal | undefined,
+): Promise<Result> {
+  if (!abortSignal) return operation;
+  if (abortSignal.aborted) return Promise.reject(abortSignal.reason);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      abortSignal.removeEventListener("abort", onAbort);
+      reject(abortSignal.reason);
+    };
+    abortSignal.addEventListener("abort", onAbort, { once: true });
+    operation.then(
+      (result) => {
+        abortSignal.removeEventListener("abort", onAbort);
+        resolve(result);
+      },
+      (error: unknown) => {
+        abortSignal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
 
 export function createAiVocabularyTools(
   handlers: AiVocabularyToolHandlers,
@@ -36,9 +61,11 @@ export function createAiVocabularyTools(
     toolName: string;
     args: unknown;
     mutation: boolean;
+    abortSignal?: AbortSignal;
     run(scope: AiChatToolExecutionScope): Promise<Result>;
   }): Promise<Result | ToolExecutionError | ToolPolicyError> {
     const queued = executionQueue.then(async () => {
+      input.abortSignal?.throwIfAborted();
       if (mutationCircuitOpen) {
         return { ok: false, error: "tool_budget_exceeded" } as const;
       }
@@ -69,7 +96,7 @@ export function createAiVocabularyTools(
     // AI SDK may execute tool calls from one model step concurrently. Serializing
     // here makes the shared call limit and mutation failure circuit atomic.
     executionQueue = queued.then(() => undefined, () => undefined);
-    return queued;
+    return rejectWhenAborted(queued, input.abortSignal);
   }
 
   function defineTracedVocabularyTool<Input, Result>(definition: {
@@ -86,11 +113,12 @@ export function createAiVocabularyTools(
     >({
       description: definition.description,
       inputSchema: definition.inputSchema,
-      execute: (input, { toolCallId }) => executeWithinProviderBudget({
+      execute: (input, { toolCallId, abortSignal }) => executeWithinProviderBudget({
         providerToolCallId: toolCallId,
         toolName: definition.name,
         args: input,
         mutation: definition.mutation === true,
+        abortSignal,
         run: (scope) => definition.run(input, scope),
       }),
     });
@@ -197,23 +225,39 @@ export function createAiVocabularyTools(
       }),
       run: (input, scope) => handlers.proposeVocabularyMeaningUpdate(input, scope),
     }),
-    propose_vocabulary_category: defineTracedVocabularyTool({
-      name: "propose_vocabulary_category",
+    propose_vocabulary_state_change: defineTracedVocabularyTool({
+      name: "propose_vocabulary_state_change",
       mutation: true,
-      description: "Prepare an inline proposal to move one existing vocabulary entry to To Learn, Learning, or Learned. Never infer mastery. This does not write until the learner confirms it.",
-      inputSchema: jsonSchema<SetVocabularyCategoryInput>({
+      description: "Prepare one inline proposal to move or remove 1 to 10 exact existing vocabulary entries. Exact texts resolve owner-scoped in one batch. Removal deletes only learner-owned custom entries; shared Library entries remain catalog data. Never infer mastery. Nothing changes until the learner confirms.",
+      inputSchema: jsonSchema<ProposeVocabularyStateChangeInput>({
         type: "object",
         properties: {
-          phraseId: { type: "string", minLength: 1, maxLength: 120 },
-          category: {
+          entries: {
+            type: "array",
+            minItems: 1,
+            maxItems: 10,
+            items: {
+              type: "object",
+              properties: {
+                text: {
+                  type: "string",
+                  minLength: 1,
+                  maxLength: AI_CHAT_LIMITS.targetTextCharacters,
+                },
+              },
+              required: ["text"],
+              additionalProperties: false,
+            },
+          },
+          destination: {
             type: "string",
-            enum: ["to_learn", "learning", "learned"],
+            enum: ["to_learn", "learning", "learned", "removed"],
           },
         },
-        required: ["phraseId", "category"],
+        required: ["entries", "destination"],
         additionalProperties: false,
       }),
-      run: (input, scope) => handlers.proposeVocabularyCategory(input, scope),
+      run: (input, scope) => handlers.proposeVocabularyStateChange(input, scope),
     }),
   };
 }

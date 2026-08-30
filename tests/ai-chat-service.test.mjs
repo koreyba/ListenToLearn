@@ -209,6 +209,13 @@ test("turn preparation uses stored targets and canonical history only", async ()
     promptId: "unmumble.vocabulary-practice",
     promptVersion: "1",
     usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    terminal: {
+      elapsedMs: 1_234,
+      finishReason: "stop",
+      stepCount: 3,
+      toolCallCount: 2,
+      outputCharacters: 20,
+    },
   });
   assert.deepEqual(harness.calls.finish, {
     userId: "user-a",
@@ -229,6 +236,55 @@ test("turn preparation uses stored targets and canonical history only", async ()
     model: "configured/model",
     promptId: "unmumble.vocabulary-practice",
     promptVersion: "1",
+    elapsedMs: 1_234,
+    finishReason: "stop",
+    stepCount: 3,
+    toolCallCount: 2,
+    outputCharacters: 20,
+  });
+});
+
+test("terminal failure telemetry reaches observability without changing persistence calls", async () => {
+  const harness = createHarness();
+  const result = await serviceModule.prepareAiChatGeneration({
+    ...request,
+    chatRepository: harness.repository,
+    vocabularyRepository: harness.vocabularyRepository,
+    vocabularyMutationPlanner: harness.vocabularyMutationPlanner,
+    toolTraceRepository: harness.toolTraceRepository,
+  }, harness.dependencies);
+  assert.equal(result.ok, true);
+
+  await harness.calls.generation.repository.failPendingAssistant({
+    assistantId: "assistant-row",
+    errorCode: "response_incomplete",
+    terminal: {
+      elapsedMs: 45_000,
+      finishReason: "length",
+      stepCount: 3,
+      toolCallCount: 2,
+      outputCharacters: 9_000,
+    },
+  });
+
+  assert.deepEqual(harness.calls.fail, {
+    userId: "user-a",
+    chatId: "chat-a",
+    clientMessageId: "turn-a",
+    errorCode: "response_incomplete",
+    attemptId: "attempt-row",
+  });
+  assert.deepEqual(harness.calls.operationalEvents.at(-1), {
+    event: "ai_chat_generation_failed",
+    attemptId: "attempt-row",
+    errorCode: "response_incomplete",
+    promptId: "unmumble.vocabulary-practice",
+    promptVersion: "1",
+    elapsedMs: 45_000,
+    finishReason: "length",
+    stepCount: 3,
+    toolCallCount: 2,
+    outputCharacters: 9_000,
   });
 });
 

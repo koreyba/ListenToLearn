@@ -12,6 +12,8 @@
     "deploy:branch-preview": "node scripts/deploy-worker.mjs branch-preview",
     "deploy:preview": "node scripts/deploy-worker.mjs preview",
     "deploy:production": "node scripts/deploy-worker.mjs production",
+    "demo:seed-practice": "node scripts/practice-demo-data.mjs seed",
+    "demo:reset-practice": "node scripts/practice-demo-data.mjs reset",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run build && node --test tests/*.test.mjs",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
@@ -20,6 +22,7 @@
   "dependencies": {
     "@ai-sdk/react": "^4.0.87",
     "@openrouter/ai-sdk-provider": "^3.0.0",
+    "@tanstack/react-virtual": "3.14.10",
     "ai": "^7.0.84",
     "drizzle-orm": "0.45.2",
     "jose": "^6.1.0",

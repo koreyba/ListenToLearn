@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PracticePhraseGrid } from "@/app/components/practice-phrase-grid";
 import { SignedInSiteAccount } from "@/app/components/signed-in-site-account";
 import { SiteNavigation } from "@/app/components/site-navigation";
 import {
@@ -28,6 +29,7 @@ import {
   setGuestPhraseStatus,
   type GuestLibraryState,
 } from "@/lib/guest-library";
+import { filterPracticePhrases } from "@/lib/practice-list";
 
 type PhraseStatus = "pick" | "to_learn" | "learning_now" | "learnt";
 type Phrase = WorkspacePhrase;
@@ -134,6 +136,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
   const [activeFormat, setActiveFormat] = useState<PracticeFormat>("atom");
   const [activeMechanism, setActiveMechanism] = useState<ConnectedSpeechMechanism | "all">("all");
   const [catalogSearch, setCatalogSearch] = useState("");
+  const [practiceSearch, setPracticeSearch] = useState("");
   const [recentlyAdded, setRecentlyAdded] = useState<string | null>(null);
   const phraseSortReady = useRef(false);
 
@@ -281,7 +284,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     phrases.filter((phrase) => phrase.status === "pick" && phrase.analysis?.kind === kind).length,
   ])) as Record<PracticeFormat, number>, [phrases]);
 
-  const visible = useMemo(
+  const sortedForSurface = useMemo(
     () => phrases
       .filter((phrase) => surface === "library"
         ? phrase.status === "pick"
@@ -293,6 +296,13 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
         : phrase.status === activeTab)
       .sort((a, b) => comparePhrases(a, b, phraseSort)),
     [activeFormat, activeMechanism, activeTab, catalogSearch, phraseSort, phrases, surface]
+  );
+
+  const visible = useMemo(
+    () => surface === "practice"
+      ? filterPracticePhrases(sortedForSurface, practiceSearch)
+      : sortedForSurface,
+    [practiceSearch, sortedForSurface, surface],
   );
 
   async function changeStatus(id: string, status: PhraseStatus) {
@@ -481,6 +491,39 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     ? { id: "pick", label: PRACTICE_FORMATS[activeFormat].title, hint: PRACTICE_FORMATS[activeFormat].hint }
     : practiceTabs.find((tab) => tab.id === activeTab) || practiceTabs[1];
   const sortOptions = surface === "library" ? catalogSortOptions : practiceSortOptions;
+  const renderPhraseCard = (phrase: Phrase) => (
+    <article className="phrase-card" key={phrase.id}>
+      <div className="phrase-open phrase-summary">
+        <span className="phrase-type">{surface === "practice"
+          ? phrase.sourceType === "custom"
+            ? "Your phrase"
+            : phrase.sourceType === "legacy"
+            ? "Saved phrase"
+            : PRACTICE_FORMATS[phrase.analysis!.kind].title
+          : `${PRACTICE_FORMATS[phrase.analysis!.kind].title} · #${phrase.analysis!.rank}`}</span>
+        <span className="phrase-text">{phrase.text}</span>
+        {surface === "practice" && phrase.status !== "pick" && phrase.translation && (
+          <span className="phrase-translation">{phrase.translation}</span>
+        )}
+        {surface === "practice" && phrase.context && <span className="phrase-context">Context: {phrase.context}</span>}
+        {phrase.analysis && <>
+          <span className="phrase-pattern">{renderPattern(phrase.analysis.pattern)}</span>
+          <span className="phrase-ipa">{phrase.analysis.ipa}</span>
+          <span className="mechanism-badges">{phrase.analysis.mechanisms.map((mechanism) => (
+            <span className="mechanism-badge" key={mechanism}>{CONNECTED_SPEECH_MECHANISMS[mechanism].title}</span>
+          ))}</span>
+        </>}
+        <PracticeAction onClick={() => openPhrase(phrase)} />
+      </div>
+      <div className="card-actions">
+        {phrase.status === "pick" && <button className={surface === "library" ? "save-action" : undefined} disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "to_learn")} type="button">Add to Learn</button>}
+        {phrase.status === "to_learn" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Move to Learning Now</button>}
+        {phrase.status === "learning_now" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learnt")} type="button">Mark as Learned</button>}
+        {phrase.status === "learnt" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Learn Again</button>}
+        {phrase.status !== "pick" && <button className="secondary" disabled={busyId === phrase.id} onClick={() => removePhrase(phrase)} type="button">Remove</button>}
+      </div>
+    </article>
+  );
 
   return (
     <>
@@ -588,6 +631,17 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                 />
               </label>
             )}
+            {surface === "practice" && (
+              <label className="search-control">
+                <span>Search your phrases</span>
+                <input
+                  onChange={(event) => setPracticeSearch(event.target.value)}
+                  placeholder="Word, translation, context, or sound"
+                  type="search"
+                  value={practiceSearch}
+                />
+              </label>
+            )}
             <label className="sort-control">
               <span>Sort</span>
               <select
@@ -624,46 +678,16 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
             <strong>Nothing here yet</strong>
             <span>{surface === "library"
               ? "No cards match this format, mechanism and search."
+              : practiceSearch.trim()
+              ? "No phrases match your search."
               : activeTab === "learning_now"
               ? "Start a phrase from To Learn."
               : "Move your first phrase here."}</span>
           </div>
+        ) : surface === "practice" ? (
+          <PracticePhraseGrid items={visible} renderItem={renderPhraseCard} />
         ) : (
-          <div className="phrase-grid">
-            {visible.map((phrase) => (
-              <article className="phrase-card" key={phrase.id}>
-                <div className="phrase-open phrase-summary">
-                  <span className="phrase-type">{surface === "practice"
-                    ? phrase.sourceType === "custom"
-                      ? "Your phrase"
-                      : phrase.sourceType === "legacy"
-                      ? "Saved phrase"
-                      : PRACTICE_FORMATS[phrase.analysis!.kind].title
-                    : `${PRACTICE_FORMATS[phrase.analysis!.kind].title} · #${phrase.analysis!.rank}`}</span>
-                  <span className="phrase-text">{phrase.text}</span>
-                  {surface === "practice" && phrase.status !== "pick" && phrase.translation && (
-                    <span className="phrase-translation">{phrase.translation}</span>
-                  )}
-                  {surface === "practice" && phrase.context && <span className="phrase-context">Context: {phrase.context}</span>}
-                  {phrase.analysis && <>
-                    <span className="phrase-pattern">{renderPattern(phrase.analysis.pattern)}</span>
-                    <span className="phrase-ipa">{phrase.analysis.ipa}</span>
-                    <span className="mechanism-badges">{phrase.analysis.mechanisms.map((mechanism) => (
-                      <span className="mechanism-badge" key={mechanism}>{CONNECTED_SPEECH_MECHANISMS[mechanism].title}</span>
-                    ))}</span>
-                  </>}
-                  <PracticeAction onClick={() => openPhrase(phrase)} />
-                </div>
-                <div className="card-actions">
-                  {phrase.status === "pick" && <button className={surface === "library" ? "save-action" : undefined} disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "to_learn")} type="button">Add to Learn</button>}
-                  {phrase.status === "to_learn" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Move to Learning Now</button>}
-                  {phrase.status === "learning_now" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learnt")} type="button">Mark as Learned</button>}
-                  {phrase.status === "learnt" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Learn Again</button>}
-                  {phrase.status !== "pick" && <button className="secondary" disabled={busyId === phrase.id} onClick={() => removePhrase(phrase)} type="button">Remove</button>}
-                </div>
-              </article>
-            ))}
-          </div>
+          <div className="phrase-grid">{visible.map(renderPhraseCard)}</div>
         )}
       </section>
       </main>

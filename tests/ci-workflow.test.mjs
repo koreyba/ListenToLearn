@@ -14,7 +14,7 @@ test("GitHub Actions runs the complete repository validation on pull requests", 
   assert.doesNotMatch(workflow, /pull_request_target/);
   assert.match(workflow, /actions\/checkout@[0-9a-f]{40}/);
   assert.match(workflow, /actions\/setup-node@[0-9a-f]{40}/);
-  assert.match(workflow, /^          node-version: 22\.13\.0$/m);
+  assert.match(workflow, /^          node-version: 24\.18\.1$/m);
   assert.match(workflow, /^      - run: npm ci$/m);
   assert.match(workflow, /^      - run: npm run lint$/m);
   assert.match(workflow, /^      - run: npx tsc --noEmit$/m);

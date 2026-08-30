@@ -15,9 +15,10 @@ test("GitHub Actions runs the complete repository validation on pull requests", 
   assert.match(workflow, /actions\/checkout@[0-9a-f]{40}/);
   assert.match(workflow, /actions\/setup-node@[0-9a-f]{40}/);
   assert.match(workflow, /^          node-version: 24\.18\.1$/m);
-  assert.match(workflow, /^      - run: npm ci$/m);
+  assert.match(workflow, /^      - run: npm ci --ignore-scripts$/m);
   assert.match(workflow, /^      - run: npm run lint$/m);
-  assert.match(workflow, /^      - run: npx tsc --noEmit$/m);
+  assert.match(workflow, /^      - run: \.\/node_modules\/\.bin\/tsc --noEmit$/m);
+  assert.doesNotMatch(workflow, /\bnpx\b/);
   assert.match(workflow, /^      - run: npm test$/m);
   assert.match(workflow, /^    timeout-minutes: 15$/m);
 });

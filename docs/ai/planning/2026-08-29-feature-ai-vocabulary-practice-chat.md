@@ -8,11 +8,11 @@ description: Delivery status for the chat-only vocabulary-agent revision
 
 ## Current Status
 
-The resource-first backend follow-up is implemented in the current local diff.
-Fresh 2026-08-31 focused evidence passes 134/134 generation, vocabulary-tool,
-change-set, proposal-retry, schema/migration, and D1-budget tests. This slice has not
-been revalidated with the full suite, browser E2E, a preview deployment, or a push;
-those remain explicit gates rather than completion claims.
+The resource-first backend follow-up and its architecture cleanup are implemented in
+the current local diff. Focused 2026-09-01 evidence passes 74/74 client/UI tests and
+97/97 vocabulary planner, tool, proposal-lifecycle, and exact D1-budget tests. The
+production build, 645/645 full tests, TypeScript, lint, diff check, and authenticated
+local browser E2E also pass. Preview deployment and push remain publication gates.
 
 The approved resource-first follow-up is active in the current diff. The provider
 surface is being reduced to two reads plus one mixed proposal tool; one atomic
@@ -124,6 +124,12 @@ of this follow-up. PR-preview deployment is authorized; production is not.
   events. Three vocabulary tools are split into contracts/results/handlers/registry/
   pagination; `vocabulary-tools.ts` is a thin facade and every active tool shares
   one traced budget wrapper.
+- [x] **P10a · Explicit change-set pipeline** — retain
+  `createVocabularyMutationPlanner` as the stable domain facade while delegating
+  mixed changes through read/parse/load/resolve/conflict-validation/build stages.
+  Keep the atomic SQL statement envelope, snapshot guards, and postconditions in a
+  dedicated builder without changing statement order, bindings, public reasons, or
+  D1 budgets.
 
 ## Remaining Gates
 
@@ -155,7 +161,9 @@ of this follow-up. PR-preview deployment is authorized; production is not.
 - [x] **P11 · Responsive chat workspace** — keep list and dialogue visible together
   on desktop; use a drawer on tablet/mobile; preserve selected chat in the URL,
   per-chat drafts, last-request-wins switching, single-flight creation, honest
-  loading states, and follow-vs-jump transcript scrolling.
+  loading states, and follow-vs-jump transcript scrolling. Keep auth shell,
+  workspace navigation, conversation rendering, composer behavior, turn lifecycle,
+  and safe client HTTP mapping in separate modules with one owner per concern.
 - [x] **P11a · Interactive message selection** — preserve exact message text while
   adding subtly actionable English words with one roving tab stop per message, mobile
   long-press/synthetic-click fencing, one desktop anchored toolbar/mobile bottom

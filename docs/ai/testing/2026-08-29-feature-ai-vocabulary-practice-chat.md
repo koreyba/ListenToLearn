@@ -8,12 +8,31 @@ description: Verified agent-tool contracts and remaining end-to-end gates
 
 ## Fresh Automated Evidence
 
-Fresh 2026-08-31 focused evidence passes 134/134 generation, vocabulary-tool,
-mixed-planner, proposal-retry, schema/migration, and D1-budget tests. The full suite,
-browser E2E, preview deployment, and push have not been rerun for the resource-first
-exact diff.
+Fresh 2026-09-01 focused evidence passes 74/74 client/UI tests and 97/97 vocabulary
+planner, tool, proposal-lifecycle, and exact D1-budget tests after separating the
+frontend lifecycle and backend change-set pipeline. The production build, 645/645
+full tests, TypeScript, ESLint with zero errors, lifecycle lint, `git diff --check`,
+and authenticated local browser E2E also pass. Preview deployment and push have not
+yet been rerun for this exact diff.
+
+The current browser run at 319px and desktop master-detail breakpoints verified
+Markdown, Stop, Retry, a successful post-cancellation follow-up, one three-addition
+inline proposal cancelled without vocabulary writes, full-screen composer focus/body
+lock, and zero document/drawer/sidebar/conversation horizontal overflow. Exact
+middle-caret transfer remains covered programmatically because the browser driver
+cannot place a textarea caret at a deterministic character offset.
 
 ### Covered in the current test tree
+
+- [x] UI source contracts span the auth shell, workspace, conversation, composer,
+  turn controller, and client HTTP boundary instead of depending on one monolithic
+  component. Behavioral tests retain send/retry/stop, canonical recovery,
+  full-screen composition, caret restoration, safe errors, Markdown, and responsive
+  interaction contracts.
+- [x] The stable vocabulary mutation facade delegates mixed changes through an
+  explicit staged planner and atomic plan builder. Existing 1/10/30-change,
+  rollback, ambiguity, cancellation, exact statement-count, and postcondition tests
+  exercise that delegated production path.
 
 - [x] New chat reads the owner-bound latest five and persists a deterministic
   complete assistant opening without a synthetic user message or model call; when

@@ -2,13 +2,24 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const componentUrl = new URL("../app/components/ai-practice-chat.tsx", import.meta.url);
+const chatComponentUrls = [
+  new URL("../app/components/ai-practice-chat.tsx", import.meta.url),
+  new URL("../app/components/ai-chat-composer.tsx", import.meta.url),
+  new URL("../app/components/ai-chat-conversation.tsx", import.meta.url),
+  new URL("../app/components/ai-chat-workspace.tsx", import.meta.url),
+  new URL("../app/components/use-ai-chat-turn-controller.ts", import.meta.url),
+  new URL("../lib/ai-chat/client-http.ts", import.meta.url),
+];
 const selectionActionsUrl = new URL("../app/components/ai-chat-selection-actions.tsx", import.meta.url);
 const phraseWorkspaceUrl = new URL("../app/components/phrase-workspace.tsx", import.meta.url);
 const stylesUrl = new URL("../app/globals.css", import.meta.url);
 
+async function readChatSource() {
+  return (await Promise.all(chatComponentUrls.map((url) => readFile(url, "utf8")))).join("\n");
+}
+
 test("signed-in chat uses AI SDK useChat with the compact canonical transport", async () => {
-  const source = await readFile(componentUrl, "utf8");
+  const source = await readChatSource();
   assert.match(source, /useChat<AiChatUiMessage>/);
   assert.match(source, /new DefaultChatTransport/);
   assert.match(source, /prepareSendMessagesRequest: prepareAiChatMessageRequest/);
@@ -21,39 +32,39 @@ test("signed-in chat uses AI SDK useChat with the compact canonical transport", 
 });
 
 test("retryable terminal failures explain exact safe causes and stopped responses", async () => {
-  const source = await readFile(componentUrl, "utf8");
+  const source = await readChatSource();
 
   assert.match(
     source,
-    /case "response_incomplete": return responseIncompleteMessage\(terminal\);/,
+    /case "response_incomplete":\s*return responseIncompleteMessage\(terminal\);/,
   );
   assert.match(
     source,
-    /case "generation_cancelled": return "You stopped this response\. Retry it if needed\.";/,
+    /case "generation_cancelled":\s*return "You stopped this response\. Retry it if needed\.";/,
   );
   assert.match(
     source,
-    /case "generation_interrupted": return "The live connection was interrupted before the response was saved\. You can retry safely\.";/,
+    /case "generation_interrupted":\s*return "The live connection was interrupted before the response was saved\. You can retry safely\.";/,
   );
   assert.match(
     source,
-    /case "tool_timeout": return "The chat action timed out\. Nothing was changed\. You can continue or retry\.";/,
+    /case "tool_timeout":\s*return "The chat action timed out\. Nothing was changed\. You can continue or retry\.";/,
   );
   assert.match(
     source,
-    /case "tool_failed": return "The chat action failed\. Nothing was changed\. You can continue or retry\.";/,
+    /case "tool_failed":\s*return "The chat action failed\. Nothing was changed\. You can continue or retry\.";/,
   );
   assert.match(
     source,
-    /case "tool_budget_exceeded": return "This request needed more vocabulary lookups than one response can safely run\. Nothing was changed\. Split it into smaller requests\.";/,
+    /case "tool_budget_exceeded":\s*return "This request needed more vocabulary lookups than one response can safely run\. Nothing was changed\. Split it into smaller requests\.";/,
   );
-  assert.match(source, /case "length": return "The model reached its response limit before finishing\. Retry with a shorter request\.";/);
-  assert.match(source, /case "content-filter": return "The provider stopped this response because of its safety filter\. Try rephrasing the request\.";/);
-  assert.match(source, /case "tool-calls": return "The model stopped before it finished the requested vocabulary action\. Nothing was changed\.";/);
+  assert.match(source, /case "length":\s*return "The model reached its response limit before finishing\. Retry with a shorter request\.";/);
+  assert.match(source, /case "content-filter":\s*return "The provider stopped this response because of its safety filter\. Try rephrasing the request\.";/);
+  assert.match(source, /case "tool-calls":\s*return "The model stopped before it finished the requested vocabulary action\. Nothing was changed\.";/);
 });
 
 test("only explicit Stop cancels the server turn while transport errors reconcile quietly", async () => {
-  const source = await readFile(componentUrl, "utf8");
+  const source = await readChatSource();
 
   assert.match(
     source,
@@ -76,12 +87,13 @@ test("only explicit Stop cancels the server turn while transport errors reconcil
   assert.match(source, /refresh\(signal, \{ quiet: true \}\)/);
   assert.match(source, /withAiChatCancelDeadline\(async \(signal\) =>/);
   assert.match(source, /signal,/);
-  assert.match(source, /onClick=\{stopPendingTurn\}/);
+  assert.match(source, /onStop=\{stopPendingTurn\}/);
+  assert.match(source, /onClick=\{onStop\}/);
 });
 
 test("stopping blocks a second send and rejected outbound text remains recoverable", async () => {
   const [source, styles] = await Promise.all([
-    readFile(componentUrl, "utf8"),
+    readChatSource(),
     readFile(stylesUrl, "utf8"),
   ]);
 
@@ -100,7 +112,7 @@ test("stopping blocks a second send and rejected outbound text remains recoverab
 });
 
 test("chat UI exposes separate list/dialog panes and contextual selection actions", async () => {
-  const source = await readFile(componentUrl, "utf8");
+  const source = await readChatSource();
   assert.match(source, /<nav[^>]+aria-label="Practice chats"/s);
   assert.match(source, /id="ai-chat-sidebar"/);
   assert.match(source, /aria-controls="ai-chat-sidebar"/);
@@ -120,7 +132,7 @@ test("chat UI exposes separate list/dialog panes and contextual selection action
 
 test("agent writes render as inline proposal cards and confirm without another chat turn", async () => {
   const [source, styles] = await Promise.all([
-    readFile(componentUrl, "utf8"),
+    readChatSource(),
     readFile(stylesUrl, "utf8"),
   ]);
   assert.match(source, /AiChatWriteProposal/);
@@ -149,7 +161,7 @@ test("chat selection actions reuse DeepL and vocabulary APIs without a new provi
 
 test("new chat and add-to-learning actions share the primary button treatment", async () => {
   const [chatSource, selectionSource, styles] = await Promise.all([
-    readFile(componentUrl, "utf8"),
+    readChatSource(),
     readFile(selectionActionsUrl, "utf8"),
     readFile(stylesUrl, "utf8"),
   ]);
@@ -174,7 +186,7 @@ test("chat styles provide responsive drawer, selection sheet, and comfortable ta
 
 test("assistant messages opt into safe Markdown while user messages stay literal", async () => {
   const [source, styles] = await Promise.all([
-    readFile(componentUrl, "utf8"),
+    readChatSource(),
     readFile(stylesUrl, "utf8"),
   ]);
 
@@ -201,7 +213,7 @@ test("chat list never scrolls sideways and the compact status is a centered circ
 
 test("chat feedback and transient surfaces expose truthful, interruptible states", async () => {
   const [chatSource, selectionSource, styles] = await Promise.all([
-    readFile(componentUrl, "utf8"),
+    readChatSource(),
     readFile(selectionActionsUrl, "utf8"),
     readFile(stylesUrl, "utf8"),
   ]);
@@ -216,7 +228,7 @@ test("chat feedback and transient surfaces expose truthful, interruptible states
 });
 
 test("chat switching is last-request-wins and refresh does not remount away drafts", async () => {
-  const source = await readFile(componentUrl, "utf8");
+  const source = await readChatSource();
   assert.match(source, /openRequestId/);
   assert.match(source, /key=\{chat\.id\}/);
   assert.doesNotMatch(source, /key=\{`\$\{chat\.id\}:\$\{chat\.updatedAt\}`\}/);
@@ -227,7 +239,7 @@ test("chat switching is last-request-wins and refresh does not remount away draf
 });
 
 test("a terminal stream stays visible until canonical history actually changes", async () => {
-  const source = await readFile(componentUrl, "utf8");
+  const source = await readChatSource();
 
   assert.match(source, /observeCanonicalMessages\(\s*observedCanonicalMessages\.current,\s*canonicalMessages,\s*busy,/s);
   assert.match(source, /observedCanonicalMessages\.current = sync\.observed/);
@@ -237,7 +249,7 @@ test("a terminal stream stays visible until canonical history actually changes",
 
 test("compact composer has no internal scrollbar and expands into a full-screen editor", async () => {
   const [source, styles] = await Promise.all([
-    readFile(componentUrl, "utf8"),
+    readChatSource(),
     readFile(stylesUrl, "utf8"),
   ]);
 
@@ -261,7 +273,7 @@ test("compact composer has no internal scrollbar and expands into a full-screen 
 
 test("chat entry points do not preselect hidden practice targets", async () => {
   const [chatSource, phraseSource] = await Promise.all([
-    readFile(componentUrl, "utf8"),
+    readChatSource(),
     readFile(phraseWorkspaceUrl, "utf8"),
   ]);
   assert.doesNotMatch(chatSource, /URLSearchParams|phraseId|AiChatTargetRequest/);

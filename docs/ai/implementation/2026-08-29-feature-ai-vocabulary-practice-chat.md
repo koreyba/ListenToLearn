@@ -8,14 +8,20 @@ description: Implemented chat-only tools, attempts, ledger, and mutation receipt
 
 ## Implemented Files
 
-- `app/components/ai-practice-chat.tsx`: account-gated two-pane chat workspace with
-  a desktop list and mobile drawer, URL-backed selected chat, per-chat drafts,
-  last-request-wins switching, transcript follow/jump behavior, composer stream
-  state, and retry; no target/meaning/status setup UI. Stop now has an explicit
-  cancelling phase that blocks a racing send until the server decision returns.
-  The client keeps each optimistic outbound turn by `clientMessageId`, reconciles it
-  against refreshed canonical detail, restores text after a pre-accept failure, and
-  preserves a newer draft behind a separate meaningful unsent-message retry.
+- `app/components/ai-practice-chat.tsx`, `ai-chat-workspace.tsx`, and
+  `ai-chat-conversation.tsx`: the account shell, chat-list/navigation state, and
+  active conversation are separate boundaries. The workspace owns URL-backed
+  selection, per-chat drafts, last-request-wins switching, and single-flight chat
+  creation; the conversation owns transcript follow/jump and selection/proposal UI.
+- `app/components/use-ai-chat-turn-controller.ts` and `lib/ai-chat/client-http.ts`:
+  one client turn controller owns transport, optimistic `clientMessageId`
+  reconciliation, send/retry/stop, cancellation, interrupted-stream recovery, and
+  stable public HTTP errors. Stop has an explicit cancelling phase that blocks a
+  racing send until the server decision returns; a pre-accept failure restores only
+  its outbound text and never overwrites a newer draft.
+- `app/components/ai-chat-composer.tsx`: compact and full-screen composition share
+  one controlled draft while the component owns caret/focus restoration, body-scroll
+  lock, focus containment, keyboard submission, and send/stop controls.
 - `app/components/ai-chat-selection-actions.tsx`,
   `app/components/interactive-english-text.ts`, and `lib/ai-chat/selection.ts`:
   exact-text rendering with subtly clickable English words, one roving word tab stop
@@ -38,8 +44,15 @@ description: Implemented chat-only tools, attempts, ledger, and mutation receipt
   version `5`.
 - `lib/vocabulary/contracts.ts`, `repository.ts`, `mutations.ts`,
   `practice-reader.ts`: reusable bounded vocabulary reads, a read-only saved-target/
-  practice projection boundary, and composable mutation plans. The chat repository
-  no longer owns SQL for `phrases` or `phrase_meanings`.
+  practice projection boundary, and composable mutation plans. `mutations.ts`
+  remains the stable domain facade while mixed change sets delegate to
+  `change-set-planner.ts`.
+- `lib/vocabulary/change-set-planner.ts` and `change-set-plan-builder.ts`: mixed
+  changes follow explicit read/parse/load/resolve/conflict-validation/build stages;
+  the separate builder owns the cohesive atomic SQL envelope, snapshot guards, and
+  postconditions. Existing statement ordering, bindings, error reasons, and D1
+  budgets remain part of the facade contract. The chat repository owns no SQL for
+  `phrases` or `phrase_meanings`.
 - `lib/ai-chat/tools/vocabulary/{contracts,policy,results,handlers,registry,pagination}.ts`:
   exactly three active contracts (two reads plus one mixed proposal), result compaction, domain
   orchestration, one traced AI SDK registry wrapper, and opaque cross-turn cursors.
@@ -327,15 +340,24 @@ browser stream.
 
 ## Validation Evidence
 
-Fresh 2026-08-31 evidence passes the complete 633/633 test/build suite, TypeScript,
-lifecycle lint, `git diff --check`, and independent backend/UI P0/P1 review. It
-includes 134/134 focused generation, vocabulary-tool, mixed-planner, proposal-retry,
-schema/migration, and D1-budget tests covering typed preset rejection, the real
-compact-ID path for 30 translated additions, cross-action meaning collision
-rejection, reactivation ordering, migration 0023 retry isolation, the hard client
-cancellation deadline, and quiet-stream interruption recovery.
+Fresh 2026-09-01 evidence for the architecture split passes the production build,
+645/645 tests, TypeScript, ESLint with zero errors (three unrelated existing
+warnings), lifecycle lint, and `git diff --check`. Focused evidence includes 74/74
+client/UI tests and 97/97 vocabulary planner, tool, proposal-lifecycle, and exact
+D1-budget tests. It retains coverage for typed preset rejection, real compact IDs at
+the 30-change boundary, cross-action collision rejection, retry isolation, the hard
+client cancellation deadline, quiet-stream recovery, and exact confirmation costs.
 
-Authenticated local browser E2E used the real model and D1 at desktop and 390px
+Authenticated local browser E2E on the refactored client rendered Markdown, stopped
+and retried a live long response, then accepted a normal follow-up in the same chat.
+Three additions produced one inline proposal and Cancel persisted no vocabulary
+change. At 319px and desktop master-detail breakpoints, document, drawer, sidebar,
+and conversation widths had no horizontal overflow; the full-screen editor retained
+the shared draft/focus boundary and body-scroll lock. Exact middle-caret transfer is
+covered by the focused client test because the browser driver cannot position a
+textarea caret deterministically.
+
+Earlier authenticated local browser E2E used the real model and D1 at desktop and 390px
 mobile breakpoints. Three additions produced one grouped proposal; a later mixed
 add/update/remove request produced one proposal with all three groups; both confirms
 completed atomically. Stop terminalized a live provider turn in under one second and

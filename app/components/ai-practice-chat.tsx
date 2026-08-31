@@ -201,6 +201,10 @@ function ChatConversation({
     canonicalPendingClientMessageId,
   );
   const outboundTurn = useRef<AiChatOutboundTurn | null>(null);
+  const retryTerminalBaseline = useRef<{
+    clientMessageId: string;
+    updatedAt: string;
+  } | null>(null);
   const activeCancellation = useRef<Promise<void> | null>(null);
   const activeRecovery = useRef<Promise<void> | null>(null);
   const transport = useMemo(() => new DefaultChatTransport<AiChatUiMessage>({
@@ -265,6 +269,7 @@ function ChatConversation({
         );
         signal.throwIfAborted();
         outboundTurn.current = null;
+        retryTerminalBaseline.current = null;
         setLocallyTerminalClientMessageId(clientMessageId);
         if (activeClientMessageId.current === clientMessageId) {
           updateActiveClientMessageId(null);
@@ -339,6 +344,7 @@ function ChatConversation({
         void recoverPendingTurn();
         return;
       }
+      retryTerminalBaseline.current = null;
       setLocallyTerminalClientMessageId(activeClientMessageId.current);
       outboundTurn.current = null;
       updateActiveClientMessageId(null);
@@ -353,15 +359,21 @@ function ChatConversation({
     if (!clientMessageId) return Promise.resolve();
     setTurnControlError("");
     setTurnRecoveryNotice("The live connection was interrupted. Checking the saved response…");
+    const terminalBaselineUpdatedAt = retryTerminalBaseline.current?.clientMessageId === clientMessageId
+      ? retryTerminalBaseline.current.updatedAt
+      : null;
     const recovery = recoverAiChatCanonicalTurn({
       clientMessageId,
+      terminalBaselineUpdatedAt,
       refresh: (signal) => refresh(signal, { quiet: true }),
     }).then((result) => {
       clearError();
       if (result.detail) reconcileCanonicalDetail(result.detail);
       if (result.state === "terminal") {
+        retryTerminalBaseline.current = null;
         setTurnRecoveryNotice("");
       } else if (result.state === "pending") {
+        retryTerminalBaseline.current = null;
         setTurnRecoveryNotice(
           "The live connection was lost, but the response is still running. You can wait or stop it.",
         );
@@ -473,17 +485,22 @@ function ChatConversation({
 
   useEffect(() => {
     const clientMessageId = activeClientMessageId.current;
+    const terminalBaselineUpdatedAt = retryTerminalBaseline.current?.clientMessageId === clientMessageId
+      ? retryTerminalBaseline.current.updatedAt
+      : null;
     if (!shouldSettleAiChatStreamFromCanonical({
       streamBusy: busy,
       activeClientMessageId: clientMessageId,
-      canonicalMessages,
+      canonicalMessages: chat.messages,
+      terminalBaselineUpdatedAt,
     })) return;
     outboundTurn.current = null;
+    retryTerminalBaseline.current = null;
     setLocallyTerminalClientMessageId(clientMessageId);
     updateActiveClientMessageId(null);
     clearError();
     stop();
-  }, [busy, canonicalMessages, clearError, stop, updateActiveClientMessageId]);
+  }, [busy, chat.messages, clearError, stop, updateActiveClientMessageId]);
 
   useEffect(() => {
     if (following) messageEnd.current?.scrollIntoView({ block: "end" });
@@ -536,6 +553,7 @@ function ChatConversation({
     if (!text || turnBusy || !generationConfigured) return;
     const clientMessageId = crypto.randomUUID();
     outboundTurn.current = { clientMessageId, text };
+    retryTerminalBaseline.current = null;
     setLocallyTerminalClientMessageId(null);
     updateActiveClientMessageId(clientMessageId);
     updateDraft("");
@@ -587,13 +605,22 @@ function ChatConversation({
   async function retry(clientMessageId: string) {
     const message = messages.find((item) => item.role === "user" && item.id === clientMessageId);
     if (!message || turnBusy || !generationConfigured) return;
+    const text = aiChatUiMessageText(message);
+    const terminal = chat.messages.find((item) => (
+      item.role === "assistant"
+      && item.clientMessageId === clientMessageId
+      && item.status !== "pending"
+    ));
+    retryTerminalBaseline.current = terminal
+      ? { clientMessageId, updatedAt: terminal.updatedAt }
+      : null;
     setLocallyTerminalClientMessageId(null);
     updateActiveClientMessageId(message.id);
     setTurnControlError("");
     setTurnRecoveryNotice("");
     clearError();
     setFollowing(true);
-    await sendMessage({ text: aiChatUiMessageText(message), messageId: message.id });
+    await sendMessage({ text, messageId: message.id });
   }
 
   async function retryRecoverableOutbound() {
@@ -603,6 +630,14 @@ function ChatConversation({
       message.role === "user" && message.id === outbound.clientMessageId
     ));
     outboundTurn.current = outbound;
+    const terminal = chat.messages.find((message) => (
+      message.role === "assistant"
+      && message.clientMessageId === outbound.clientMessageId
+      && message.status !== "pending"
+    ));
+    retryTerminalBaseline.current = terminal
+      ? { clientMessageId: outbound.clientMessageId, updatedAt: terminal.updatedAt }
+      : null;
     setRecoverableOutbound(null);
     setTurnRecoveryNotice("");
     setTurnControlError("");

@@ -80,6 +80,7 @@ function waitForAiChatRecovery(delayMs: number, signal?: AbortSignal) {
 
 export async function recoverAiChatCanonicalTurn(input: {
   clientMessageId: string;
+  terminalBaselineUpdatedAt?: string | null;
   refresh: (signal?: AbortSignal) => Promise<AiChatClientDetail | null>;
   signal?: AbortSignal;
   delaysMs?: readonly number[];
@@ -99,6 +100,10 @@ export async function recoverAiChatCanonicalTurn(input: {
     ));
     if (!assistant) continue;
     if (assistant.status !== "pending") {
+      if (
+        input.terminalBaselineUpdatedAt
+        && assistant.updatedAt === input.terminalBaselineUpdatedAt
+      ) continue;
       return { state: "terminal" as const, detail };
     }
     pendingDetail = detail;
@@ -122,13 +127,18 @@ export function isAiChatTurnBlocked(input: {
 export function shouldSettleAiChatStreamFromCanonical(input: {
   streamBusy: boolean;
   activeClientMessageId: string | null;
-  canonicalMessages: readonly AiChatUiMessage[];
+  canonicalMessages: readonly AiChatClientMessage[];
+  terminalBaselineUpdatedAt?: string | null;
 }) {
   if (!input.streamBusy || !input.activeClientMessageId) return false;
   return input.canonicalMessages.some((message) => (
     message.role === "assistant"
-    && message.metadata?.clientMessageId === input.activeClientMessageId
-    && message.metadata.status !== "pending"
+    && message.clientMessageId === input.activeClientMessageId
+    && message.status !== "pending"
+    && (
+      !input.terminalBaselineUpdatedAt
+      || message.updatedAt !== input.terminalBaselineUpdatedAt
+    )
   ));
 }
 

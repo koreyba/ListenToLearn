@@ -84,22 +84,32 @@ test("an active cancellation keeps the turn blocked after the local stream stops
 });
 
 test("a canonical terminal assistant releases a stale local stream without cancelling the turn", () => {
-  const message = (status) => ({
+  const message = (status, updatedAt = "2026-08-31T21:00:01.000Z") => ({
     id: "assistant-row",
     role: "assistant",
-    parts: [],
-    metadata: {
-      status,
-      clientMessageId: "client-turn",
-      errorCode: status === "failed" ? "provider_timeout" : null,
-      terminal: null,
-    },
+    status,
+    clientMessageId: "client-turn",
+    errorCode: status === "failed" ? "provider_timeout" : null,
+    terminal: null,
+    updatedAt,
   });
 
   assert.equal(clientModule.shouldSettleAiChatStreamFromCanonical({
     streamBusy: true,
     activeClientMessageId: "client-turn",
     canonicalMessages: [message("failed")],
+  }), true);
+  assert.equal(clientModule.shouldSettleAiChatStreamFromCanonical({
+    streamBusy: true,
+    activeClientMessageId: "client-turn",
+    canonicalMessages: [message("failed", "2026-08-31T21:00:00.000Z")],
+    terminalBaselineUpdatedAt: "2026-08-31T21:00:00.000Z",
+  }), false);
+  assert.equal(clientModule.shouldSettleAiChatStreamFromCanonical({
+    streamBusy: true,
+    activeClientMessageId: "client-turn",
+    canonicalMessages: [message("failed", "2026-08-31T21:00:01.000Z")],
+    terminalBaselineUpdatedAt: "2026-08-31T21:00:00.000Z",
   }), true);
   assert.equal(clientModule.shouldSettleAiChatStreamFromCanonical({
     streamBusy: true,
@@ -258,6 +268,30 @@ test("stream recovery reports a still-running canonical turn without cancelling 
 
   assert.equal(result.state, "pending");
   assert.equal(result.detail, pending);
+});
+
+test("retry recovery ignores the terminal snapshot that predates the new attempt", async () => {
+  const stale = {
+    id: "chat-1",
+    messages: [{
+      role: "assistant",
+      status: "failed",
+      clientMessageId: "turn-1",
+      errorCode: "generation_cancelled",
+      updatedAt: "2026-08-31T21:00:00.000Z",
+    }],
+  };
+
+  const result = await clientModule.recoverAiChatCanonicalTurn({
+    clientMessageId: "turn-1",
+    terminalBaselineUpdatedAt: "2026-08-31T21:00:00.000Z",
+    delaysMs: [0, 0],
+    refresh: async () => stale,
+    wait: async () => {},
+  });
+
+  assert.equal(result.state, "unavailable");
+  assert.equal(result.detail, stale);
 });
 
 test("current targets serialize back to explicit saved or ad-hoc mutation inputs", () => {

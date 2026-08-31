@@ -78,6 +78,7 @@ test("turn cancellation route terminalizes through the owner-scoped service with
   assert.match(routeSources.cancelTurn, /cancelAiChatTurn\(/);
   assert.match(routeSources.cancelTurn, /createAiChatRepository\(getD1\(\)\)/);
   assert.match(routeSources.cancelTurn, /toPublicAiChatTurnTerminal\(/);
+  assert.match(routeSources.cancelTurn, /event: "ai_chat_turn_cancelled"/);
   assert.doesNotMatch(routeSources.cancelTurn, /prepareAiChatGeneration|createUIMessageStreamResponse/);
   assert.doesNotMatch(routeSources.cancelTurn, /enforceAiChatGenerationRateLimit/);
 });
@@ -161,6 +162,11 @@ test("chat routes expose a whitelisted public message contract", async () => {
       model: "private/model-routing-id",
       usage: { inputTokens: 123, outputTokens: 45 },
       errorCode: null,
+      terminal: {
+        finishReason: "length",
+        elapsedMs: 12_345,
+        rawError: "must-not-leak",
+      },
       createdAt: "2026-08-29T10:00:00.000Z",
       updatedAt: "2026-08-29T10:00:01.000Z",
     }],
@@ -174,6 +180,7 @@ test("chat routes expose a whitelisted public message contract", async () => {
     status: "complete",
     clientMessageId: "opening:chat-1",
     errorCode: null,
+    terminal: { finishReason: "length", elapsedMs: 12_345 },
     createdAt: "2026-08-29T10:00:00.000Z",
     updatedAt: "2026-08-29T10:00:01.000Z",
   }]);
@@ -181,6 +188,7 @@ test("chat routes expose a whitelisted public message contract", async () => {
   assert.equal("model" in chat.messages[0], false);
   assert.equal("usage" in chat.messages[0], false);
   assert.equal("practiceContext" in chat.messages[0], false);
+  assert.equal(JSON.stringify(chat.messages).includes("must-not-leak"), false);
   assert.deepEqual(chat.writeProposals, [{
     id: "proposal-1",
     assistantMessageId: "message-1",

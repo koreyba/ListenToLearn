@@ -155,6 +155,7 @@ test("chat failures use a stable public error-code vocabulary", () => {
     generationInterrupted: "generation_interrupted",
     toolTimeout: "tool_timeout",
     toolFailed: "tool_failed",
+    toolBudgetExceeded: "tool_budget_exceeded",
     providerTimeout: "provider_timeout",
     providerRateLimited: "provider_rate_limited",
     providerFailed: "provider_failed",

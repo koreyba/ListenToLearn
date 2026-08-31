@@ -1474,6 +1474,72 @@ test("turn cancellation is idempotent and preserves an already terminal result",
   assert.equal(cancelledStart.attempt.status, "pending");
 });
 
+test("explicit Stop may relabel only a transport interruption as user cancellation", async () => {
+  const { repository } = createFixture();
+  const chat = await repository.createChat("user-a");
+  const interruptedStart = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "stop-after-disconnect",
+    content: "Keep working.",
+    practiceContext: [],
+  });
+  await repository.failTurn(
+    "user-a",
+    chat.id,
+    "stop-after-disconnect",
+    "generation_interrupted",
+    interruptedStart.attempt.id,
+    { termination: "transport_disconnected" },
+  );
+
+  const cancelled = await repository.cancelTurn(
+    "user-a",
+    chat.id,
+    "stop-after-disconnect",
+  );
+  assert.equal(cancelled.assistant.errorCode, "generation_cancelled");
+  assert.equal(cancelled.attempt.errorCode, "generation_cancelled");
+
+  const providerStart = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "stop-after-provider-failure",
+    content: "This will fail.",
+    practiceContext: [],
+  });
+  const providerFailure = await repository.failTurn(
+    "user-a",
+    chat.id,
+    "stop-after-provider-failure",
+    "provider_failed",
+    providerStart.attempt.id,
+  );
+  assert.deepEqual(
+    await repository.cancelTurn("user-a", chat.id, "stop-after-provider-failure"),
+    providerFailure,
+  );
+});
+
+test("chat detail exposes only normalized terminal telemetry for the latest attempt", async () => {
+  const { repository } = createFixture();
+  const chat = await repository.createChat("user-a");
+  const started = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "terminal-detail",
+    content: "Write too much.",
+    practiceContext: [],
+  });
+  await repository.failTurn(
+    "user-a",
+    chat.id,
+    "terminal-detail",
+    "response_incomplete",
+    started.attempt.id,
+    { finishReason: "length", elapsedMs: 12_345, rawError: "secret" },
+  );
+
+  const detail = await repository.getChat("user-a", chat.id);
+  const assistant = detail.messages.find((message) => message.clientMessageId === "terminal-detail" && message.role === "assistant");
+  assert.deepEqual(assistant.terminal, { finishReason: "length", elapsedMs: 12_345 });
+  assert.equal(JSON.stringify(assistant).includes("secret"), false);
+});
+
 test("late generation callbacks cannot overwrite an explicitly cancelled attempt", async () => {
   const { repository } = createFixture();
   const chat = await repository.createChat("user-a");

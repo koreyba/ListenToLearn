@@ -97,6 +97,7 @@ type AiChatToolLoopOutcome =
   | { kind: "proposal_ready" }
   | { kind: "validation_error"; error: AiChatValidationError }
   | { kind: "tool_timeout" }
+  | { kind: "tool_budget_exceeded" }
   | { kind: "tool_failed" };
 
 const AI_CHAT_MUTATION_TOOL = "propose_vocabulary_change_set";
@@ -159,6 +160,9 @@ function toolLoopOutcome(steps: readonly AiChatGenerationStep[]): AiChatToolLoop
       }
       if (part.type !== "tool-result" || !isRecord(part.output)) continue;
       if (part.output.ok === false) {
+        if (part.output.error === "tool_budget_exceeded") {
+          return { kind: "tool_budget_exceeded" };
+        }
         if (
           part.toolName === AI_CHAT_MUTATION_TOOL
           && typeof part.output.error === "string"
@@ -284,6 +288,7 @@ function publicAiChatProviderStream(stream: ReadableStream<TextStreamPart<ToolSe
 
 function withConsumerCancellation<Chunk>(
   stream: ReadableStream<Chunk>,
+  onCancelStart: () => void,
   onCancel: () => Promise<void>,
 ) {
   const reader = stream.getReader();
@@ -298,8 +303,9 @@ function withConsumerCancellation<Chunk>(
       }
     },
     async cancel(reason) {
-      const terminalCancellation = onCancel();
+      onCancelStart();
       const sourceCancellation = reader.cancel(reason).catch(() => undefined);
+      const terminalCancellation = onCancel();
       await terminalCancellation;
       await sourceCancellation;
     },
@@ -335,6 +341,7 @@ export function startAiChatGeneration(
     finishReason?: unknown;
     steps?: readonly AiChatGenerationStep[];
     text?: string;
+    termination?: AiChatTerminalTelemetry["termination"];
   } = {}): AiChatGenerationTerminalTelemetry => ({
     elapsedMs: Math.max(0, Math.trunc(now() - startedAt)),
     ...(options.finishReason === undefined
@@ -351,8 +358,12 @@ export function startAiChatGeneration(
       : {
           outputCharacters: [...options.text.replace(/\r\n?/gu, "\n").trim()].length,
         }),
+    ...(options.termination === undefined
+      ? {}
+      : { termination: options.termination }),
   });
   let terminalTransitionComplete = false;
+  let consumerCancellationStarted = false;
   let activeTerminalTransition: Promise<void> | null = null;
   const finalizeOnce = async (transition: () => Promise<void>) => {
     for (;;) {
@@ -420,11 +431,17 @@ export function startAiChatGeneration(
         steps: completedSteps,
         text: completionText,
       });
-      if (outcome.kind === "tool_timeout" || outcome.kind === "tool_failed") {
+      if (
+        outcome.kind === "tool_timeout"
+        || outcome.kind === "tool_budget_exceeded"
+        || outcome.kind === "tool_failed"
+      ) {
         await failPendingAssistant(
           outcome.kind === "tool_timeout"
             ? AI_CHAT_ERROR_CODES.toolTimeout
-            : AI_CHAT_ERROR_CODES.toolFailed,
+            : outcome.kind === "tool_budget_exceeded"
+              ? AI_CHAT_ERROR_CODES.toolBudgetExceeded
+              : AI_CHAT_ERROR_CODES.toolFailed,
           terminal,
         );
         return;
@@ -467,10 +484,15 @@ export function startAiChatGeneration(
     },
     onAbort: async ({ steps }) => {
       await failPendingAssistant(
-        input.abortSignal?.aborted
-          ? AI_CHAT_ERROR_CODES.generationCancelled
+        input.abortSignal?.aborted || consumerCancellationStarted
+          ? AI_CHAT_ERROR_CODES.generationInterrupted
           : AI_CHAT_ERROR_CODES.providerTimeout,
-        terminalTelemetry({ steps }),
+        terminalTelemetry({
+          steps,
+          ...(input.abortSignal?.aborted || consumerCancellationStarted
+            ? { termination: "transport_disconnected" as const }
+            : {}),
+        }),
       );
     },
   });
@@ -484,9 +506,12 @@ export function startAiChatGeneration(
   });
   return withConsumerCancellation(
     uiStream,
+    () => {
+      consumerCancellationStarted = true;
+    },
     () => failPendingAssistant(
-      AI_CHAT_ERROR_CODES.generationCancelled,
-      terminalTelemetry(),
+      AI_CHAT_ERROR_CODES.generationInterrupted,
+      terminalTelemetry({ termination: "transport_disconnected" }),
     ),
   );
 }

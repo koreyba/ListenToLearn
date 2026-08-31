@@ -43,6 +43,7 @@ export const AI_CHAT_ERROR_CODES = Object.freeze({
   generationInterrupted: "generation_interrupted",
   toolTimeout: "tool_timeout",
   toolFailed: "tool_failed",
+  toolBudgetExceeded: "tool_budget_exceeded",
   providerTimeout: "provider_timeout",
   providerRateLimited: "provider_rate_limited",
   providerFailed: "provider_failed",

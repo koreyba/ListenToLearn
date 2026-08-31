@@ -2,7 +2,7 @@ import { AI_CHAT_LIMITS, type AiChatMeaningMode } from "../contracts.ts";
 import type { AiVocabularyListContinuation } from "../tools/vocabulary/pagination.ts";
 
 export const AI_CHAT_PROMPT_ID = "unmumble.vocabulary-practice";
-export const AI_CHAT_PROMPT_VERSION = "5";
+export const AI_CHAT_PROMPT_VERSION = "6";
 
 export type AiChatModelMessage = {
   role: "user" | "assistant";
@@ -50,7 +50,7 @@ const LEARNER_LED_CONTRACT = [
   "The learner leads every interaction. Respond to the learner's request instead of choosing the next activity.",
   "Do not start or impose a curriculum, lesson sequence, quiz, or autonomous next step.",
   "When the learner asks, generate examples, vary context, give translation exercises, check answers, and explain errors.",
-  "Respond in plain text. Do not use Markdown or emit HTML.",
+  "Use concise CommonMark Markdown when formatting improves readability. Never emit raw HTML.",
 ].join("\n");
 
 const DICTIONARY_TOOL_CONTRACT = [

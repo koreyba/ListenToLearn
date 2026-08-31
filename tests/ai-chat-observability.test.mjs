@@ -58,6 +58,7 @@ test("terminal generation events keep useful bounded telemetry and no raw conten
     stepCount: 3,
     toolCallCount: 2,
     outputCharacters: 8_200,
+    termination: "transport_disconnected",
     removedRetryMetric: 2,
     text: "PRIVATE_PARTIAL_RESPONSE",
     rawFinishReason: "PRIVATE_PROVIDER_REASON",
@@ -90,6 +91,7 @@ test("terminal generation events keep useful bounded telemetry and no raw conten
       stepCount: 3,
       toolCallCount: 2,
       outputCharacters: 8_200,
+      termination: "transport_disconnected",
     },
     {
       event: "ai_chat_generation_completed",
@@ -106,4 +108,20 @@ test("terminal generation events keep useful bounded telemetry and no raw conten
     },
   ]);
   assert.doesNotMatch(JSON.stringify(records), /PRIVATE/u);
+});
+
+test("explicit Stop emits one content-free event for the durable attempt", () => {
+  const records = [];
+  observability.recordAiChatOperationalEvent({
+    event: "ai_chat_turn_cancelled",
+    attemptId: "attempt-3",
+    clientMessageId: "must-not-leak",
+    text: "PRIVATE_USER_MESSAGE",
+  }, (record) => records.push(record));
+
+  assert.deepEqual(records, [{
+    event: "ai_chat_turn_cancelled",
+    attemptId: "attempt-3",
+  }]);
+  assert.doesNotMatch(JSON.stringify(records), /PRIVATE|must-not-leak/u);
 });

@@ -9,6 +9,7 @@ type AiChatTerminalOperationalTelemetry = {
   stepCount?: number;
   toolCallCount?: number;
   outputCharacters?: number;
+  termination?: string;
 };
 
 export type AiChatOperationalEvent =
@@ -38,6 +39,10 @@ export type AiChatOperationalEvent =
   | {
       event: "ai_chat_generation_rejected";
       errorCode: AiChatErrorCode;
+    }
+  | {
+      event: "ai_chat_turn_cancelled";
+      attemptId: string;
     };
 
 type OperationalRecord = Record<string, string | number>;
@@ -80,12 +85,17 @@ function terminalRecord(event: AiChatTerminalOperationalTelemetry): OperationalR
       .includes(event.finishReason)
     ? event.finishReason
     : null;
+  const termination = typeof event.termination === "string"
+    && ["lease_expired", "transport_disconnected"].includes(event.termination)
+    ? event.termination
+    : null;
   return {
     ...(elapsedMs === null ? {} : { elapsedMs }),
     ...(finishReason === null ? {} : { finishReason }),
     ...(stepCount === null ? {} : { stepCount }),
     ...(toolCallCount === null ? {} : { toolCallCount }),
     ...(outputCharacters === null ? {} : { outputCharacters }),
+    ...(termination === null ? {} : { termination }),
   };
 }
 
@@ -127,6 +137,11 @@ function allowlistedRecord(event: AiChatOperationalEvent): OperationalRecord | n
       return {
         event: event.event,
         errorCode: safeErrorCode(event.errorCode),
+      };
+    case "ai_chat_turn_cancelled":
+      return {
+        event: event.event,
+        attemptId: safeTag(event.attemptId, 120),
       };
     default:
       return null;

@@ -1,5 +1,6 @@
 import type { UIMessage } from "ai";
 import type { AiChatMeaningMode } from "./contracts.ts";
+import type { AiChatTerminalTelemetry } from "./terminal-telemetry.ts";
 import type {
   AiChatPublicDetail,
   AiChatPublicMeaning,
@@ -18,6 +19,7 @@ export type AiChatUiMetadata = {
   status: "complete" | "pending" | "failed";
   clientMessageId: string;
   errorCode: string | null;
+  terminal: AiChatTerminalTelemetry | null;
 };
 
 export type AiChatUiMessage = UIMessage<AiChatUiMetadata>;
@@ -50,7 +52,7 @@ export async function withAiChatCancelDeadline<Result>(
   }
 }
 
-export function shouldCancelAiChatFinishedStream(input: {
+export function shouldRecoverAiChatFinishedStream(input: {
   isAbort: boolean;
   isDisconnect: boolean;
   isError: boolean;
@@ -60,6 +62,49 @@ export function shouldCancelAiChatFinishedStream(input: {
     || input.isDisconnect
     || input.isError
     || !input.finishReason;
+}
+
+export const AI_CHAT_CANONICAL_RECOVERY_DELAYS_MS = [0, 250, 500, 1_000, 2_000, 4_000] as const;
+
+function waitForAiChatRecovery(delayMs: number, signal?: AbortSignal) {
+  if (signal?.aborted) return Promise.reject(signal.reason);
+  if (delayMs <= 0) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(resolve, delayMs);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timeout);
+      reject(signal.reason);
+    }, { once: true });
+  });
+}
+
+export async function recoverAiChatCanonicalTurn(input: {
+  clientMessageId: string;
+  refresh: (signal?: AbortSignal) => Promise<AiChatClientDetail | null>;
+  signal?: AbortSignal;
+  delaysMs?: readonly number[];
+  wait?: (delayMs: number, signal?: AbortSignal) => Promise<void>;
+}) {
+  let lastDetail: AiChatClientDetail | null = null;
+  let pendingDetail: AiChatClientDetail | null = null;
+  const wait = input.wait || waitForAiChatRecovery;
+  for (const delayMs of input.delaysMs || AI_CHAT_CANONICAL_RECOVERY_DELAYS_MS) {
+    await wait(delayMs, input.signal);
+    const detail = await input.refresh(input.signal).catch(() => null);
+    if (!detail) continue;
+    lastDetail = detail;
+    const assistant = detail.messages.find((message) => (
+      message.role === "assistant"
+      && message.clientMessageId === input.clientMessageId
+    ));
+    if (!assistant) continue;
+    if (assistant.status !== "pending") {
+      return { state: "terminal" as const, detail };
+    }
+    pendingDetail = detail;
+  }
+  if (pendingDetail) return { state: "pending" as const, detail: pendingDetail };
+  return { state: "unavailable" as const, detail: lastDetail };
 }
 
 export function isAiChatTurnBlocked(input: {
@@ -72,6 +117,19 @@ export function isAiChatTurnBlocked(input: {
     || Boolean(input.canonicalPendingClientMessageId)
     || Boolean(input.activeClientMessageId)
     || input.cancelling;
+}
+
+export function shouldSettleAiChatStreamFromCanonical(input: {
+  streamBusy: boolean;
+  activeClientMessageId: string | null;
+  canonicalMessages: readonly AiChatClientMessage[];
+}) {
+  if (!input.streamBusy || !input.activeClientMessageId) return false;
+  return input.canonicalMessages.some((message) => (
+    message.role === "assistant"
+    && message.clientMessageId === input.activeClientMessageId
+    && message.status !== "pending"
+  ));
 }
 
 export function reconcileAiChatOutboundTurn(input: {
@@ -111,6 +169,7 @@ export function toAiChatUiMessages(messages: readonly AiChatClientMessage[]): Ai
       status: message.status,
       clientMessageId: message.clientMessageId,
       errorCode: message.errorCode,
+      terminal: message.terminal || null,
     },
   }));
 }

@@ -3,9 +3,12 @@
 import {
   createElement,
   Fragment,
+  type ReactNode,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import Markdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   interactiveEnglishContext,
   readInteractiveSelection,
@@ -14,6 +17,7 @@ import {
 
 export type InteractiveEnglishTextProps = {
   text: string;
+  markdown?: boolean;
   maxSelectionCharacters?: number;
   onPhraseSelect?: (
     phrase: string,
@@ -43,12 +47,69 @@ export type InteractiveTextSelectionDetails = {
 const LONG_PRESS_MILLISECONDS = 450;
 const SYNTHETIC_CLICK_SUPPRESSION_MILLISECONDS = 1_000;
 
+type MarkdownAstNode = {
+  type: string;
+  value?: string;
+  children?: MarkdownAstNode[];
+  data?: {
+    hName?: string;
+    hProperties?: Record<string, string | number>;
+  };
+};
+
+type InteractiveMarkdownState = { text: string };
+
+function annotateInteractiveMarkdown(state: InteractiveMarkdownState) {
+  return (tree: MarkdownAstNode) => {
+    state.text = "";
+    function visit(node: MarkdownAstNode) {
+      if (node.type === "html") return;
+      if (node.type === "text") {
+        const value = node.value || "";
+        const start = state.text.length;
+        state.text += value;
+        node.type = "interactiveText";
+        delete node.value;
+        node.children = [{ type: "text", value }];
+        node.data = {
+          hName: "span",
+          hProperties: { "data-interactive-markdown-start": start },
+        };
+        return;
+      }
+      if (node.type === "inlineCode" || node.type === "code") {
+        const value = node.value || "";
+        const start = state.text.length;
+        state.text += value;
+        node.data = {
+          ...node.data,
+          hProperties: {
+            ...node.data?.hProperties,
+            "data-interactive-markdown-start": start,
+          },
+        };
+        return;
+      }
+      if (node.type === "break") {
+        state.text += "\n";
+        return;
+      }
+      for (const child of node.children || []) visit(child);
+    }
+    visit(tree);
+  };
+}
+
 export function InteractiveEnglishText({
   text,
+  markdown = false,
   maxSelectionCharacters = 500,
   onPhraseSelect,
   onWordActivate,
 }: InteractiveEnglishTextProps) {
+  const markdownState: InteractiveMarkdownState = { text: "" };
+  const contentText = () => markdown ? markdownState.text : text;
+
   function selectedPhrase(container: Node | null) {
     const selection = window.getSelection();
     const phrase = container
@@ -77,23 +138,23 @@ export function InteractiveEnglishText({
     };
   }
 
-  function reportSelection(container: HTMLSpanElement) {
+  function reportSelection(container: HTMLElement) {
     const selection = selectedPhrase(container);
     if (!selection) return false;
     onPhraseSelect?.(
       selection.phrase,
-      interactiveEnglishContext(text, selection.start, selection.end),
+      interactiveEnglishContext(contentText(), selection.start, selection.end),
       { start: selection.start, end: selection.end, anchor: selection.anchor },
     );
     return true;
   }
 
-  function selectionFingerprint(container: HTMLSpanElement) {
+  function selectionFingerprint(container: HTMLElement) {
     const selection = selectedPhrase(container);
     return selection ? `${selection.start}:${selection.end}:${selection.phrase}` : "";
   }
 
-  function reportChangedSelection(container: HTMLSpanElement, previousFingerprint: string) {
+  function reportChangedSelection(container: HTMLElement, previousFingerprint: string) {
     const currentFingerprint = selectionFingerprint(container);
     return currentFingerprint !== previousFingerprint && reportSelection(container);
   }
@@ -102,7 +163,7 @@ export function InteractiveEnglishText({
     const rect = element.getBoundingClientRect();
     onWordActivate?.(
       word,
-      interactiveEnglishContext(text, start, end),
+      interactiveEnglishContext(contentText(), start, end),
       {
         start,
         end,
@@ -133,13 +194,13 @@ export function InteractiveEnglishText({
     return true;
   }
 
-  function suppressWordClick(container: HTMLSpanElement, eventTime: number) {
+  function suppressWordClick(container: HTMLElement, eventTime: number) {
     container.dataset.interactiveSuppressClickUntil = String(
       eventTime + SYNTHETIC_CLICK_SUPPRESSION_MILLISECONDS,
     );
   }
 
-  function finishTouch(container: HTMLSpanElement, eventTime: number) {
+  function finishTouch(container: HTMLElement, eventTime: number) {
     const startedAtValue = container.dataset.interactiveTouchStartedAt;
     const startedAt = Number(startedAtValue || 0);
     const previousFingerprint = container.dataset.interactiveTouchSelection || "";
@@ -159,7 +220,7 @@ export function InteractiveEnglishText({
     });
   }
 
-  function finishMouse(container: HTMLSpanElement, eventTime: number) {
+  function finishMouse(container: HTMLElement, eventTime: number) {
     const previousFingerprint = container.dataset.interactiveMouseSelection || "";
     delete container.dataset.interactiveMouseSelection;
     if (reportChangedSelection(container, previousFingerprint)) {
@@ -167,61 +228,105 @@ export function InteractiveEnglishText({
     }
   }
 
-  const segments = onWordActivate ? segmentInteractiveEnglishText(text) : null;
   let wordIndex = 0;
 
+  function interactiveText(value: string, baseOffset = 0): ReactNode {
+    if (!onWordActivate) return value;
+    return segmentInteractiveEnglishText(value).map((segment) => {
+      if (segment.kind !== "word") {
+        return createElement(Fragment, { key: `${baseOffset + segment.start}:${baseOffset + segment.end}` }, segment.text);
+      }
+      const currentWordIndex = wordIndex;
+      wordIndex += 1;
+      const start = baseOffset + segment.start;
+      const end = baseOffset + segment.end;
+      return createElement("span", {
+        "aria-label": `Actions for word ${segment.text}`,
+        "data-interactive-english-word": "",
+        key: `${start}:${end}`,
+        onClick: (event: ReactMouseEvent<HTMLSpanElement>) => {
+          const container = event.currentTarget.closest<HTMLElement>(".interactive-english-text");
+          const suppressUntil = Number(container?.dataset.interactiveSuppressClickUntil || 0);
+          if (event.timeStamp < suppressUntil) return;
+          window.getSelection()?.removeAllRanges();
+          reportWord(segment.text, start, end, event.currentTarget);
+        },
+        onKeyDown: (event: ReactKeyboardEvent<HTMLSpanElement>) => {
+          if (moveWordFocus(event)) return;
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          window.getSelection()?.removeAllRanges();
+          reportWord(segment.text, start, end, event.currentTarget);
+        },
+        role: "button",
+        tabIndex: currentWordIndex === 0 ? 0 : -1,
+      }, segment.text);
+    });
+  }
+
+  function markdownLeaf(
+    tag: "span" | "code",
+    props: Record<string, unknown>,
+    children: ReactNode,
+  ) {
+    const rawStart = props["data-interactive-markdown-start"];
+    const start = typeof rawStart === "number" ? rawStart : Number(rawStart);
+    const safeProps = { ...props };
+    delete safeProps["data-interactive-markdown-start"];
+    const value = typeof children === "string" ? children : null;
+    return createElement(
+      tag,
+      safeProps,
+      value !== null && Number.isSafeInteger(start)
+        ? interactiveText(value, start)
+        : children,
+    );
+  }
+
+  const markdownComponents: Components = {
+    span: ({ node, children, ...props }) => {
+      void node;
+      return markdownLeaf("span", props, children);
+    },
+    code: ({ node, children, ...props }) => {
+      void node;
+      return markdownLeaf("code", props, children);
+    },
+  };
+
+  const surfaceChildren = markdown
+    ? createElement(Markdown, {
+        components: markdownComponents,
+        remarkPlugins: [remarkGfm, [annotateInteractiveMarkdown, markdownState]],
+        skipHtml: true,
+      }, text)
+    : interactiveText(text);
+
   return createElement(
-    "span",
+    markdown ? "div" : "span",
     {
       className: "interactive-english-text",
-      onKeyUp: (event: ReactKeyboardEvent<HTMLSpanElement>) => reportSelection(event.currentTarget),
-      onMouseDown: (event: ReactMouseEvent<HTMLSpanElement>) => {
+      onKeyUp: (event: ReactKeyboardEvent<HTMLElement>) => reportSelection(event.currentTarget),
+      onMouseDown: (event: ReactMouseEvent<HTMLElement>) => {
         event.currentTarget.dataset.interactiveMouseSelection = selectionFingerprint(event.currentTarget);
         event.currentTarget.dataset.interactiveSuppressClickUntil = String(event.timeStamp);
       },
-      onMouseUp: (event: ReactMouseEvent<HTMLSpanElement>) => {
+      onMouseUp: (event: ReactMouseEvent<HTMLElement>) => {
         finishMouse(event.currentTarget, event.timeStamp);
       },
-      onTouchCancel: (event: { currentTarget: HTMLSpanElement }) => {
+      onTouchCancel: (event: { currentTarget: HTMLElement }) => {
         delete event.currentTarget.dataset.interactiveTouchStartedAt;
         delete event.currentTarget.dataset.interactiveTouchSelection;
       },
-      onTouchEnd: (event: { currentTarget: HTMLSpanElement; timeStamp: number }) => {
+      onTouchEnd: (event: { currentTarget: HTMLElement; timeStamp: number }) => {
         finishTouch(event.currentTarget, event.timeStamp);
       },
-      onTouchStart: (event: { currentTarget: HTMLSpanElement; timeStamp: number }) => {
+      onTouchStart: (event: { currentTarget: HTMLElement; timeStamp: number }) => {
         event.currentTarget.dataset.interactiveTouchStartedAt = String(event.timeStamp);
         event.currentTarget.dataset.interactiveTouchSelection = selectionFingerprint(event.currentTarget);
         event.currentTarget.dataset.interactiveSuppressClickUntil = String(event.timeStamp);
       },
     },
-    segments ? segments.map((segment) => {
-      if (segment.kind !== "word") {
-        return createElement(Fragment, { key: `${segment.start}:${segment.end}` }, segment.text);
-      }
-      const currentWordIndex = wordIndex;
-      wordIndex += 1;
-      return createElement("span", {
-          "aria-label": `Actions for word ${segment.text}`,
-          "data-interactive-english-word": "",
-          key: `${segment.start}:${segment.end}`,
-          onClick: (event: ReactMouseEvent<HTMLSpanElement>) => {
-            const container = event.currentTarget.parentElement;
-            const suppressUntil = Number(container?.dataset.interactiveSuppressClickUntil || 0);
-            if (event.timeStamp < suppressUntil) return;
-            window.getSelection()?.removeAllRanges();
-            reportWord(segment.text, segment.start, segment.end, event.currentTarget);
-          },
-          onKeyDown: (event: ReactKeyboardEvent<HTMLSpanElement>) => {
-            if (moveWordFocus(event)) return;
-            if (event.key !== "Enter" && event.key !== " ") return;
-            event.preventDefault();
-            window.getSelection()?.removeAllRanges();
-            reportWord(segment.text, segment.start, segment.end, event.currentTarget);
-          },
-          role: "button",
-          tabIndex: currentWordIndex === 0 ? 0 : -1,
-        }, segment.text);
-    }) : text,
+    surfaceChildren,
   );
 }

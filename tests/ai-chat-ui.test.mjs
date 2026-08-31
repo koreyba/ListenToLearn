@@ -20,20 +20,20 @@ test("signed-in chat uses AI SDK useChat with the compact canonical transport", 
   assert.doesNotMatch(source, /dangerouslySetInnerHTML/);
 });
 
-test("retryable terminal failures explain incomplete and stopped responses", async () => {
+test("retryable terminal failures explain exact safe causes and stopped responses", async () => {
   const source = await readFile(componentUrl, "utf8");
 
   assert.match(
     source,
-    /case "response_incomplete": return "The response ended before completion\. Retry the same message\.";/,
+    /case "response_incomplete": return responseIncompleteMessage\(terminal\);/,
   );
   assert.match(
     source,
-    /case "generation_cancelled": return "The response was stopped\. Retry it if needed\.";/,
+    /case "generation_cancelled": return "You stopped this response\. Retry it if needed\.";/,
   );
   assert.match(
     source,
-    /case "generation_interrupted": return "The response was interrupted\. You can continue or retry\.";/,
+    /case "generation_interrupted": return "The live connection was interrupted before the response was saved\. You can retry safely\.";/,
   );
   assert.match(
     source,
@@ -43,9 +43,16 @@ test("retryable terminal failures explain incomplete and stopped responses", asy
     source,
     /case "tool_failed": return "The chat action failed\. Nothing was changed\. You can continue or retry\.";/,
   );
+  assert.match(
+    source,
+    /case "tool_budget_exceeded": return "This request needed more vocabulary lookups than one response can safely run\. Nothing was changed\. Split it into smaller requests\.";/,
+  );
+  assert.match(source, /case "length": return "The model reached its response limit before finishing\. Retry with a shorter request\.";/);
+  assert.match(source, /case "content-filter": return "The provider stopped this response because of its safety filter\. Try rephrasing the request\.";/);
+  assert.match(source, /case "tool-calls": return "The model stopped before it finished the requested vocabulary action\. Nothing was changed\.";/);
 });
 
-test("stop and transport errors terminally cancel only the active server turn", async () => {
+test("only explicit Stop cancels the server turn while transport errors reconcile quietly", async () => {
   const source = await readFile(componentUrl, "utf8");
 
   assert.match(
@@ -60,8 +67,13 @@ test("stop and transport errors terminally cancel only the active server turn", 
   assert.match(source, /body: JSON\.stringify\(\{\}\)/);
   assert.match(source, /function stopPendingTurn\(\)/);
   assert.match(source, /stop\(\);\s*void cancelPendingTurn\(\);/s);
-  assert.match(source, /onError: \(\) => void cancelPendingTurn\(\)/);
-  assert.match(source, /shouldCancelAiChatFinishedStream\(\{/);
+  assert.match(source, /onError: \(\) => void recoverPendingTurn\(\)/);
+  assert.doesNotMatch(source, /onError: \(\) => void cancelPendingTurn\(\)/);
+  assert.match(source, /shouldRecoverAiChatFinishedStream\(\{/);
+  assert.match(source, /shouldSettleAiChatStreamFromCanonical\(\{/);
+  assert.match(source, /setLocallyTerminalClientMessageId\(clientMessageId\);\s*updateActiveClientMessageId\(null\);\s*clearError\(\);\s*stop\(\);/s);
+  assert.match(source, /recoverAiChatCanonicalTurn\(\{/);
+  assert.match(source, /refresh\(signal, \{ quiet: true \}\)/);
   assert.match(source, /withAiChatCancelDeadline\(async \(signal\) =>/);
   assert.match(source, /signal,/);
   assert.match(source, /onClick=\{stopPendingTurn\}/);
@@ -158,6 +170,19 @@ test("chat styles provide responsive drawer, selection sheet, and comfortable ta
   assert.match(source, /text-decoration-style:\s*dotted/);
   assert.match(source, /min-height:\s*44px/);
   assert.match(source, /env\(safe-area-inset-bottom\)/);
+});
+
+test("assistant messages opt into safe Markdown while user messages stay literal", async () => {
+  const [source, styles] = await Promise.all([
+    readFile(componentUrl, "utf8"),
+    readFile(stylesUrl, "utf8"),
+  ]);
+
+  assert.match(source, /markdown=\{message\.role === "assistant"\}/);
+  assert.match(styles, /\.ai-chat-message-text \.interactive-english-text > :first-child \{ margin-top:\s*0; \}/);
+  assert.match(styles, /\.ai-chat-message-text (?:ul|ol),/);
+  assert.match(styles, /\.ai-chat-message-text code \{/);
+  assert.match(styles, /\.ai-chat-message-text a \{/);
 });
 
 test("signed-out chat content starts below the navigation without stretching empty grid space", async () => {

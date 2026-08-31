@@ -10,6 +10,7 @@ import type {
   AiChatPublicMessage,
   AiChatPublicTurnTerminal,
 } from "./public-contracts.ts";
+import { normalizeAiChatTerminalTelemetry } from "./terminal-telemetry.ts";
 import type { AiChatPublicWriteProposal } from "./write-proposals.ts";
 
 export function noStoreJson(body: unknown, init: ResponseInit = {}) {
@@ -73,6 +74,7 @@ export function toPublicAiChatDetail(
       status: message.status,
       clientMessageId: message.clientMessageId,
       errorCode: message.errorCode,
+      terminal: normalizeAiChatTerminalTelemetry(message.terminal),
       createdAt: message.createdAt,
       updatedAt: message.updatedAt,
     })),

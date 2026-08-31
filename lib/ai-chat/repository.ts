@@ -59,6 +59,7 @@ export type AiChatMessage = {
   model: string | null;
   usage: unknown;
   errorCode: string | null;
+  terminal: AiChatTerminalTelemetry | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -135,6 +136,7 @@ type MessageRow = {
   model: string | null;
   usage_json: string | null;
   error_code: string | null;
+  terminal_json?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -265,6 +267,7 @@ function mapMessage(row: MessageRow): AiChatMessage {
     model: row.model,
     usage: parseJson(row.usage_json, null),
     errorCode: row.error_code,
+    terminal: parseAiChatTerminalTelemetry(row.terminal_json ?? null),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -536,6 +539,7 @@ export function createAiChatRepository(
         bounded.model,
         bounded.usage_json,
         bounded.error_code,
+        bounded.terminal_json,
         bounded.created_at,
         bounded.updated_at
       FROM (
@@ -551,6 +555,13 @@ export function createAiChatRepository(
           messages.model,
           messages.usage_json,
           messages.error_code,
+          CASE WHEN messages.role = 'assistant' THEN (
+            SELECT attempts.terminal_json
+            FROM ai_chat_assistant_attempts AS attempts
+            WHERE attempts.assistant_message_id = messages.id
+            ORDER BY attempts.attempt_number DESC
+            LIMIT 1
+          ) ELSE NULL END AS terminal_json,
           messages.created_at,
           messages.updated_at
         FROM ai_chat_messages AS messages
@@ -1268,6 +1279,7 @@ export function createAiChatRepository(
         model: input.model,
         usage: input.usage ?? null,
         errorCode: null,
+        terminal: parseAiChatTerminalTelemetry(terminalJson),
         updatedAt: timestamp,
       },
       attempt: existing.attempt
@@ -1401,6 +1413,7 @@ export function createAiChatRepository(
         model: null,
         usage: null,
         errorCode,
+        terminal: parseAiChatTerminalTelemetry(terminalJson),
         updatedAt: timestamp,
       },
       attempt: existing.attempt
@@ -1422,9 +1435,16 @@ export function createAiChatRepository(
   ) {
     const existing = await findTurn(userId, chatId, clientMessageId);
     if (!existing) repositoryError("not_found", "Turn not found.");
+    const interrupted = existing.assistant.status === "failed"
+      && existing.assistant.errorCode === "generation_interrupted"
+      && existing.attempt?.status === "failed"
+      && existing.attempt.errorCode === "generation_interrupted";
     if (
-      existing.assistant.status !== "pending"
-      || existing.attempt?.status !== "pending"
+      !interrupted
+      && (
+        existing.assistant.status !== "pending"
+        || existing.attempt?.status !== "pending"
+      )
     ) {
       return { state: "existing", ...existing } satisfies AiChatTurn;
     }
@@ -1438,7 +1458,10 @@ export function createAiChatRepository(
           SET content = '', status = 'failed', provider = NULL, model = NULL,
               usage_json = NULL, error_code = 'generation_cancelled', updated_at = ?
           WHERE chat_id = ? AND client_message_id = ? AND role = 'assistant'
-            AND status = 'pending'
+            AND (
+              status = 'pending'
+              OR (status = 'failed' AND error_code = 'generation_interrupted')
+            )
             AND EXISTS (
               SELECT 1
               FROM ai_chat_assistant_attempts AS attempts
@@ -1447,7 +1470,13 @@ export function createAiChatRepository(
                 AND attempts.chat_id = ?
                 AND attempts.user_message_id = ?
                 AND attempts.assistant_message_id = ai_chat_messages.id
-                AND attempts.status = 'pending'
+                AND (
+                  attempts.status = 'pending'
+                  OR (
+                    attempts.status = 'failed'
+                    AND attempts.error_code = 'generation_interrupted'
+                  )
+                )
             )
             AND EXISTS (
               SELECT 1 FROM ai_chats WHERE ai_chats.id = ? AND ai_chats.user_id = ?
@@ -1468,7 +1497,11 @@ export function createAiChatRepository(
           SET status = 'failed', provider = NULL, model = NULL, usage_json = NULL,
               error_code = 'generation_cancelled', terminal_json = NULL,
               updated_at = ?, completed_at = ?
-          WHERE id = ? AND user_id = ? AND chat_id = ? AND status = 'pending'
+          WHERE id = ? AND user_id = ? AND chat_id = ?
+            AND (
+              status = 'pending'
+              OR (status = 'failed' AND error_code = 'generation_interrupted')
+            )
             AND EXISTS (
               SELECT 1
               FROM ai_chat_messages
@@ -1520,6 +1553,7 @@ export function createAiChatRepository(
         model: null,
         usage: null,
         errorCode: "generation_cancelled",
+        terminal: null,
         updatedAt: timestamp,
       },
       attempt: {

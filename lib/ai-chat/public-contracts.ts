@@ -1,4 +1,5 @@
 import type { AiChatMeaningMode } from "./contracts.ts";
+import type { AiChatTerminalTelemetry } from "./terminal-telemetry.ts";
 import type { AiChatPublicWriteProposal } from "./write-proposals.ts";
 
 export type AiChatPublicMeaning = {
@@ -29,6 +30,7 @@ export type AiChatPublicMessage = {
   status: "complete" | "pending" | "failed";
   clientMessageId: string;
   errorCode: string | null;
+  terminal: AiChatTerminalTelemetry | null;
   createdAt: string;
   updatedAt: string;
 };

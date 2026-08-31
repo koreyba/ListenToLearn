@@ -13,7 +13,7 @@ test("terminal telemetry serialization keeps only bounded aggregate fields", () 
     outputCharacters: 9_000,
     removedRetryMetric: 1,
     removedFallbackMetric: 1,
-    termination: "lease_expired",
+    termination: "transport_disconnected",
     rawError: "secret provider response",
     toolArgs: { entries: ["secret"] },
   });
@@ -24,7 +24,7 @@ test("terminal telemetry serialization keeps only bounded aggregate fields", () 
     stepCount: 3,
     toolCallCount: 2,
     outputCharacters: 9_000,
-    termination: "lease_expired",
+    termination: "transport_disconnected",
   });
   assert.ok(new TextEncoder().encode(serialized).byteLength <= 2_048);
   assert.equal(serialized.includes("secret"), false);

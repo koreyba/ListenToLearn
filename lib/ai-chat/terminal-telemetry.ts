@@ -10,7 +10,11 @@ const PUBLIC_FINISH_REASONS = new Set([
   "unknown",
 ]);
 
-const PUBLIC_TERMINATIONS = new Set(["lease_expired"]);
+const PUBLIC_TERMINATIONS = new Set(["lease_expired", "transport_disconnected"]);
+
+export type AiChatTerminalTermination =
+  | "lease_expired"
+  | "transport_disconnected";
 
 export type AiChatTerminalTelemetry = {
   elapsedMs?: number;
@@ -18,7 +22,7 @@ export type AiChatTerminalTelemetry = {
   stepCount?: number;
   toolCallCount?: number;
   outputCharacters?: number;
-  termination?: "lease_expired";
+  termination?: AiChatTerminalTermination;
 };
 
 function boundedCount(value: unknown) {
@@ -49,7 +53,7 @@ export function normalizeAiChatTerminalTelemetry(
     normalized.finishReason = record.finishReason;
   }
   if (typeof record.termination === "string" && PUBLIC_TERMINATIONS.has(record.termination)) {
-    normalized.termination = record.termination as "lease_expired";
+    normalized.termination = record.termination as AiChatTerminalTermination;
   }
   return Object.keys(normalized).length > 0 ? normalized : null;
 }

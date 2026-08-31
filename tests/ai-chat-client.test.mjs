@@ -28,7 +28,12 @@ test("persisted messages become plain AI SDK UI messages with retry metadata", (
       id: "client-turn",
       role: "user",
       parts: [{ type: "text", text: "Give me one example." }],
-      metadata: { status: "complete", clientMessageId: "client-turn", errorCode: null },
+      metadata: {
+        status: "complete",
+        clientMessageId: "client-turn",
+        errorCode: null,
+        terminal: null,
+      },
     },
     {
       id: "db-assistant",
@@ -38,6 +43,7 @@ test("persisted messages become plain AI SDK UI messages with retry metadata", (
         status: "failed",
         clientMessageId: "client-turn",
         errorCode: "provider_timeout",
+        terminal: null,
       },
     },
   ]);
@@ -74,6 +80,38 @@ test("an active cancellation keeps the turn blocked after the local stream stops
     canonicalPendingClientMessageId: null,
     activeClientMessageId: null,
     cancelling: false,
+  }), false);
+});
+
+test("a canonical terminal assistant releases a stale local stream without cancelling the turn", () => {
+  const message = (status) => ({
+    id: "assistant-row",
+    role: "assistant",
+    content: "",
+    status,
+    clientMessageId: "client-turn",
+    errorCode: status === "failed" ? "provider_timeout" : null,
+  });
+
+  assert.equal(clientModule.shouldSettleAiChatStreamFromCanonical({
+    streamBusy: true,
+    activeClientMessageId: "client-turn",
+    canonicalMessages: [message("failed")],
+  }), true);
+  assert.equal(clientModule.shouldSettleAiChatStreamFromCanonical({
+    streamBusy: true,
+    activeClientMessageId: "client-turn",
+    canonicalMessages: [message("complete")],
+  }), true);
+  assert.equal(clientModule.shouldSettleAiChatStreamFromCanonical({
+    streamBusy: true,
+    activeClientMessageId: "client-turn",
+    canonicalMessages: [message("pending")],
+  }), false);
+  assert.equal(clientModule.shouldSettleAiChatStreamFromCanonical({
+    streamBusy: false,
+    activeClientMessageId: "client-turn",
+    canonicalMessages: [message("failed")],
   }), false);
 });
 
@@ -153,21 +191,70 @@ test("cancel recovery has a hard deadline that aborts a hung request", async () 
   assert.equal(observedSignal.aborted, true);
 });
 
-test("a quiet or interrupted stream is cancelled while a terminal stream is refreshed", () => {
+test("a quiet or interrupted stream is reconciled without pretending the user pressed Stop", () => {
   for (const input of [
     { isAbort: false, isDisconnect: false, isError: false, finishReason: undefined },
     { isAbort: true, isDisconnect: false, isError: false, finishReason: undefined },
     { isAbort: false, isDisconnect: true, isError: false, finishReason: undefined },
     { isAbort: false, isDisconnect: false, isError: true, finishReason: undefined },
   ]) {
-    assert.equal(clientModule.shouldCancelAiChatFinishedStream(input), true);
+    assert.equal(clientModule.shouldRecoverAiChatFinishedStream(input), true);
   }
-  assert.equal(clientModule.shouldCancelAiChatFinishedStream({
+  assert.equal(clientModule.shouldRecoverAiChatFinishedStream({
     isAbort: false,
     isDisconnect: false,
     isError: false,
     finishReason: "stop",
   }), false);
+  assert.equal(clientModule.shouldCancelAiChatFinishedStream, undefined);
+});
+
+test("stream recovery polls canonical history until the saved turn becomes terminal", async () => {
+  const snapshots = [
+    {
+      id: "chat-1",
+      messages: [{ role: "assistant", status: "pending", clientMessageId: "turn-1" }],
+    },
+    null,
+    {
+      id: "chat-1",
+      messages: [{
+        role: "assistant",
+        status: "complete",
+        clientMessageId: "turn-1",
+        content: "Canonical answer",
+      }],
+    },
+  ];
+  let reads = 0;
+
+  const result = await clientModule.recoverAiChatCanonicalTurn({
+    clientMessageId: "turn-1",
+    delaysMs: [0, 0, 0],
+    refresh: async () => snapshots[reads++],
+    wait: async () => {},
+  });
+
+  assert.equal(reads, 3);
+  assert.equal(result.state, "terminal");
+  assert.equal(result.detail.messages[0].content, "Canonical answer");
+});
+
+test("stream recovery reports a still-running canonical turn without cancelling it", async () => {
+  const pending = {
+    id: "chat-1",
+    messages: [{ role: "assistant", status: "pending", clientMessageId: "turn-1" }],
+  };
+
+  const result = await clientModule.recoverAiChatCanonicalTurn({
+    clientMessageId: "turn-1",
+    delaysMs: [0, 0],
+    refresh: async () => pending,
+    wait: async () => {},
+  });
+
+  assert.equal(result.state, "pending");
+  assert.equal(result.detail, pending);
 });
 
 test("current targets serialize back to explicit saved or ad-hoc mutation inputs", () => {

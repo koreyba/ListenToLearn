@@ -330,6 +330,32 @@ test("tool timeout and failure results stop terminally with exact stable codes",
   }
 });
 
+test("tool-call budget exhaustion remains a precise retryable failure", async () => {
+  const harness = createHarness();
+  generationModule.startAiChatGeneration(harness.input, harness.dependencies);
+  const result = {
+    type: "tool-result",
+    toolCallId: "budget-call",
+    toolName: "find_vocabulary",
+    output: { ok: false, error: "tool_budget_exceeded" },
+  };
+  const step = {
+    toolCalls: [{ toolCallId: result.toolCallId, toolName: result.toolName }],
+    toolResults: [result],
+    content: [result],
+  };
+
+  await harness.calls.streamText.onEnd({
+    text: "Must not hide a tool budget failure.",
+    finishReason: "tool-calls",
+    usage: {},
+    steps: [step],
+  });
+
+  assert.equal(harness.calls.completions, undefined);
+  assert.equal(harness.calls.failures[0].errorCode, "tool_budget_exceeded");
+});
+
 test("typed vocabulary validation completes with a precise deterministic response", async () => {
   const expected = {
     missing_target: "I couldn't find every requested saved word or enough recent entries. No changes were prepared.",
@@ -479,7 +505,7 @@ test("browser stream exposes only assistant text and stable public failures", as
   }
 });
 
-test("consumer cancellation marks the pending assistant retryable", async () => {
+test("consumer disconnect marks the pending assistant interrupted, not user-cancelled", async () => {
   const harness = createHarness();
   const stream = generationModule.startAiChatGeneration(harness.input, harness.dependencies);
 
@@ -488,13 +514,13 @@ test("consumer cancellation marks the pending assistant retryable", async () => 
   assert.deepEqual(harness.calls.failures, [
     {
       assistantId: "assistant-stable-id",
-      errorCode: "generation_cancelled",
-      terminal: { elapsedMs: 0 },
+      errorCode: "generation_interrupted",
+      terminal: { elapsedMs: 0, termination: "transport_disconnected" },
     },
   ]);
 });
 
-test("consumer cancellation wins when source cancellation immediately aborts generation", async () => {
+test("source abort during consumer disconnect preserves the transport interruption cause", async () => {
   const harness = createHarness();
   harness.dependencies.toUIMessageStream = () => new ReadableStream({
     cancel() {
@@ -507,9 +533,38 @@ test("consumer cancellation wins when source cancellation immediately aborts gen
 
   assert.deepEqual(harness.calls.failures, [{
     assistantId: "assistant-stable-id",
-    errorCode: "generation_cancelled",
-    terminal: { elapsedMs: 0 },
+    errorCode: "generation_interrupted",
+    terminal: {
+      elapsedMs: 0,
+      stepCount: 0,
+      toolCallCount: 0,
+      termination: "transport_disconnected",
+    },
   }]);
+});
+
+test("consumer disconnect is persisted before a stalled upstream cancellation returns", async () => {
+  const harness = createHarness();
+  let releaseSourceCancel;
+  harness.dependencies.toUIMessageStream = () => new ReadableStream({
+    cancel() {
+      return new Promise((resolve) => {
+        releaseSourceCancel = resolve;
+      });
+    },
+  });
+  const stream = generationModule.startAiChatGeneration(harness.input, harness.dependencies);
+
+  const cancellation = stream.cancel("browser disconnected");
+  await Promise.resolve();
+
+  assert.deepEqual(harness.calls.failures, [{
+    assistantId: "assistant-stable-id",
+    errorCode: "generation_interrupted",
+    terminal: { elapsedMs: 0, termination: "transport_disconnected" },
+  }]);
+  releaseSourceCancel();
+  await cancellation;
 });
 
 test("onEnd persists the routed model and only privacy-safe aggregate telemetry", async () => {
@@ -775,8 +830,13 @@ test("onError and onAbort persist only stable failure codes", async () => {
   assert.deepEqual(cancelledHarness.calls.failures, [
     {
       assistantId: "assistant-stable-id",
-      errorCode: "generation_cancelled",
-      terminal: { elapsedMs: 0, stepCount: 0, toolCallCount: 0 },
+      errorCode: "generation_interrupted",
+      terminal: {
+        elapsedMs: 0,
+        stepCount: 0,
+        toolCallCount: 0,
+        termination: "transport_disconnected",
+      },
     },
   ]);
   assert.equal(

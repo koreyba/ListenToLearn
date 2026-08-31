@@ -48,6 +48,60 @@ test("message rendering preserves exact text and wraps only English words", asyn
   });
 });
 
+test("assistant Markdown renders CommonMark and GFM without exposing raw HTML", async () => {
+  const text = [
+    "Отлично: **as far as I know** и *I was gonna say*.",
+    "",
+    "- ~~Old wording~~",
+    "- `fixed phrase`",
+    "",
+    "<script>alert('unsafe')</script>",
+  ].join("\n");
+
+  await renderInteractiveText({
+    text,
+    markdown: true,
+    onWordActivate: () => {},
+  }, async ({ host }) => {
+    const surface = host.firstElementChild;
+    assert.equal(surface.querySelector("strong")?.textContent, "as far as I know");
+    assert.equal(surface.querySelector("em")?.textContent, "I was gonna say");
+    assert.equal(surface.querySelector("del")?.textContent, "Old wording");
+    assert.equal(surface.querySelector("code")?.textContent, "fixed phrase");
+    assert.equal(surface.querySelectorAll("li").length, 2);
+    assert.equal(surface.querySelector("script"), null);
+    assert.doesNotMatch(surface.textContent, /\*\*|alert\('unsafe'\)/u);
+  });
+});
+
+test("interactive words inside Markdown use clean visible text for actions", async () => {
+  const actions = [];
+
+  await renderInteractiveText({
+    text: "Use **get away** now.",
+    markdown: true,
+    onWordActivate: (word, context, details) => actions.push({ word, context, details }),
+  }, async ({ dom, host }) => {
+    const get = [...host.querySelectorAll("[data-interactive-english-word]")]
+      .find((element) => element.textContent === "get");
+    assert.equal(get.closest("strong")?.textContent, "get away");
+
+    await act(async () => {
+      get.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    });
+  });
+
+  assert.deepEqual(actions, [{
+    word: "get",
+    context: "Use get away now.",
+    details: {
+      start: "Use ".length,
+      end: "Use get".length,
+      anchor: { left: 0, top: 0, right: 0, bottom: 0 },
+    },
+  }]);
+});
+
 test("selection-only rendering preserves mixed-script text without per-word tab stops", async () => {
   const text = "Please get away — пожалуйста, уйди.";
 

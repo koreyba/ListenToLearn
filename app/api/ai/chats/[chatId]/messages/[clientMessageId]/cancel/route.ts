@@ -12,6 +12,7 @@ import {
   toPublicAiChatTurnTerminal,
 } from "@/lib/ai-chat/http";
 import { createAiChatRepository } from "@/lib/ai-chat/repository";
+import { recordAiChatOperationalEvent } from "@/lib/ai-chat/observability";
 import { cancelAiChatTurn } from "@/lib/ai-chat/service";
 
 export const dynamic = "force-dynamic";
@@ -42,6 +43,15 @@ export async function POST(request: Request, context: CancelTurnRouteContext) {
       chatRepository: createAiChatRepository(getD1()),
     });
     if (!result.ok) return aiChatErrorResponse(result.error);
+    if (
+      result.turn.assistant.errorCode === "generation_cancelled"
+      && result.turn.attempt?.id
+    ) {
+      recordAiChatOperationalEvent({
+        event: "ai_chat_turn_cancelled",
+        attemptId: result.turn.attempt.id,
+      });
+    }
     return noStoreJson({ turn: toPublicAiChatTurnTerminal(result.turn) });
   } catch (error) {
     return aiChatRouteErrorResponse(error);

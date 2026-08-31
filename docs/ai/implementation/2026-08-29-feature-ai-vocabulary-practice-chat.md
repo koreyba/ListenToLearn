@@ -363,4 +363,6 @@ add/update/remove request produced one proposal with all three groups; both conf
 completed atomically. Stop terminalized a live provider turn in under one second and
 the same chat accepted a subsequent message and returned a normal answer. Desktop,
 mobile composer, grouped-card, and chat-drawer checks found no horizontal overflow.
-PR preview deployment and cloud smoke remain publication gates, not local evidence.
+Architecture commit `7bcfe9a` is published to PR #32; its Tests, CodeQL,
+SonarCloud, Qodana, and Cloudflare branch-preview build are green. Extended
+authenticated preview smoke remains separate from this local evidence.

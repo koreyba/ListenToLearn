@@ -12,7 +12,9 @@ The resource-first backend follow-up and its architecture cleanup are implemente
 the current local diff. Focused 2026-09-01 evidence passes 74/74 client/UI tests and
 97/97 vocabulary planner, tool, proposal-lifecycle, and exact D1-budget tests. The
 production build, 645/645 full tests, TypeScript, lint, diff check, and authenticated
-local browser E2E also pass. Preview deployment and push remain publication gates.
+local browser E2E also pass. Architecture commit `7bcfe9a` is published to PR #32;
+all remote checks and the Cloudflare branch-preview build are green. Extended
+authenticated preview smoke remains open.
 
 The approved resource-first follow-up is active in the current diff. The provider
 surface is being reduced to two reads plus one mixed proposal tool; one atomic

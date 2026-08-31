@@ -12,8 +12,9 @@ Fresh 2026-09-01 focused evidence passes 74/74 client/UI tests and 97/97 vocabul
 planner, tool, proposal-lifecycle, and exact D1-budget tests after separating the
 frontend lifecycle and backend change-set pipeline. The production build, 645/645
 full tests, TypeScript, ESLint with zero errors, lifecycle lint, `git diff --check`,
-and authenticated local browser E2E also pass. Preview deployment and push have not
-yet been rerun for this exact diff.
+and authenticated local browser E2E also pass. Architecture commit `7bcfe9a` is
+published to PR #32 with green Tests, CodeQL, SonarCloud, Qodana, and Cloudflare
+branch-preview checks; extended authenticated preview smoke remains open.
 
 The current browser run at 319px and desktop master-detail breakpoints verified
 Markdown, Stop, Retry, a successful post-cancellation follow-up, one three-addition

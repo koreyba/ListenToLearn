@@ -1551,3 +1551,289 @@ test("remove-state is atomic when any immutable snapshot is stale or missing", a
   ).get().count, 0);
   sqlite.close();
 });
+
+test("one change-set atomically applies mixed vocabulary actions", async () => {
+  assert.equal(mutationsModule.VOCABULARY_CHANGE_SET_LIMIT, 30);
+  const { database, planner, sqlite } = createSqliteFixture();
+  sqlite.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, translation, context, source_type, owner_id, status,
+      created_at, updated_at
+    ) VALUES
+      ('phrase-hello', 'hello', 'hello', '', '', 'custom', 'user-a', 'pick',
+       '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z'),
+      ('phrase-bye', 'bye', 'bye', '', '', 'preset', NULL, 'pick',
+       '2026-08-29T10:01:00.000Z', '2026-08-29T10:01:00.000Z'),
+      ('phrase-recent', 'temporary sentence', 'temporary sentence', '', '',
+       'custom', 'user-a', 'pick',
+       '2026-08-29T10:02:00.000Z', '2026-08-29T10:02:00.000Z');
+    INSERT INTO phrase_progress (
+      user_id, phrase_id, status, created_at, updated_at
+    ) VALUES
+      ('user-a', 'phrase-hello', 'to_learn',
+       '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z'),
+      ('user-a', 'phrase-bye', 'learning_now',
+       '2026-08-29T10:01:00.000Z', '2026-08-29T10:01:00.000Z'),
+      ('user-a', 'phrase-recent', 'to_learn',
+       '2026-08-29T10:02:00.000Z', '2026-08-29T10:02:00.000Z');
+    INSERT INTO phrase_meanings (
+      id, user_id, phrase_id, translation, normalized_translation, context,
+      created_at, updated_at
+    ) VALUES (
+      'meaning-hello', 'user-a', 'phrase-hello', 'привет', 'привет', '',
+      '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z'
+    );
+  `);
+
+  const plan = await planner.planChangeSet("user-a", {
+    changes: [
+      {
+        action: "add_entry",
+        text: "serendipity",
+        translation: "счастливая случайность",
+      },
+      {
+        action: "add_meaning",
+        text: "hello",
+        translation: "здравствуйте",
+      },
+      {
+        action: "update_meaning",
+        text: "hello",
+        currentTranslation: "привет",
+        translation: "приветик",
+      },
+      { action: "change_state", text: "bye", destination: "learned" },
+      { action: "change_recent_state", count: 1, destination: "removed" },
+    ],
+  });
+
+  assert.equal(plan.operation, "vocabulary.change-set/v1");
+  assert.equal(plan.targetKey, "change-set");
+  assert.equal(plan.canonicalArgs.actions.length, 5);
+  assert.deepEqual(
+    plan.publicItems.map((item) => item.actionType),
+    ["add_entry", "add_meaning", "update_meaning", "change_state", "change_state"],
+  );
+  assert.ok(plan.statements.length <= 10);
+  assert.ok(plan.statements.every((statement) => statement.bindings.length <= 20));
+
+  assert.equal(await executePlan(database, plan, "receipt-change-set"), 1);
+  assert.equal(sqlite.prepare(`
+    SELECT progress.status
+    FROM phrases JOIN phrase_progress AS progress ON progress.phrase_id = phrases.id
+    WHERE phrases.text = 'serendipity' AND progress.user_id = 'user-a'
+  `).get().status, "to_learn");
+  assert.deepEqual(sqlite.prepare(`
+    SELECT translation FROM phrase_meanings
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-hello'
+    ORDER BY translation
+  `).all().map((row) => row.translation), ["здравствуйте", "приветик"]);
+  assert.equal(sqlite.prepare(`
+    SELECT status FROM phrase_progress
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-bye'
+  `).get().status, "learnt");
+  assert.equal(sqlite.prepare(`
+    SELECT count(*) AS count FROM phrases WHERE id = 'phrase-recent'
+  `).get().count, 0);
+  sqlite.close();
+});
+
+test("change-set supports thirty concrete changes with bounded statements", async () => {
+  const { database, planner, sqlite } = createSqliteFixture();
+  const changes = Array.from({ length: 30 }, (_, index) => ({
+    action: "add_entry",
+    text: `word ${index + 1}`,
+  }));
+
+  const plan = await planner.planChangeSet("user-a", { changes });
+  assert.equal(plan.canonicalArgs.actions.length, 30);
+  assert.ok(plan.statements.length <= 10);
+  assert.ok(plan.statements.every((statement) => statement.bindings.length <= 20));
+  assert.equal(await executePlan(database, plan, "receipt-thirty"), 1);
+  assert.equal(sqlite.prepare(`
+    SELECT count(*) AS count
+    FROM phrases JOIN phrase_progress AS progress ON progress.phrase_id = phrases.id
+    WHERE phrases.owner_id = 'user-a' AND progress.user_id = 'user-a'
+      AND progress.status = 'to_learn'
+  `).get().count, 30);
+
+  await assert.rejects(
+    planner.planChangeSet("user-a", {
+      changes: [...changes, { action: "add_entry", text: "word 31" }],
+    }),
+    (error) => error?.code === "invalid_input"
+      && error?.reason === "change_limit_exceeded",
+  );
+
+  await assert.rejects(
+    planner.planChangeSet("user-a", {
+      changes: [{ action: "change_state", text: "missing word", destination: "learned" }],
+    }),
+    (error) => error?.code === "invalid_input"
+      && error?.reason === "missing_target",
+  );
+  sqlite.close();
+});
+
+test("thirty translated additions fit the production canonical storage budget", async () => {
+  const { database, sqlite } = createSqliteFixture();
+  const planner = mutationsModule.createVocabularyMutationPlanner(database, {
+    now: () => "2026-08-29T12:00:00.000Z",
+  });
+  const plan = await planner.planChangeSet("user-a", {
+    changes: Array.from({ length: 30 }, (_, index) => ({
+      action: "add_entry",
+      text: `word ${index + 1}`,
+      translation: `слово ${index + 1}`,
+    })),
+  });
+
+  assert.equal(plan.canonicalArgs.actions.length, 30);
+  assert.ok(JSON.stringify(plan.canonicalArgs).length <= 3_600);
+  assert.ok(plan.canonicalArgs.actions.every((action) => (
+    /^p-[A-Za-z0-9_-]{22}$/u.test(action[1])
+    && typeof action[8] === "string"
+    && /^m-[A-Za-z0-9_-]{22}$/u.test(action[8])
+  )));
+  assert.equal(await executePlan(database, plan, "receipt-thirty-translated"), 1);
+  sqlite.close();
+});
+
+test("change-set rejects two meaning changes that converge on one translation", async () => {
+  const { planner, sqlite } = createSqliteFixture();
+  sqlite.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, translation, context, source_type, owner_id, status,
+      created_at, updated_at
+    ) VALUES ('phrase-run', 'run', 'run', '', '', 'custom', 'user-a', 'pick',
+      '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z');
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
+    VALUES ('user-a', 'phrase-run', 'to_learn',
+      '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z');
+    INSERT INTO phrase_meanings (
+      id, user_id, phrase_id, translation, normalized_translation, context,
+      created_at, updated_at
+    ) VALUES
+      ('meaning-one', 'user-a', 'phrase-run', 'бежать', 'бежать', '',
+       '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z'),
+      ('meaning-two', 'user-a', 'phrase-run', 'управлять', 'управлять', '',
+       '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z');
+  `);
+
+  await assert.rejects(
+    planner.planChangeSet("user-a", {
+      changes: [
+        {
+          action: "update_meaning",
+          text: "run",
+          currentTranslation: "бежать",
+          translation: "двигаться",
+        },
+        {
+          action: "update_meaning",
+          text: "run",
+          currentTranslation: "управлять",
+          translation: "двигаться",
+        },
+      ],
+    }),
+    (error) => error?.reason === "conflicting_changes",
+  );
+  sqlite.close();
+});
+
+test("change-set rejects editing a shared preset legacy meaning", async () => {
+  const { planner, sqlite } = createSqliteFixture();
+  sqlite.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, translation, context, source_type, owner_id, status,
+      created_at, updated_at
+    ) VALUES ('phrase-preset', 'break even', 'break even', 'окупаться', '',
+      'preset', NULL, 'pick',
+      '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z');
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
+    VALUES ('user-a', 'phrase-preset', 'to_learn',
+      '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z');
+  `);
+
+  await assert.rejects(
+    planner.planChangeSet("user-a", {
+      changes: [{
+        action: "update_meaning",
+        text: "break even",
+        currentTranslation: "окупаться",
+        translation: "выходить в ноль",
+      }],
+    }),
+    (error) => error?.reason === "unsupported_change",
+  );
+  sqlite.close();
+});
+
+test("reactivating a removed preset refreshes its recent-entry position", async () => {
+  const { database, planner, sqlite } = createSqliteFixture();
+  sqlite.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, translation, context, source_type, owner_id, status,
+      created_at, updated_at
+    ) VALUES
+      ('phrase-reactivated', 'reactivated', 'reactivated', '', '', 'preset', NULL, 'pick',
+       '2026-08-29T09:00:00.000Z', '2026-08-29T09:00:00.000Z'),
+      ('phrase-active', 'already active', 'already active', '', '', 'preset', NULL, 'pick',
+       '2026-08-29T11:00:00.000Z', '2026-08-29T11:00:00.000Z');
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
+    VALUES
+      ('user-a', 'phrase-reactivated', 'pick',
+       '2026-08-29T09:00:00.000Z', '2026-08-29T09:00:00.000Z'),
+      ('user-a', 'phrase-active', 'to_learn',
+       '2026-08-29T11:00:00.000Z', '2026-08-29T11:00:00.000Z');
+  `);
+
+  const addPlan = await planner.planChangeSet("user-a", {
+    changes: [{ action: "add_entry", text: "reactivated" }],
+  });
+  assert.equal(await executePlan(database, addPlan, "receipt-reactivate"), 1);
+
+  const recentPlan = await planner.planChangeSet("user-a", {
+    changes: [{ action: "change_recent_state", count: 1, destination: "removed" }],
+  });
+  assert.equal(recentPlan.publicItems[0].text, "reactivated");
+  sqlite.close();
+});
+
+test("a stale action rolls the whole mixed change-set back", async () => {
+  const { database, planner, sqlite } = createSqliteFixture();
+  sqlite.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, source_type, owner_id, status, created_at, updated_at
+    ) VALUES ('phrase-existing', 'existing', 'existing', 'custom', 'user-a', 'pick',
+      '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z');
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
+    VALUES ('user-a', 'phrase-existing', 'to_learn',
+      '2026-08-29T10:00:00.000Z', '2026-08-29T10:00:00.000Z');
+  `);
+  const plan = await planner.planChangeSet("user-a", {
+    changes: [
+      { action: "add_entry", text: "must roll back" },
+      { action: "change_state", text: "existing", destination: "learned" },
+    ],
+  });
+  sqlite.prepare(`
+    UPDATE phrase_progress SET status = 'learning_now'
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-existing'
+  `).run();
+
+  await assert.rejects(
+    executePlan(database, plan, "receipt-change-set-stale"),
+    /CHECK constraint failed/u,
+  );
+  assert.equal(sqlite.prepare(`
+    SELECT count(*) AS count FROM phrases WHERE text = 'must roll back'
+  `).get().count, 0);
+  assert.equal(sqlite.prepare(`
+    SELECT status FROM phrase_progress
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-existing'
+  `).get().status, "learning_now");
+  sqlite.close();
+});

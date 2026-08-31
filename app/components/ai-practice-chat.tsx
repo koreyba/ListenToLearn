@@ -20,9 +20,15 @@ import { SignedInSiteAccount } from "@/app/components/signed-in-site-account";
 import { SiteNavigation } from "@/app/components/site-navigation";
 import {
   aiChatUiMessageText,
+  isAiChatTurnBlocked,
+  preserveUnverifiedAiChatOutboundTurn,
   prepareAiChatMessageRequest,
+  reconcileAiChatOutboundTurn,
+  shouldCancelAiChatFinishedStream,
   toAiChatUiMessages,
+  withAiChatCancelDeadline,
   type AiChatClientDetail,
+  type AiChatOutboundTurn,
   type AiChatClientSummary,
   type AiChatUiMessage,
 } from "@/lib/ai-chat/client";
@@ -49,6 +55,9 @@ function apiError(payload: ApiError, fallback: string) {
     case "provider_failed": return "The model could not answer. Retry the same message.";
     case "response_incomplete": return "The response ended before completion. Retry the same message.";
     case "generation_cancelled": return "The response was stopped. Retry it if needed.";
+    case "generation_interrupted": return "The response was interrupted. You can continue or retry.";
+    case "tool_timeout": return "The chat action timed out. Nothing was changed. You can continue or retry.";
+    case "tool_failed": return "The chat action failed. Nothing was changed. You can continue or retry.";
     case "conflict": return "This turn is already being processed. Reopen the chat.";
     default: return fallback;
   }
@@ -128,7 +137,7 @@ function ChatConversation({
   generationConfigured: boolean;
   onDraftChange: (value: string) => void;
   onOpenSidebar: () => void;
-  refresh: () => Promise<void>;
+  refresh: (signal?: AbortSignal) => Promise<AiChatClientDetail | null>;
   sidebarOpen: boolean;
 }) {
   const [selection, setSelection] = useState<ChatTextSelection | null>(null);
@@ -139,6 +148,11 @@ function ChatConversation({
     decision: "confirm" | "cancel";
   } | null>(null);
   const [proposalErrors, setProposalErrors] = useState<Record<string, string>>({});
+  const [turnControlError, setTurnControlError] = useState("");
+  const [turnRecoveryNotice, setTurnRecoveryNotice] = useState("");
+  const [recoverableOutbound, setRecoverableOutbound] = useState<AiChatOutboundTurn | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [locallyTerminalClientMessageId, setLocallyTerminalClientMessageId] = useState<string | null>(null);
   const compactComposer = useRef<HTMLTextAreaElement | null>(null);
   const expandedComposer = useRef<HTMLTextAreaElement | null>(null);
   const composerSelection = useRef<ComposerSelection | null>(null);
@@ -147,12 +161,134 @@ function ChatConversation({
   const expandComposerButton = useRef<HTMLButtonElement | null>(null);
   const messageEnd = useRef<HTMLDivElement | null>(null);
   const messageTexts = useRef(new Map<string, string>());
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const canonicalMessages = useMemo(() => toAiChatUiMessages(chat.messages), [chat.messages]);
+  const canonicalPendingClientMessageId = useMemo(() => (
+    [...chat.messages].reverse().find((message) => (
+      message.role === "assistant" && message.status === "pending"
+    ))?.clientMessageId || null
+  ), [chat.messages]);
+  const effectiveCanonicalPendingClientMessageId = canonicalPendingClientMessageId === locallyTerminalClientMessageId
+    ? null
+    : canonicalPendingClientMessageId;
   const observedCanonicalMessages = useRef(canonicalMessages);
+  const activeClientMessageId = useRef<string | null>(canonicalPendingClientMessageId);
+  const [activeClientMessageIdState, setActiveClientMessageIdState] = useState<string | null>(
+    canonicalPendingClientMessageId,
+  );
+  const outboundTurn = useRef<AiChatOutboundTurn | null>(null);
+  const activeCancellation = useRef<Promise<void> | null>(null);
   const transport = useMemo(() => new DefaultChatTransport<AiChatUiMessage>({
     api: `/api/ai/chats/${chat.id}/messages`,
     prepareSendMessagesRequest: prepareAiChatMessageRequest,
   }), [chat.id]);
+  const updateDraft = useCallback((value: string) => {
+    draftRef.current = value;
+    onDraftChange(value);
+  }, [onDraftChange]);
+  const updateActiveClientMessageId = useCallback((value: string | null) => {
+    activeClientMessageId.current = value;
+    setActiveClientMessageIdState(value);
+  }, []);
+  const reconcileAfterRefresh = useCallback(async (signal?: AbortSignal) => {
+    const detail = await refresh(signal);
+    if (!detail) return null;
+
+    const outbound = outboundTurn.current;
+    if (outbound) {
+      const reconciliation = reconcileAiChatOutboundTurn({
+        outbound,
+        canonicalMessages: detail.messages,
+        currentDraft: draftRef.current,
+      });
+      outboundTurn.current = null;
+      if (reconciliation.draft !== draftRef.current) {
+        updateDraft(reconciliation.draft);
+      }
+      if (!reconciliation.accepted) {
+        if (reconciliation.recoverable) {
+          setRecoverableOutbound(reconciliation.recoverable);
+        }
+        setTurnRecoveryNotice(reconciliation.recoverable
+          ? ""
+          : "Your message was not sent. Its text has been restored.");
+      }
+    }
+
+    const pendingClientMessageId = [...detail.messages].reverse().find((message) => (
+      message.role === "assistant" && message.status === "pending"
+    ))?.clientMessageId || null;
+    setLocallyTerminalClientMessageId(null);
+    updateActiveClientMessageId(pendingClientMessageId);
+    return detail;
+  }, [refresh, updateActiveClientMessageId, updateDraft]);
+  const cancelPendingTurn = useCallback(() => {
+    if (activeCancellation.current) return activeCancellation.current;
+    const clientMessageId = activeClientMessageId.current;
+    if (!clientMessageId) return Promise.resolve();
+    setTurnControlError("");
+    setCancelling(true);
+    const cancellation = withAiChatCancelDeadline(async (signal) => {
+      try {
+        await requestJson(
+          `/api/ai/chats/${encodeURIComponent(chat.id)}/messages/${encodeURIComponent(clientMessageId)}/cancel`,
+          { method: "POST", body: JSON.stringify({}), signal },
+        );
+        signal.throwIfAborted();
+        outboundTurn.current = null;
+        setLocallyTerminalClientMessageId(clientMessageId);
+        if (activeClientMessageId.current === clientMessageId) {
+          updateActiveClientMessageId(null);
+        }
+        void refresh();
+      } catch (cancelError) {
+        signal.throwIfAborted();
+        const detail = await reconcileAfterRefresh(signal);
+        signal.throwIfAborted();
+        if (!detail) throw cancelError;
+        const stillPending = detail.messages.some((message) => (
+          message.role === "assistant"
+          && message.status === "pending"
+          && message.clientMessageId === clientMessageId
+        ));
+        if (stillPending) {
+          setTurnControlError(cancelError instanceof Error
+            ? cancelError.message
+            : "The active response could not be stopped. Try again.");
+        }
+      }
+    }).catch(() => {
+      const outbound = outboundTurn.current;
+      if (outbound) {
+        const recovery = preserveUnverifiedAiChatOutboundTurn({
+          outbound,
+          currentDraft: draftRef.current,
+        });
+        outboundTurn.current = null;
+        setRecoverableOutbound(recovery.recoverable);
+        if (recovery.draft !== draftRef.current) updateDraft(recovery.draft);
+      }
+      if (canonicalPendingClientMessageId !== clientMessageId) {
+        updateActiveClientMessageId(null);
+      }
+      setTurnControlError(
+        "We couldn't verify delivery. You can safely retry the same message when the connection is back.",
+      );
+    }).finally(() => {
+      activeCancellation.current = null;
+      setCancelling(false);
+    });
+    activeCancellation.current = cancellation;
+    return cancellation;
+  }, [
+    canonicalPendingClientMessageId,
+    chat.id,
+    reconcileAfterRefresh,
+    refresh,
+    updateActiveClientMessageId,
+    updateDraft,
+  ]);
   const {
     clearError,
     error,
@@ -165,10 +301,46 @@ function ChatConversation({
     id: chat.id,
     messages: canonicalMessages,
     transport,
-    onFinish: () => void refresh(),
-    onError: () => window.setTimeout(() => void refresh(), 0),
+    onFinish: ({ finishReason, isAbort, isDisconnect, isError }) => {
+      if (shouldCancelAiChatFinishedStream({
+        finishReason,
+        isAbort,
+        isDisconnect,
+        isError,
+      })) {
+        void cancelPendingTurn();
+        return;
+      }
+      setLocallyTerminalClientMessageId(activeClientMessageId.current);
+      outboundTurn.current = null;
+      updateActiveClientMessageId(null);
+      void refresh();
+    },
+    onError: () => void cancelPendingTurn(),
   });
   const busy = status === "submitted" || status === "streaming";
+  const turnBusy = isAiChatTurnBlocked({
+    streamBusy: busy,
+    canonicalPendingClientMessageId: effectiveCanonicalPendingClientMessageId,
+    activeClientMessageId: activeClientMessageIdState,
+    cancelling,
+  });
+  const latestMessage = messages[messages.length - 1];
+  const hasRetryableAssistantFailure = latestMessage?.role === "assistant"
+    && latestMessage.metadata?.status === "failed";
+
+  useEffect(() => {
+    if (effectiveCanonicalPendingClientMessageId) {
+      updateActiveClientMessageId(effectiveCanonicalPendingClientMessageId);
+    } else if (!canonicalPendingClientMessageId && locallyTerminalClientMessageId) {
+      setLocallyTerminalClientMessageId(null);
+    }
+  }, [
+    canonicalPendingClientMessageId,
+    effectiveCanonicalPendingClientMessageId,
+    locallyTerminalClientMessageId,
+    updateActiveClientMessageId,
+  ]);
 
   useLayoutEffect(() => {
     const input = compactComposer.current;
@@ -289,12 +461,18 @@ function ChatConversation({
 
   async function sendDraft() {
     const text = draft.trim();
-    if (!text || busy || !generationConfigured) return;
-    onDraftChange("");
+    if (!text || turnBusy || !generationConfigured) return;
+    const clientMessageId = crypto.randomUUID();
+    outboundTurn.current = { clientMessageId, text };
+    setLocallyTerminalClientMessageId(null);
+    updateActiveClientMessageId(clientMessageId);
+    updateDraft("");
+    setTurnControlError("");
+    setTurnRecoveryNotice("");
     clearError();
     setFollowing(true);
     await sendMessage({
-      id: crypto.randomUUID(),
+      id: clientMessageId,
       role: "user",
       parts: [{ type: "text", text }],
     });
@@ -307,7 +485,7 @@ function ChatConversation({
 
   function submitExpanded(event: FormEvent) {
     event.preventDefault();
-    if (!draft.trim() || busy || !generationConfigured) return;
+    if (!draft.trim() || turnBusy || !generationConfigured) return;
     composerSelection.current = readComposerSelection(expandedComposer.current);
     setComposerExpanded(false);
     void sendDraft();
@@ -336,10 +514,44 @@ function ChatConversation({
 
   async function retry(clientMessageId: string) {
     const message = messages.find((item) => item.role === "user" && item.id === clientMessageId);
-    if (!message || busy || !generationConfigured) return;
+    if (!message || turnBusy || !generationConfigured) return;
+    setLocallyTerminalClientMessageId(null);
+    updateActiveClientMessageId(message.id);
+    setTurnControlError("");
+    setTurnRecoveryNotice("");
     clearError();
     setFollowing(true);
     await sendMessage({ text: aiChatUiMessageText(message), messageId: message.id });
+  }
+
+  async function retryRecoverableOutbound() {
+    if (!recoverableOutbound || turnBusy || !generationConfigured) return;
+    const outbound = recoverableOutbound;
+    const existingMessage = messages.find((message) => (
+      message.role === "user" && message.id === outbound.clientMessageId
+    ));
+    outboundTurn.current = outbound;
+    setRecoverableOutbound(null);
+    setTurnRecoveryNotice("");
+    setTurnControlError("");
+    setLocallyTerminalClientMessageId(null);
+    updateActiveClientMessageId(outbound.clientMessageId);
+    clearError();
+    setFollowing(true);
+    if (existingMessage) {
+      await sendMessage({ text: outbound.text, messageId: outbound.clientMessageId });
+      return;
+    }
+    await sendMessage({
+      id: outbound.clientMessageId,
+      role: "user",
+      parts: [{ type: "text", text: outbound.text }],
+    });
+  }
+
+  function stopPendingTurn() {
+    stop();
+    void cancelPendingTurn();
   }
 
   async function decideWriteProposal(
@@ -402,8 +614,14 @@ function ChatConversation({
           <span className="ai-chat-conversation-label">Vocabulary practice</span>
           <h2>{chat.title}</h2>
         </div>
-        <span className={`ai-chat-generation-status ${busy ? "busy" : ""}`} aria-live="polite">
-          {status === "submitted" ? "Thinking" : status === "streaming" ? "Responding" : "Ready"}
+        <span className={`ai-chat-generation-status ${turnBusy ? "busy" : ""}`} aria-live="polite">
+          {cancelling
+            ? "Stopping"
+            : status === "submitted"
+            ? "Thinking"
+            : status === "streaming"
+              ? "Responding"
+              : activeClientMessageIdState ? "Waiting" : "Ready"}
         </span>
       </header>
 
@@ -452,7 +670,7 @@ function ChatConversation({
                 <div className="ai-chat-message-failure" role="alert">
                   <span>{generationFailureMessage(message.metadata?.errorCode)}</span>
                   <button
-                    disabled={busy || !generationConfigured}
+                    disabled={turnBusy || !generationConfigured}
                     onClick={() => void retry(message.metadata!.clientMessageId)}
                     type="button"
                   >Retry</button>
@@ -511,7 +729,21 @@ function ChatConversation({
         {!generationConfigured && (
           <p className="ai-chat-inline-error" role="status">AI generation is not configured on the server.</p>
         )}
-        {error && <p className="ai-chat-inline-error" role="alert">The response failed. Retry it below.</p>}
+        {error && hasRetryableAssistantFailure && !turnRecoveryNotice && !recoverableOutbound && (
+          <p className="ai-chat-inline-error" role="alert">The response failed. Retry it below.</p>
+        )}
+        {turnControlError && <p className="ai-chat-inline-error" role="alert">{turnControlError}</p>}
+        {turnRecoveryNotice && <p className="ai-chat-inline-notice" role="status">{turnRecoveryNotice}</p>}
+        {recoverableOutbound && (
+          <div className="ai-chat-outbound-recovery" role="alert">
+            <span>Your previous message is available to retry safely. Your current draft is unchanged.</span>
+            <button
+              disabled={turnBusy || !generationConfigured}
+              onClick={() => void retryRecoverableOutbound()}
+              type="button"
+            >Retry message</button>
+          </div>
+        )}
         <form className="ai-chat-composer" onSubmit={submit}>
           <label className="ai-chat-visually-hidden" htmlFor={`ai-chat-message-${chat.id}`}>
             Your practice request
@@ -521,7 +753,7 @@ function ChatConversation({
               disabled={!generationConfigured}
               id={`ai-chat-message-${chat.id}`}
               maxLength={4_000}
-              onChange={(event) => onDraftChange(event.target.value)}
+              onChange={(event) => updateDraft(event.target.value)}
               onKeyDown={handleComposerKeyDown}
               placeholder="Message Unmumble…"
               ref={compactComposer}
@@ -546,9 +778,16 @@ function ChatConversation({
               </button>
             )}
           </div>
-          {busy ? (
-            <button aria-label="Stop response" className="ai-chat-stop" onClick={stop} type="button">
-              <span aria-hidden="true">■</span>
+          {turnBusy ? (
+            <button
+              aria-busy={cancelling}
+              aria-label={cancelling ? "Stopping response" : "Stop response"}
+              className="ai-chat-stop"
+              disabled={cancelling}
+              onClick={stopPendingTurn}
+              type="button"
+            >
+              <span aria-hidden="true">{cancelling ? "…" : "■"}</span>
             </button>
           ) : (
             <button
@@ -593,7 +832,7 @@ function ChatConversation({
             <textarea
               id={`ai-chat-expanded-message-${chat.id}`}
               maxLength={4_000}
-              onChange={(event) => onDraftChange(event.target.value)}
+              onChange={(event) => updateDraft(event.target.value)}
               onKeyDown={handleExpandedComposerKeyDown}
               placeholder="Ask for an example, change the context, or write a longer answer…"
               ref={expandedComposer}
@@ -602,7 +841,7 @@ function ChatConversation({
             <footer>
               <span>{draft.length.toLocaleString()} / 4,000</span>
               <span>⌘/Ctrl+Enter to send</span>
-              <button disabled={!draft.trim() || busy || !generationConfigured} type="submit">
+              <button disabled={!draft.trim() || turnBusy || !generationConfigured} type="submit">
                 Send message
                 <span aria-hidden="true">↑</span>
               </button>
@@ -746,21 +985,29 @@ function ChatWorkspace() {
     }
   }
 
-  const refreshWorkspace = useCallback(async (chatId: string) => {
+  const refreshWorkspace = useCallback(async (
+    chatId: string,
+    signal?: AbortSignal,
+  ): Promise<AiChatClientDetail | null> => {
     const requestGuard = openRequestId.current;
     try {
       const [detail, list] = await Promise.all([
-        requestJson<{ chat: AiChatClientDetail }>(`/api/ai/chats/${chatId}`),
-        requestJson<{ chats: AiChatClientSummary[]; generationConfigured: boolean }>("/api/ai/chats"),
+        requestJson<{ chat: AiChatClientDetail }>(`/api/ai/chats/${chatId}`, { signal }),
+        requestJson<{ chats: AiChatClientSummary[]; generationConfigured: boolean }>(
+          "/api/ai/chats",
+          { signal },
+        ),
       ]);
-      if (requestGuard !== openRequestId.current) return;
+      if (requestGuard !== openRequestId.current) return null;
       setChat((current) => current?.id === chatId ? detail.chat : current);
       setChats(list.chats);
       setGenerationConfigured(list.generationConfigured);
+      return detail.chat;
     } catch (reason) {
-      if (requestGuard === openRequestId.current) {
+      if (!signal?.aborted && requestGuard === openRequestId.current) {
         setError(reason instanceof Error ? reason.message : "Could not refresh this chat.");
       }
+      return null;
     }
   }, []);
 
@@ -839,7 +1086,7 @@ function ChatWorkspace() {
             key={chat.id}
             onDraftChange={(value) => setDrafts((current) => ({ ...current, [chat.id]: value }))}
             onOpenSidebar={() => setSidebarOpen(true)}
-            refresh={() => refreshWorkspace(chat.id)}
+            refresh={(signal) => refreshWorkspace(chat.id, signal)}
             sidebarOpen={sidebarOpen}
           />
         )}

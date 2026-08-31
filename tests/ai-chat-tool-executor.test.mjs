@@ -11,6 +11,7 @@ import {
   createAiChatToolTraceRepository,
   sha256Hex,
 } from "../lib/ai-chat/tool-trace.ts";
+import { createAiChatWriteProposalRepository } from "../lib/ai-chat/write-proposals.ts";
 import { createVocabularyMutationPlanner } from "../lib/vocabulary/mutations.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -325,6 +326,63 @@ test("proposal retries reuse equal canonical input and reject changed input", as
     { provider_tool_call_id: "proposal-first", status: "succeeded", error_code: null },
     { provider_tool_call_id: "proposal-same", status: "succeeded", error_code: null },
   ]);
+});
+
+test("a retry after a failed origin attempt creates a fresh visible proposal", async () => {
+  const fixture = createFixture();
+  const entries = [{ text: "uncanny", translation: "странный" }];
+  const first = await proposeEntries(
+    fixture.executor,
+    fixture.planner,
+    "proposal-failed-origin",
+    entries,
+  );
+  fixture.sqlite.exec(`
+    UPDATE ai_chat_assistant_attempts
+    SET status = 'failed', error_code = 'provider_failed',
+        completed_at = '2026-08-29T10:00:30Z'
+    WHERE id = 'attempt-1';
+    UPDATE ai_chat_messages SET status = 'failed'
+    WHERE id = 'assistant-message';
+  `);
+  const proposals = createAiChatWriteProposalRepository(
+    fixture.database,
+    fixture.planner,
+  );
+  assert.deepEqual(await proposals.listForChat("user-a", "chat-a"), []);
+
+  fixture.sqlite.prepare(`
+    UPDATE ai_chat_messages SET status = 'pending', error_code = NULL
+    WHERE id = 'assistant-message'
+  `).run();
+  const retry = replaceAttempt(fixture, 2);
+  const second = await proposeEntries(
+    retry.executor,
+    fixture.planner,
+    "proposal-retry-origin",
+    entries,
+  );
+  assert.equal(second.ok, true);
+  assert.notEqual(second.proposalId, first.proposalId);
+
+  fixture.sqlite.exec(`
+    UPDATE ai_chat_assistant_attempts
+    SET status = 'complete', completed_at = '2026-08-29T10:01:30Z'
+    WHERE id = 'attempt-2';
+    UPDATE ai_chat_messages SET status = 'complete', content = 'Review the proposal.'
+    WHERE id = 'assistant-message';
+  `);
+  const listed = await proposals.listForChat("user-a", "chat-a");
+  assert.deepEqual(listed.map((proposal) => proposal.id), [second.proposalId]);
+  assert.deepEqual(fixture.sqlite.prepare(`
+    SELECT origin_attempt_id, status
+    FROM ai_chat_vocabulary_write_proposals
+    ORDER BY created_at, id
+  `).all().map((row) => ({ ...row })), [
+    { origin_attempt_id: "attempt-1", status: "pending" },
+    { origin_attempt_id: "attempt-2", status: "pending" },
+  ]);
+  fixture.sqlite.close();
 });
 
 test("every read and policy rejection leaves a bounded invocation record", async () => {

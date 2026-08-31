@@ -1081,18 +1081,16 @@ test("canonical history is ordered, bounded, and excludes unfinished assistant r
   assert.deepEqual((await repository.getCanonicalHistory("user-a", chat.id)).map(({ role, content }) => ({ role, content })), [
     { role: "user", content: "Give me an example." },
     { role: "assistant", content: "I run every morning." },
-    { role: "user", content: "Another one." },
-    { role: "user", content: "Explain the first sentence." },
   ]);
   assert.deepEqual(
     (await repository.getCanonicalHistory("user-a", chat.id, { excludeClientMessageId: "turn-2" }))
       .map(({ content }) => content),
-    ["Give me an example.", "I run every morning.", "Explain the first sentence."],
+    ["Give me an example.", "I run every morning."],
   );
   assert.deepEqual(
     (await repository.getCanonicalHistory("user-a", chat.id, { beforeSequence: 5 }))
       .map(({ content }) => content),
-    ["Give me an example.", "I run every morning.", "Another one."],
+    ["Give me an example.", "I run every morning."],
   );
   await assert.rejects(
     repository.getCanonicalHistory("user-b", chat.id),
@@ -1104,16 +1102,22 @@ test("canonical history is ordered, bounded, and excludes unfinished assistant r
     INSERT INTO ai_chat_messages (
       id, chat_id, role, sequence, content, status, practice_context_json,
       client_message_id, created_at, updated_at
-    ) VALUES (?, ?, 'user', ?, ?, 'complete', '[]', ?,
-      '2026-08-29T12:00:00.000Z', '2026-08-29T12:00:00.000Z')
+    ) VALUES
+      (?, ?, 'user', ?, ?, 'complete', '[]', ?,
+        '2026-08-29T12:00:00.000Z', '2026-08-29T12:00:00.000Z'),
+      (?, ?, 'assistant', ?, ?, 'complete', '[]', ?,
+        '2026-08-29T12:00:00.000Z', '2026-08-29T12:00:00.000Z')
   `);
   for (let index = 1; index <= 45; index += 1) {
-    insert.run(`bounded-${index}`, boundedChat.id, index, `bulk ${index}`, `bounded-${index}`);
+    insert.run(
+      `bounded-user-${index}`, boundedChat.id, (index * 2) - 1, `bulk ${index}`, `bounded-${index}`,
+      `bounded-assistant-${index}`, boundedChat.id, index * 2, `answer ${index}`, `bounded-${index}`,
+    );
   }
   const bounded = await repository.getCanonicalHistory("user-a", boundedChat.id);
   assert.equal(bounded.length, 40);
-  assert.equal(bounded[0].content, "bulk 6");
-  assert.equal(bounded.at(-1).content, "bulk 45");
+  assert.equal(bounded[0].content, "bulk 26");
+  assert.equal(bounded.at(-1).content, "answer 45");
 });
 
 test("beginTurn atomically creates one ordered pair and reuses a client id", async () => {
@@ -1197,14 +1201,19 @@ test("a different turn expires a stale chat lease before acquiring single-flight
   });
 
   assert.equal(second.state, "created");
-  assert.equal(sqlite.prepare(`
-    SELECT status FROM ai_chat_assistant_attempts WHERE id = ?
-  `).get(first.attempt.id).status, "expired");
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT status, error_code, terminal_json
+    FROM ai_chat_assistant_attempts WHERE id = ?
+  `).get(first.attempt.id) }, {
+    status: "expired",
+    error_code: "generation_interrupted",
+    terminal_json: '{"termination":"lease_expired"}',
+  });
   assert.deepEqual({ ...sqlite.prepare(`
     SELECT status, error_code FROM ai_chat_messages WHERE id = ?
   `).get(first.assistant.id) }, {
     status: "failed",
-    error_code: "provider_timeout",
+    error_code: "generation_interrupted",
   });
   assert.equal(sqlite.prepare(`
     SELECT count(*) AS count FROM ai_chat_assistant_attempts
@@ -1278,7 +1287,8 @@ test("beginTurn repairs an orphaned pending assistant from a previously expired 
   });
   sqlite.prepare(`
     UPDATE ai_chat_assistant_attempts
-    SET status = 'expired', error_code = 'provider_timeout',
+    SET status = 'expired', error_code = 'generation_interrupted',
+        terminal_json = '{"termination":"lease_expired"}',
         lease_expires_at = '2026-08-29T10:00:00.000Z',
         completed_at = '2026-08-29T10:00:00.000Z'
     WHERE id = ?
@@ -1295,7 +1305,7 @@ test("beginTurn repairs an orphaned pending assistant from a previously expired 
     SELECT status, error_code FROM ai_chat_messages WHERE id = ?
   `).get(first.assistant.id) }, {
     status: "failed",
-    error_code: "provider_timeout",
+    error_code: "generation_interrupted",
   });
 });
 
@@ -1332,6 +1342,13 @@ test("finishTurn recovers its exact completion after an ambiguous D1 response", 
     provider: "openrouter",
     model: "test/model",
     usage: { inputTokens: 12, outputTokens: 7 },
+    terminal: {
+      elapsedMs: 20_234,
+      finishReason: "stop",
+      stepCount: 3,
+      toolCallCount: 2,
+      rawError: "must not persist",
+    },
   });
 
   assert.equal(recovered.assistant.status, "complete");
@@ -1341,6 +1358,176 @@ test("finishTurn recovers its exact completion after an ambiguous D1 response", 
   assert.deepEqual(recovered.assistant.usage, { inputTokens: 12, outputTokens: 7 });
   assert.equal(recovered.attempt.id, started.attempt.id);
   assert.equal(recovered.attempt.status, "complete");
+  assert.deepEqual(recovered.attempt.terminal, {
+    elapsedMs: 20_234,
+    finishReason: "stop",
+    stepCount: 3,
+    toolCallCount: 2,
+  });
+});
+
+test("cancelling an active owned turn immediately persists a retryable terminal state", async () => {
+  const { repository, sqlite } = createFixture();
+  const chat = await repository.createChat("user-a");
+  const started = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "cancel-active",
+    content: "Give me a long answer.",
+    practiceContext: [],
+  });
+
+  const cancelled = await repository.cancelTurn("user-a", chat.id, "cancel-active");
+
+  assert.equal(cancelled.assistant.status, "failed");
+  assert.equal(cancelled.assistant.errorCode, "generation_cancelled");
+  assert.equal(cancelled.attempt.id, started.attempt.id);
+  assert.equal(cancelled.attempt.status, "failed");
+  assert.equal(cancelled.attempt.errorCode, "generation_cancelled");
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT attempts.status AS attempt_status, attempts.error_code AS attempt_error,
+      messages.status AS message_status, messages.error_code AS message_error
+    FROM ai_chat_assistant_attempts AS attempts
+    JOIN ai_chat_messages AS messages ON messages.id = attempts.assistant_message_id
+    WHERE attempts.id = ?
+  `).get(started.attempt.id) }, {
+    attempt_status: "failed",
+    attempt_error: "generation_cancelled",
+    message_status: "failed",
+    message_error: "generation_cancelled",
+  });
+});
+
+test("explicit cancellation terminalizes a still-pending turn even after its lease elapsed", async () => {
+  const { repository, sqlite } = createFixture();
+  const chat = await repository.createChat("user-a");
+  const started = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "cancel-expired-lease",
+    content: "Keep working.",
+    practiceContext: [],
+  });
+  sqlite.prepare(`
+    UPDATE ai_chat_assistant_attempts
+    SET lease_expires_at = '2026-08-29T10:00:00.000Z'
+    WHERE id = ?
+  `).run(started.attempt.id);
+
+  const cancelled = await repository.cancelTurn(
+    "user-a",
+    chat.id,
+    "cancel-expired-lease",
+  );
+
+  assert.equal(cancelled.assistant.status, "failed");
+  assert.equal(cancelled.assistant.errorCode, "generation_cancelled");
+  assert.equal(cancelled.attempt.status, "failed");
+  assert.equal(cancelled.attempt.errorCode, "generation_cancelled");
+});
+
+test("turn cancellation is idempotent and preserves an already terminal result", async () => {
+  const { repository } = createFixture();
+  const chat = await repository.createChat("user-a");
+  const cancelledStart = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "cancel-replay",
+    content: "Stop this.",
+    practiceContext: [],
+  });
+  const first = await repository.cancelTurn("user-a", chat.id, "cancel-replay");
+  const replay = await repository.cancelTurn("user-a", chat.id, "cancel-replay");
+  assert.deepEqual(replay, first);
+
+  const completedStart = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "cancel-after-complete",
+    content: "Finish this.",
+    practiceContext: [],
+  });
+  const completed = await repository.finishTurn(
+    "user-a",
+    chat.id,
+    "cancel-after-complete",
+    {
+      attemptId: completedStart.attempt.id,
+      content: "Finished.",
+      provider: "openrouter",
+      model: "test/model",
+    },
+  );
+  assert.deepEqual(
+    await repository.cancelTurn("user-a", chat.id, "cancel-after-complete"),
+    completed,
+  );
+
+  const failedStart = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "cancel-after-failure",
+    content: "This will fail.",
+    practiceContext: [],
+  });
+  const failed = await repository.failTurn(
+    "user-a",
+    chat.id,
+    "cancel-after-failure",
+    "provider_failed",
+    failedStart.attempt.id,
+  );
+  assert.deepEqual(
+    await repository.cancelTurn("user-a", chat.id, "cancel-after-failure"),
+    failed,
+  );
+  assert.equal(cancelledStart.attempt.status, "pending");
+});
+
+test("late generation callbacks cannot overwrite an explicitly cancelled attempt", async () => {
+  const { repository } = createFixture();
+  const chat = await repository.createChat("user-a");
+  const started = await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "cancel-fences-callbacks",
+    content: "Stop before completion.",
+    practiceContext: [],
+  });
+  const cancelled = await repository.cancelTurn(
+    "user-a",
+    chat.id,
+    "cancel-fences-callbacks",
+  );
+
+  const lateCompletion = await repository.finishTurn(
+    "user-a",
+    chat.id,
+    "cancel-fences-callbacks",
+    {
+      attemptId: started.attempt.id,
+      content: "Too late.",
+      provider: "openrouter",
+      model: "test/model",
+    },
+  );
+  const lateFailure = await repository.failTurn(
+    "user-a",
+    chat.id,
+    "cancel-fences-callbacks",
+    "provider_failed",
+    started.attempt.id,
+  );
+
+  assert.deepEqual(lateCompletion, cancelled);
+  assert.deepEqual(lateFailure, cancelled);
+});
+
+test("turn cancellation is owner scoped and hides missing turns", async () => {
+  const { repository } = createFixture();
+  const chat = await repository.createChat("user-a");
+  await repository.beginTurn("user-a", chat.id, {
+    clientMessageId: "owned-cancel",
+    content: "Private turn.",
+    practiceContext: [],
+  });
+
+  await assert.rejects(
+    repository.cancelTurn("user-b", chat.id, "owned-cancel"),
+    hasCode("not_found"),
+  );
+  await assert.rejects(
+    repository.cancelTurn("user-a", chat.id, "missing-turn"),
+    hasCode("not_found"),
+  );
 });
 
 test("failed attempts retain configured provenance and recover an ambiguous commit", async () => {
@@ -1365,6 +1552,13 @@ test("failed attempts retain configured provenance and recover an ambiguous comm
     "ambiguous-failure",
     "provider_rate_limited",
     started.attempt.id,
+    {
+      elapsedMs: 19_409,
+      finishReason: "length",
+      stepCount: 1,
+      toolCallCount: 0,
+      providerError: "must not persist",
+    },
   );
 
   assert.equal(recovered.assistant.status, "failed");
@@ -1372,15 +1566,23 @@ test("failed attempts retain configured provenance and recover an ambiguous comm
   assert.equal(recovered.attempt.status, "failed");
   assert.equal(recovered.attempt.errorCode, "provider_rate_limited");
   assert.deepEqual(recovered.attempt.configuredProvenance, configuredProvenance);
-  assert.deepEqual({ ...sqlite.prepare(`
-    SELECT configured_provider, configured_model, provider, model, error_code
+  const failedAttemptRow = { ...sqlite.prepare(`
+    SELECT configured_provider, configured_model, provider, model, error_code, terminal_json
     FROM ai_chat_assistant_attempts WHERE id = ?
-  `).get(started.attempt.id) }, {
+  `).get(started.attempt.id) };
+  assert.deepEqual({ ...failedAttemptRow, terminal_json: undefined }, {
     configured_provider: "openrouter",
     configured_model: "@preset/free-unmubme-test",
     provider: null,
     model: null,
     error_code: "provider_rate_limited",
+    terminal_json: undefined,
+  });
+  assert.deepEqual(JSON.parse(failedAttemptRow.terminal_json), {
+    elapsedMs: 19_409,
+    stepCount: 1,
+    toolCallCount: 0,
+    finishReason: "length",
   });
 });
 
@@ -1563,6 +1765,14 @@ test("stale pending turns recover for retry while fresh pending turns stay singl
   assert.equal(recovered.state, "retrying");
   assert.equal(recovered.assistant.id, started.assistant.id);
   assert.equal(recovered.assistant.status, "pending");
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT status, error_code, terminal_json
+    FROM ai_chat_assistant_attempts WHERE id = ?
+  `).get(started.attempt.id) }, {
+    status: "expired",
+    error_code: "generation_interrupted",
+    terminal_json: '{"termination":"lease_expired"}',
+  });
 });
 
 test("stale retry ignores terminal callbacks from the previous generation attempt", async () => {
@@ -1635,5 +1845,13 @@ test("opening a chat marks an abandoned pending assistant retryable", async () =
   const reopened = await repository.getChat("user-a", chat.id);
   const assistant = reopened.messages.find((message) => message.role === "assistant");
   assert.equal(assistant.status, "failed");
-  assert.equal(assistant.errorCode, "provider_timeout");
+  assert.equal(assistant.errorCode, "generation_interrupted");
+  assert.deepEqual({ ...sqlite.prepare(`
+    SELECT status, error_code, terminal_json
+    FROM ai_chat_assistant_attempts WHERE id = ?
+  `).get(started.attempt.id) }, {
+    status: "expired",
+    error_code: "generation_interrupted",
+    terminal_json: '{"termination":"lease_expired"}',
+  });
 });

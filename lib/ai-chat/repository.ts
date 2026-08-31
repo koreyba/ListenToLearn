@@ -14,6 +14,11 @@ import {
   type VocabularyPracticeItem,
   type VocabularyPracticeTargetDraft,
 } from "../vocabulary/practice-reader.ts";
+import {
+  parseAiChatTerminalTelemetry,
+  serializeAiChatTerminalTelemetry,
+  type AiChatTerminalTelemetry,
+} from "./terminal-telemetry.ts";
 
 export const AI_CHAT_LEGACY_MEANING_ID = VOCABULARY_LEGACY_MEANING_ID;
 export const AI_CHAT_PENDING_LEASE_MS = AI_CHAT_LIMITS.upstreamTimeoutMs + 10_000;
@@ -85,6 +90,7 @@ export type AiChatAssistantAttempt = {
   leaseExpiresAt: string;
   configuredProvenance: AiChatConfiguredProvenance;
   errorCode: string | null;
+  terminal: AiChatTerminalTelemetry | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -141,6 +147,7 @@ type AttemptRow = {
   configured_provider: string;
   configured_model: string;
   error_code: string | null;
+  terminal_json: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -274,6 +281,7 @@ function mapAttempt(row: AttemptRow): AiChatAssistantAttempt {
       model: row.configured_model,
     },
     errorCode: row.error_code,
+    terminal: parseAiChatTerminalTelemetry(row.terminal_json),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -567,15 +575,23 @@ export function createAiChatRepository(
     return [
       db.prepare(`
         UPDATE ai_chat_assistant_attempts
-        SET status = 'expired', error_code = 'provider_timeout',
+        SET status = 'expired', error_code = 'generation_interrupted',
+            terminal_json = ?,
             updated_at = ?, completed_at = ?
         WHERE chat_id = ? AND user_id = ? AND status = 'pending'
           AND lease_expires_at <= ?
-      `).bind(timestamp, timestamp, chatId, userId, timestamp),
+      `).bind(
+        serializeAiChatTerminalTelemetry({ termination: "lease_expired" }),
+        timestamp,
+        timestamp,
+        chatId,
+        userId,
+        timestamp,
+      ),
       db.prepare(`
         UPDATE ai_chat_messages
         SET content = '', status = 'failed', provider = NULL, model = NULL,
-            usage_json = NULL, error_code = 'provider_timeout', updated_at = ?
+            usage_json = NULL, error_code = 'generation_interrupted', updated_at = ?
         WHERE chat_id = ? AND role = 'assistant' AND status = 'pending'
           AND (
             updated_at <= ?
@@ -584,7 +600,6 @@ export function createAiChatRepository(
               FROM ai_chat_assistant_attempts AS attempts
               WHERE attempts.assistant_message_id = ai_chat_messages.id
                 AND attempts.status = 'expired'
-                AND attempts.error_code = 'provider_timeout'
             )
           )
           AND NOT EXISTS (
@@ -807,6 +822,17 @@ export function createAiChatRepository(
         WHERE messages.chat_id = ?
           AND chats.user_id = ?
           AND messages.status = 'complete'
+          AND (
+            messages.role = 'assistant'
+            OR EXISTS (
+              SELECT 1
+              FROM ai_chat_messages AS paired_assistant
+              WHERE paired_assistant.chat_id = messages.chat_id
+                AND paired_assistant.client_message_id = messages.client_message_id
+                AND paired_assistant.role = 'assistant'
+                AND paired_assistant.status = 'complete'
+            )
+          )
           ${exclusion}
           ${sequenceBoundary}
         ORDER BY messages.sequence DESC
@@ -863,6 +889,7 @@ export function createAiChatRepository(
         attempts.configured_provider,
         attempts.configured_model,
         attempts.error_code,
+        attempts.terminal_json,
         attempts.created_at,
         attempts.updated_at
       FROM ai_chat_assistant_attempts AS attempts
@@ -914,10 +941,16 @@ export function createAiChatRepository(
       results = await db.batch([
         db.prepare(`
           UPDATE ai_chat_assistant_attempts
-          SET status = 'expired', error_code = 'provider_timeout',
+          SET status = 'expired', error_code = 'generation_interrupted',
+              terminal_json = ?,
               updated_at = ?, completed_at = ?
           WHERE id = ? AND status = 'pending'
-        `).bind(timestamp, timestamp, turn.attempt?.id || ""),
+        `).bind(
+          serializeAiChatTerminalTelemetry({ termination: "lease_expired" }),
+          timestamp,
+          timestamp,
+          turn.attempt?.id || "",
+        ),
         db.prepare(`
           UPDATE ai_chat_messages
           SET content = '', status = 'pending', provider = NULL, model = NULL,
@@ -1115,6 +1148,7 @@ export function createAiChatRepository(
       provider: string;
       model: string;
       usage?: unknown;
+      terminal?: unknown;
     },
   ) {
     const existing = await findTurn(userId, chatId, clientMessageId);
@@ -1129,6 +1163,7 @@ export function createAiChatRepository(
       return { state: "existing", ...existing } satisfies AiChatTurn;
     }
     const usageJson = input.usage == null ? null : JSON.stringify(input.usage);
+    const terminalJson = serializeAiChatTerminalTelemetry(input.terminal);
     const completionStatements = [
       db.prepare(`
         UPDATE ai_chat_messages
@@ -1169,7 +1204,7 @@ export function createAiChatRepository(
       db.prepare(`
         UPDATE ai_chat_assistant_attempts
         SET status = 'complete', provider = ?, model = ?, usage_json = ?,
-            error_code = NULL, updated_at = ?, completed_at = ?
+            error_code = NULL, terminal_json = ?, updated_at = ?, completed_at = ?
         WHERE id = ? AND user_id = ? AND chat_id = ? AND status = 'pending'
           AND lease_expires_at > ?
           AND EXISTS (
@@ -1182,6 +1217,7 @@ export function createAiChatRepository(
         input.provider,
         input.model,
         usageJson,
+        terminalJson,
         timestamp,
         timestamp,
         input.attemptId,
@@ -1238,6 +1274,7 @@ export function createAiChatRepository(
         ? {
             ...existing.attempt,
             status: "complete",
+            terminal: parseAiChatTerminalTelemetry(terminalJson),
             updatedAt: timestamp,
           }
         : null,
@@ -1250,10 +1287,12 @@ export function createAiChatRepository(
     clientMessageId: string,
     errorCode: string,
     attemptId: string,
+    terminal?: unknown,
   ) {
     const existing = await findTurn(userId, chatId, clientMessageId);
     if (!existing) repositoryError("not_found", "Turn not found.");
     const timestamp = now();
+    const terminalJson = serializeAiChatTerminalTelemetry(terminal);
     if (
       existing.assistant.status !== "pending"
       || existing.attempt?.id !== attemptId
@@ -1301,7 +1340,7 @@ export function createAiChatRepository(
         db.prepare(`
           UPDATE ai_chat_assistant_attempts
           SET status = 'failed', provider = NULL, model = NULL, usage_json = NULL,
-              error_code = ?, updated_at = ?, completed_at = ?
+              error_code = ?, terminal_json = ?, updated_at = ?, completed_at = ?
           WHERE id = ? AND user_id = ? AND chat_id = ? AND status = 'pending'
             AND lease_expires_at > ?
             AND EXISTS (
@@ -1312,6 +1351,7 @@ export function createAiChatRepository(
             )
         `).bind(
           errorCode,
+          terminalJson,
           timestamp,
           timestamp,
           attemptId,
@@ -1368,14 +1408,133 @@ export function createAiChatRepository(
             ...existing.attempt,
             status: "failed",
             errorCode,
+            terminal: parseAiChatTerminalTelemetry(terminalJson),
             updatedAt: timestamp,
           }
         : null,
     } satisfies AiChatTurn;
   }
 
+  async function cancelTurn(
+    userId: string,
+    chatId: string,
+    clientMessageId: string,
+  ) {
+    const existing = await findTurn(userId, chatId, clientMessageId);
+    if (!existing) repositoryError("not_found", "Turn not found.");
+    if (
+      existing.assistant.status !== "pending"
+      || existing.attempt?.status !== "pending"
+    ) {
+      return { state: "existing", ...existing } satisfies AiChatTurn;
+    }
+    const timestamp = now();
+    const attemptId = existing.attempt.id;
+    let results: D1Result<unknown>[];
+    try {
+      results = await db.batch([
+        db.prepare(`
+          UPDATE ai_chat_messages
+          SET content = '', status = 'failed', provider = NULL, model = NULL,
+              usage_json = NULL, error_code = 'generation_cancelled', updated_at = ?
+          WHERE chat_id = ? AND client_message_id = ? AND role = 'assistant'
+            AND status = 'pending'
+            AND EXISTS (
+              SELECT 1
+              FROM ai_chat_assistant_attempts AS attempts
+              WHERE attempts.id = ?
+                AND attempts.user_id = ?
+                AND attempts.chat_id = ?
+                AND attempts.user_message_id = ?
+                AND attempts.assistant_message_id = ai_chat_messages.id
+                AND attempts.status = 'pending'
+            )
+            AND EXISTS (
+              SELECT 1 FROM ai_chats WHERE ai_chats.id = ? AND ai_chats.user_id = ?
+            )
+        `).bind(
+          timestamp,
+          chatId,
+          clientMessageId,
+          attemptId,
+          userId,
+          chatId,
+          existing.user.id,
+          chatId,
+          userId,
+        ),
+        db.prepare(`
+          UPDATE ai_chat_assistant_attempts
+          SET status = 'failed', provider = NULL, model = NULL, usage_json = NULL,
+              error_code = 'generation_cancelled', terminal_json = NULL,
+              updated_at = ?, completed_at = ?
+          WHERE id = ? AND user_id = ? AND chat_id = ? AND status = 'pending'
+            AND EXISTS (
+              SELECT 1
+              FROM ai_chat_messages
+              WHERE id = ai_chat_assistant_attempts.assistant_message_id
+                AND status = 'failed'
+                AND error_code = 'generation_cancelled'
+                AND updated_at = ?
+            )
+        `).bind(timestamp, timestamp, attemptId, userId, chatId, timestamp),
+        db.prepare(`
+          UPDATE ai_chats SET updated_at = ?
+          WHERE id = ? AND user_id = ?
+            AND EXISTS (
+              SELECT 1 FROM ai_chat_assistant_attempts
+              WHERE id = ? AND status = 'failed'
+                AND error_code = 'generation_cancelled' AND updated_at = ?
+            )
+        `).bind(timestamp, chatId, userId, attemptId, timestamp),
+      ]);
+    } catch (error) {
+      const recovered = await findTurn(userId, chatId, clientMessageId);
+      if (
+        recovered?.assistant.status === "failed"
+        && recovered.assistant.errorCode === "generation_cancelled"
+        && recovered.attempt?.id === attemptId
+        && recovered.attempt.status === "failed"
+        && recovered.attempt.errorCode === "generation_cancelled"
+      ) {
+        return { state: "existing", ...recovered } satisfies AiChatTurn;
+      }
+      throw error;
+    }
+    if (
+      Number(results[0]?.meta.changes || 0) !== 1
+      || Number(results[1]?.meta.changes || 0) !== 1
+    ) {
+      const raced = await findTurn(userId, chatId, clientMessageId);
+      if (!raced) repositoryError("conflict", "Turn cancellation could not be persisted.");
+      return { state: "existing", ...raced } satisfies AiChatTurn;
+    }
+    return {
+      state: "existing",
+      user: existing.user,
+      assistant: {
+        ...existing.assistant,
+        content: "",
+        status: "failed",
+        provider: null,
+        model: null,
+        usage: null,
+        errorCode: "generation_cancelled",
+        updatedAt: timestamp,
+      },
+      attempt: {
+        ...existing.attempt,
+        status: "failed",
+        errorCode: "generation_cancelled",
+        terminal: null,
+        updatedAt: timestamp,
+      },
+    } satisfies AiChatTurn;
+  }
+
   return {
     beginTurn,
+    cancelTurn,
     createChat,
     failTurn,
     finishTurn,

@@ -9,6 +9,7 @@ import {
 import {
   AiChatRepositoryError,
   createAiChatRepository,
+  type AiChatTurn,
 } from "./repository.ts";
 import {
   createAiChatRuntime,
@@ -59,6 +60,7 @@ export type AiChatServiceMutationPlanner = Pick<
   | "planAddEntry"
   | "planAddEntries"
   | "planAddMeaning"
+  | "planChangeSet"
   | "planChangeState"
   | "planSetCategory"
   | "planUpdateMeaning"
@@ -116,6 +118,29 @@ function repositoryFailure(error: unknown): { code: AiChatErrorCode; status: num
     };
   }
   return { code: "internal_error", status: 500 };
+}
+
+export async function cancelAiChatTurn(input: {
+  userId: string;
+  chatId: string;
+  clientMessageId: string;
+  chatRepository: Pick<ReturnType<typeof createAiChatRepository>, "cancelTurn">;
+}): Promise<
+  | { ok: true; turn: AiChatTurn }
+  | { ok: false; error: { code: AiChatErrorCode; status: number } }
+> {
+  try {
+    return {
+      ok: true,
+      turn: await input.chatRepository.cancelTurn(
+        input.userId,
+        input.chatId,
+        input.clientMessageId,
+      ),
+    };
+  } catch (error) {
+    return { ok: false, error: repositoryFailure(error) };
+  }
 }
 
 export async function prepareAiChatGeneration(
@@ -269,6 +294,7 @@ export async function prepareAiChatGeneration(
                 provider: completion.provider,
                 model: completion.model,
                 usage: completion.usage,
+                terminal: completion.terminal,
               },
             );
             recordOperationalEvent({
@@ -291,6 +317,7 @@ export async function prepareAiChatGeneration(
               input.message.clientMessageId,
               failure.errorCode,
               currentAttemptId,
+              failure.terminal,
             );
             recordOperationalEvent({
               event: "ai_chat_generation_failed",

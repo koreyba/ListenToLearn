@@ -43,8 +43,9 @@ reverse translation, or answer checks.
   `Learned`, continue the same list across turns, search it, and practise any
   conversational subset without configuring hidden targets.
 - As a learner, I can practise an ad-hoc word without saving it.
-- As a learner, I can naturally ask the chat to add one to ten vocabulary entries,
-  add or update a personal meaning, or move one entry to a learning category.
+- As a learner, I can naturally ask for one mixed change set containing additions,
+  meaning additions/updates, moves, and removals, up to 30 concrete vocabulary
+  changes in one request.
 - As a learner, mentioning, practising, or showing interest in a word never saves
   it. The agent first shows the exact proposed change inline, and only my explicit
   confirmation commits it.
@@ -93,18 +94,24 @@ reverse translation, or answer checks.
 
 ### Vocabulary writes
 
-The four agent mutation tools create proposals, not vocabulary writes:
+The provider registry exposes exactly three account-scoped tools: the two read
+tools above and one mutation proposal tool,
+`propose_vocabulary_change_set({ changes })`. The closed change union supports:
 
-- `propose_vocabulary_entries(entries)` with 1–10 exact items;
-- `propose_vocabulary_meaning(phraseId, translation, context?)`;
-- `propose_vocabulary_meaning_update(meaningId, translation, context?)`;
-- `propose_vocabulary_state_change(entries, destination)` with 1–10 exact texts and
-  destination `to_learn|learning|learned|removed`.
+- `add_entry` with exact text and optional translation/context;
+- `add_meaning` with exact entry text, translation, and optional context;
+- `update_meaning` with exact entry text, optional current translation for
+  disambiguation, replacement translation, and optional context;
+- `change_state` with exact entry text and destination
+  `to_learn|learning|learned|removed`;
+- `change_recent_state` with an exact count and destination.
 
-Natural requests and references may use the bounded canonical conversation context.
-There is no regex/literal-current-turn authorization gate. Instead, the model must
-resolve the exact values into a durable proposal, and the browser renders those
-values for review. A proposal is not success and performs no domain write.
+Natural, unambiguous references may resolve through bounded canonical conversation
+context. The model does not need to repeat database IDs or a rigid command grammar.
+The server resolves every referenced entity against current owner-visible state;
+missing, ambiguous, conflicting, or unsupported requests return an explicit
+validation error and never become an inferred write. The browser renders the exact
+resolved values for review. A proposal is not success and performs no domain write.
 
 The learner authorizes a mutation only by confirming that stored proposal. The
 confirmation request names the proposal and decision but contains no mutation
@@ -113,12 +120,25 @@ executes them deterministically without a second model call. Cancellation record
 terminal state and performs no domain write. Confirm/cancel races converge to one
 durable state, and repeated confirms replay the same bounded result.
 
-Bulk entry input is set-based and atomic. Identical duplicate items in one request
-collapse. The same normalized text with conflicting translation or context rejects
-the entire proposal. Eleven or more items are invalid. Confirmation returns one
-bounded item result per canonical entry with state `added` or `already_saved`;
+One model proposal becomes one inline confirmation card. The card groups concrete
+items by addition, meaning addition, meaning update, and move/removal, shows the
+complete change count with a compact accessible disclosure for long sets, and has
+one Confirm and one Cancel decision for the whole atomic change set on desktop and
+mobile.
+
+The change-set limit is 30 concrete changes. Every explicit action has weight one;
+`change_recent_state({ count: N })` has weight N after deterministic resolution.
+The aggregate weight must be 1–30, and at most one recent-state selector is allowed.
+Identical actions collapse where their effect is equivalent; conflicting actions on
+one normalized target reject the complete proposal. Meaning additions and updates
+that converge on one normalized owner/phrase translation also reject the complete
+proposal. Mixed-language text remains one exact item.
+
+The change set is set-based and atomic. Confirmation returns one bounded result per
+canonical concrete action. Entry additions report `added` or `already_saved`;
 `already_saved` means active owner-visible progress existed when the confirmed plan
-was built. Mixed-language text remains one exact item.
+was built. A stale, foreign, missing, ambiguous, or conflicting action rolls back
+the whole confirmation rather than partially applying the remainder.
 
 Meaning updates remain compare-and-swap operations bound to owner, phrase ID,
 meaning ID, old translation, and old context captured server-side when the proposal
@@ -131,15 +151,16 @@ roles, SQL, or arbitrary HTTP operations. Identity, active chat, current user
 message, assistant message, and generation-attempt identity are injected by the
 server.
 
-`propose_vocabulary_state_change` keeps the exact six-tool registry while adding
-`removed`. On confirmed removal, a preset phrase remains immutable shared Library
-data and only this learner's progress becomes `pick`; a learner-owned custom phrase
-deletes only that owner row and its foreign-key children. Confirmation never
-re-resolves the targets. Separately, a genuinely new/previously unsaved `pick` entry
-starts in `to_learn` and refreshes progress `created_at`, so re-adding it is newest;
-an already-active duplicate preserves status and recency. Every newly supplied
+On confirmed removal, a preset phrase remains immutable shared Library data and only
+this learner's progress becomes `pick`; a learner-owned custom phrase deletes only
+that owner row and its foreign-key children. Confirmation never re-resolves the
+targets. Separately, a genuinely new/previously unsaved `pick` entry starts in
+`to_learn` and refreshes progress `created_at`, so re-adding it is newest; an
+already-active duplicate preserves status and recency. Every newly supplied
 translation is stored as an owner-scoped personal meaning; preset legacy data stays
 immutable, and a confirmed historical custom-legacy update promotes it atomically.
+Trying to edit shared preset legacy meaning returns the closed typed
+`unsupported_change` result with a deterministic supported alternative.
 
 ### Conversation and retries
 
@@ -162,9 +183,23 @@ immutable, and a confirmed historical custom-legacy update promotes it atomicall
 - A stale attempt cannot execute a tool or finish/fail a newer attempt. Failed or
   expired turns are retryable; a repeated live/complete turn does not start another
   paid generation.
+- A tool timeout, tool failure, provider failure, explicit cancellation, or
+  interrupted Worker makes the current attempt terminal and releases the chat for a
+  later message or explicit retry. The composer must not stay frozen behind an
+  abandoned pending attempt; the lease is only the emergency recovery fence.
+- Canonical model history contains complete logical pairs only: a user message enters
+  history only with its successfully completed assistant response. Pending, failed,
+  cancelled, and interrupted pairs remain visible as product state where applicable
+  but cannot contaminate a later provider prompt.
 - Assistant finish/fail, tool registration/completion, receipt insertion, commit,
   and replay require both `pending` status and `lease_expires_at` later than the
   operation timestamp.
+- `POST /api/ai/chats/:chatId/messages/:clientMessageId/cancel` accepts only an
+  authenticated same-origin empty command. It terminalizes the exact latest pending
+  assistant attempt as `generation_cancelled` even when its lease has just elapsed,
+  so Stop or a browser-observed stream interruption does not wait for the 55-second
+  recovery lease. Complete/failed turns replay their existing terminal state,
+  foreign or missing turns return 404, and late generation callbacks stay fenced.
 - Retrying an older turn uses only canonical messages before that user turn, not
   later conversation.
 - Each new user turn stores an immutable provider-safe practice snapshot, bounded
@@ -189,7 +224,7 @@ immutable, and a confirmed historical custom-legacy update promotes it atomicall
   read and leaves the model to call a read tool when the claim is needed.
 - The prompt contract lives at
   `lib/ai-chat/prompts/vocabulary-practice.ts`, has ID
-  `unmumble.vocabulary-practice` and version `4`, and returns that identity with the
+  `unmumble.vocabulary-practice` and version `5`, and returns that identity with the
   system/messages payload. Safe generation events include prompt ID/version so a
   response can be traced to the exact prompt contract without logging prompt text.
 
@@ -269,10 +304,14 @@ immutable, and a confirmed historical custom-legacy update promotes it atomicall
   states; an unclassified failure terminates as `operation_failed`.
 - An equivalent retry/repeated call replays the stored receipt. The same receipt key
   with different canonical arguments is a conflict, not a second mutation.
-- A provider/stream failure after proposal commit must not erase or duplicate the
-  proposal; the later attempt replays its receipt. It still cannot write vocabulary
-  until a learner confirms.
-- The six-tool implementation is split by responsibility under
+- A proposal is listable and confirmable only when its exact origin attempt is
+  complete. A failed or interrupted origin remains hidden and cannot authorize a
+  later vocabulary write; the chat itself remains usable.
+- Proposal creation is idempotent within
+  `(originAttemptId, operation, targetKey)`. A learner retry has a new attempt and
+  may create a new immutable proposal while the failed origin remains hidden;
+  migration 0023 replaces the earlier message-scoped proposal index.
+- The three-tool implementation is split by responsibility under
   `lib/ai-chat/tools/vocabulary/`: `contracts`, `results`, `handlers`,
   `registry`, and `pagination`. `lib/ai-chat/vocabulary-tools.ts` is a compatibility
   facade only; every tool must still pass through the single traced/budgeted
@@ -292,23 +331,22 @@ immutable, and a confirmed historical custom-legacy update promotes it atomicall
 - Model output: 2,400 tokens. Generation deadlines are 45 seconds total, 25 seconds
   per model step, 20 seconds to the first chunk, 20 seconds between chunks, and
   5 seconds for a tool execution. The stale-attempt lease is 55 seconds.
-- At most 2 tool calls per user turn and 5 model steps; tools are disabled after
-  the second provider tool call and for the final step, leaving a text-only answer
-  step. The hard two-call budget and pre-trace fence preserve headroom under
-  D1 Free's 50-query-per-Worker-invocation allowance. Proposal creation remains in
-  the generation invocation; confirmation is a separate invocation and must also
-  remain below 50. Fresh statement-count tests own the exact post-change envelopes.
-- A routed mutation turn exposes only its intended proposal tool and requires a
-  tool call. If the provider returns prose instead, that output is never shown as
-  success: the adapter retries at most twice more inside the existing deadlines.
-  After exhaustion it may synthesize the same proposal call only when every value
-  is explicitly recoverable from the current user message. Pronouns, negation,
-  missing values, and ambiguous references fail safely. The result is still only a
-  pending proposal and can mutate data only after a separate learner Confirm.
+- At most 2 tool calls per user turn. A mixed mutation request normally needs one
+  `propose_vocabulary_change_set` call; a grounded lookup followed by that proposal
+  may use both. The pre-trace fence preserves headroom under D1 Free's
+  50-query-per-Worker-invocation allowance. Proposal creation remains in the
+  generation invocation; confirmation is a separate invocation and must also stay
+  below 50. Fresh statement-count tests own the exact post-change envelopes.
+- A successful proposal tool ends the provider path for that turn. The server
+  persists the proposal and deterministic assistant/card state without asking the
+  model to narrate the tool result. A schema, resolution, timeout, or tool error is
+  terminal for the attempt and maps to a stable explicit error. There is no
+  automatic provider resubmission and no parser-generated fallback tool call;
+  retrying is a separate learner action with a new immutable attempt.
 - Tool trace arguments/results: 4,096/8,192 JSON characters.
-- Proposal add-entry batches contain 1–10 items; canonical aggregate arguments stay
-  within the existing 4,096-character tool-argument cap and confirmation results
-  within the 8,192-character result cap.
+- A proposal contains 1–30 weighted concrete changes. Canonical aggregate arguments
+  stay within the existing 4,096-character tool-argument cap and confirmation
+  results within the 8,192-character result cap.
 - Generation is limited by separate Cloudflare counters to 10 requests per
   authenticated account per minute and an aggregate 100 requests per Cloudflare
   location per minute. A denial, missing binding, or binding error fails closed
@@ -331,8 +369,8 @@ custom, raw, and provider metadata remain server-only. Provider HTTP 429 is expo
 only as the stable `provider_rate_limited` code. Structured operational events use
 an exact metadata allowlist for generation start/completion/failure and rate-limit
   rejection. Terminal events may additionally carry bounded elapsed time, finish
-  reason, step/tool counts, output-character count, and required-tool retry/fallback
-  counts; prompts, vocabulary,
+  reason, step/tool counts, output-character count, and bounded termination
+  classification; prompts, vocabulary,
   messages, tool arguments/results, and credentials are never event fields.
 
 Ordinary authenticated requests perform only the cheap user ensure. The one-time,
@@ -354,17 +392,18 @@ outside AI generation, so it cannot consume the generation invocation's D1 budge
   always snapshot the current message/text/context identity.
 - Compact and expanded composers remain usable without a nested scrollbar on both
   mobile and desktop, and the compact input has no inner rectangular focus outline.
-- Natural-reference proposal creation, owner checks, immutable canonical arguments,
-  inline confirmation, atomic 1–10 bulk execution, cancellation, replay, conflicts,
-  ambiguous completion, and stale-state fencing are covered by executable tests.
+- Natural unambiguous-reference resolution, explicit ambiguity errors, owner checks,
+  immutable canonical arguments, one grouped inline confirmation, atomic mixed
+  execution up to 30 weighted changes, cancellation, replay, conflicts, ambiguous
+  completion, and stale-state fencing are covered by executable tests.
 - A manual authenticated smoke confirms real model tool use and persistence before
   any deployment decision.
 
 ## Non-goals and Open Decisions
 
 - No inferred/automatic progress, autonomous category changes, spaced repetition,
-  autonomous curriculum, shared-Library deletion/merge, bulk meaning tools,
-  guest-funded AI, or resumable background run.
+  autonomous curriculum, shared-Library deletion/merge, guest-funded AI, or
+  resumable background run.
 - “Latest” means the most recent activation: re-adding an entry currently at
   `pick` refreshes progress `created_at`; re-adding an already-active entry does not.
 - Final direct target/meaning UI, editable translation/meaning selection, and
@@ -375,29 +414,9 @@ outside AI generation, so it cannot consume the generation invocation's D1 budge
 
 ## Validation Status
 
-Fresh 2026-08-31 exact-diff evidence passes full `npm test` 598/598, including the
-production build, plus typecheck, diff check, and lint with zero errors and three
-existing warnings. Focused proposal lifecycle, intent routing, required-tool
-recovery, route, tool, prompt, schema/migration, bulk, D1-budget, and UI suites are
-green. A real-model 25-turn local run completed all turns, all eight expected
-proposal interactions, and D1-confirmed fresh reads after mutations with zero
-failed or pending attempts. Controlled 1280px/390px card checks verify
-disclosure, 44px actions, and no horizontal overflow; earlier browser checks cover
-word taps, current-selection translate/add, rounded composer focus, compact no-scroll
-input, and the full-screen editor. Independent exact-diff review found no P0/P1.
-
-Fresh exact-diff evidence on 2026-08-29 passes the focused backend suite 219/219 and
-full `npm test` 503/503, plus typecheck, Drizzle validation, dependency audit,
-lifecycle lint, diff check, tracked-secret check, and ignore check. Full lint has
-zero errors and three existing warnings. Independent final review found no P0/P1.
-Backend commit `8f671288` is pushed and PR #32 reports green CodeQL, Analyze, Sonar, and
-Workers checks. Preview migration 0020 is applied; `configured_provider` and
-`configured_model` exist and are backfilled, the one-pending-attempt-per-chat index
-exists, and `PRAGMA foreign_key_check` is clean. An authenticated provider-backed
-preview smoke requested latest ten/all available and the `To Learn` category; each
-response returned the account's two matching entries and performed no user-data
-mutation. Commit `c970f80` documented a
-zero-duplicate preflight before preview ran 0017, so that preview remains accepted
-as behaviorally equivalent to corrected 0017. Manual traversal beyond ten with
-cross-turn continuation, write/replay smoke, operational ownership, and production
-authorization remain open. No production deployment is claimed.
+Fresh 2026-08-31 focused evidence passes 134/134 generation, vocabulary-tool,
+mixed-planner, proposal-retry, schema/migration, and D1-budget tests. It covers typed
+preset rejection, compact production IDs for 30 translated additions, cross-action
+meaning collisions, reactivation ordering, and migration 0023. The full suite,
+browser E2E, preview deployment, and push have not been rerun for this exact diff and
+remain open gates.

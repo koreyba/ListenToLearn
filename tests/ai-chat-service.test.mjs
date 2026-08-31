@@ -65,8 +65,15 @@ function createHarness(overrides = {}) {
     async finishTurn(userId, chatId, clientMessageId, completion) {
       calls.finish = { userId, chatId, clientMessageId, completion };
     },
-    async failTurn(userId, chatId, clientMessageId, errorCode, attemptId) {
-      calls.fail = { userId, chatId, clientMessageId, errorCode, attemptId };
+    async failTurn(userId, chatId, clientMessageId, errorCode, attemptId, terminal) {
+      calls.fail = {
+        userId,
+        chatId,
+        clientMessageId,
+        errorCode,
+        attemptId,
+        ...(terminal === undefined ? {} : { terminal }),
+      };
     },
   };
   const vocabularyRepository = {
@@ -227,6 +234,13 @@ test("turn preparation uses stored targets and canonical history only", async ()
       provider: "openrouter",
       model: "configured/model",
       usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+      terminal: {
+        elapsedMs: 1_234,
+        finishReason: "stop",
+        stepCount: 3,
+        toolCallCount: 2,
+        outputCharacters: 20,
+      },
     },
   });
   assert.deepEqual(harness.calls.operationalEvents.at(-1), {
@@ -244,7 +258,7 @@ test("turn preparation uses stored targets and canonical history only", async ()
   });
 });
 
-test("terminal failure telemetry reaches observability without changing persistence calls", async () => {
+test("terminal failure telemetry reaches observability and durable persistence", async () => {
   const harness = createHarness();
   const result = await serviceModule.prepareAiChatGeneration({
     ...request,
@@ -273,6 +287,13 @@ test("terminal failure telemetry reaches observability without changing persiste
     clientMessageId: "turn-a",
     errorCode: "response_incomplete",
     attemptId: "attempt-row",
+    terminal: {
+      elapsedMs: 45_000,
+      finishReason: "length",
+      stepCount: 3,
+      toolCallCount: 2,
+      outputCharacters: 9_000,
+    },
   });
   assert.deepEqual(harness.calls.operationalEvents.at(-1), {
     event: "ai_chat_generation_failed",
@@ -494,4 +515,32 @@ test("missing or foreign chat fails before a turn or provider is created", async
   assert.deepEqual(result, { ok: false, error: { code: "not_found", status: 404 } });
   assert.equal(harness.calls.begin, undefined);
   assert.equal(harness.calls.runtimeConfig, undefined);
+});
+
+test("turn cancellation delegates only owner and stable turn identity to persistence", async () => {
+  const calls = [];
+  const terminalTurn = {
+    state: "existing",
+    user: { clientMessageId: "turn-a" },
+    assistant: { status: "failed", errorCode: "generation_cancelled" },
+    attempt: { status: "failed", errorCode: "generation_cancelled" },
+  };
+  const result = await serviceModule.cancelAiChatTurn({
+    userId: "user-a",
+    chatId: "chat-a",
+    clientMessageId: "turn-a",
+    chatRepository: {
+      async cancelTurn(userId, chatId, clientMessageId) {
+        calls.push({ userId, chatId, clientMessageId });
+        return terminalTurn;
+      },
+    },
+  });
+
+  assert.deepEqual(calls, [{
+    userId: "user-a",
+    chatId: "chat-a",
+    clientMessageId: "turn-a",
+  }]);
+  assert.deepEqual(result, { ok: true, turn: terminalTurn });
 });

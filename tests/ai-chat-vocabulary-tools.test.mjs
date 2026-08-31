@@ -4,6 +4,7 @@ import test from "node:test";
 
 const toolsModule = await import("../lib/ai-chat/vocabulary-tools.ts").catch(() => ({}));
 const policyModule = await import("../lib/ai-chat/tools/vocabulary/policy.ts").catch(() => ({}));
+const mutationsModule = await import("../lib/vocabulary/mutations.ts").catch(() => ({}));
 
 function entry(overrides = {}) {
   return {
@@ -24,7 +25,7 @@ function entry(overrides = {}) {
   };
 }
 
-function createHarness(currentUserMessage) {
+function createHarness(currentUserMessage, options = {}) {
   const calls = [];
   const savedEntry = entry();
   const repositoryResults = [savedEntry];
@@ -155,6 +156,29 @@ function createHarness(currentUserMessage) {
             state: input.destination,
           })),
         },
+      };
+    },
+    async planChangeSet(userId, input) {
+      calls.push({ method: "changeSet", userId, input });
+      if (options.planChangeSetError) throw options.planChangeSetError;
+      return {
+        operation: "vocabulary.change-set/v1",
+        targetKey: "change-set",
+        canonicalArgs: {
+          actions: input.changes.map((change, index) => ({
+            id: `resolved-${index + 1}`,
+            ...change,
+          })),
+        },
+        canonicalResult: {
+          ok: true,
+          changed: input.changes.length,
+        },
+        publicItems: input.changes.map(({ action, ...change }, index) => ({
+          id: `display-${index + 1}`,
+          actionType: action,
+          ...change,
+        })),
       };
     },
   };
@@ -970,16 +994,253 @@ test("AI SDK tool set exposes reads and confirmation-gated proposal capabilities
   assert.deepEqual(Object.keys(tools).sort(), [
     "find_vocabulary",
     "list_vocabulary",
-    "propose_vocabulary_entries",
-    "propose_vocabulary_meaning",
-    "propose_vocabulary_meaning_update",
-    "propose_vocabulary_state_change",
+    "propose_vocabulary_change_set",
   ]);
   assert.deepEqual([...toolsModule.AI_VOCABULARY_TOOL_NAMES].sort(), Object.keys(tools).sort());
   assert.equal(
     tools.find_vocabulary.inputSchema.jsonSchema.properties.query.maxLength,
     48,
   );
+
+  const schema = tools.propose_vocabulary_change_set.inputSchema.jsonSchema;
+  assert.deepEqual(schema.required, ["changes"]);
+  assert.equal(schema.additionalProperties, false);
+  assert.equal(schema.properties.changes.minItems, 1);
+  assert.equal(schema.properties.changes.maxItems, 30);
+  assert.equal(schema.properties.changes.items.oneOf.length, 5);
+  assert.deepEqual(
+    schema.properties.changes.items.oneOf.map((variant) => variant.properties.action.const),
+    ["add_entry", "add_meaning", "update_meaning", "change_state", "change_recent_state"],
+  );
+  assert.equal(
+    schema.properties.changes.items.oneOf.every((variant) => variant.additionalProperties === false),
+    true,
+  );
+});
+
+test("composite proposal cleans every action and bypasses current-message regex gates", async () => {
+  const harness = createHarness("Could you help me organize my vocabulary?");
+  const result = await harness.handlers.proposeVocabularyChangeSet({
+    changes: [
+      {
+        action: "add_entry",
+        text: "  uncanny  ",
+        translation: "  необычный  ",
+        context: "  An uncanny feeling.  ",
+      },
+      {
+        action: "add_meaning",
+        text: " run ",
+        translation: " управлять ",
+      },
+      {
+        action: "update_meaning",
+        text: " break even ",
+        currentTranslation: " окупаться ",
+        translation: " выйти в ноль ",
+        context: " We broke even.\r\nFinally. ",
+      },
+      {
+        action: "change_state",
+        text: " obsolete ",
+        destination: "removed",
+      },
+      {
+        action: "change_recent_state",
+        count: 2,
+        destination: "learning",
+      },
+    ],
+  }, harness.scope);
+
+  assert.deepEqual(result, {
+    ok: true,
+    proposed: true,
+    approvalRequired: true,
+    proposalId: "proposal-test",
+  });
+  const cleanedChanges = [
+    {
+      action: "add_entry",
+      text: "uncanny",
+      translation: "необычный",
+      context: "An uncanny feeling.",
+    },
+    { action: "add_meaning", text: "run", translation: "управлять" },
+    {
+      action: "update_meaning",
+      text: "break even",
+      currentTranslation: "окупаться",
+      translation: "выйти в ноль",
+      context: "We broke even.\nFinally.",
+    },
+    { action: "change_state", text: "obsolete", destination: "removed" },
+    { action: "change_recent_state", count: 2, destination: "learning" },
+  ];
+  assert.deepEqual(harness.calls, [{
+    method: "changeSet",
+    userId: "user-a",
+    input: { changes: cleanedChanges },
+  }, {
+    method: "propose",
+    plan: {
+      operation: "vocabulary.change-set/v1",
+      targetKey: "change-set",
+      canonicalArgs: {
+        actions: cleanedChanges.map((change, index) => ({
+          id: `resolved-${index + 1}`,
+          ...change,
+        })),
+      },
+      canonicalResult: { ok: true, changed: 5 },
+      publicItems: cleanedChanges.map(({ action, ...change }, index) => ({
+        id: `display-${index + 1}`,
+        actionType: action,
+        ...change,
+      })),
+    },
+    publicPayload: {
+      operation: "vocabulary_change_set",
+      items: cleanedChanges.map(({ action, ...change }, index) => ({
+        id: `display-${index + 1}`,
+        actionType: action,
+        ...change,
+      })),
+    },
+  }]);
+});
+
+test("composite proposal enforces the weighted thirty-change boundary", async () => {
+  const overLimit = createHarness("organize these");
+  const result = await overLimit.handlers.proposeVocabularyChangeSet({
+    changes: [
+      ...Array.from({ length: 29 }, (_, index) => ({
+        action: "add_entry",
+        text: `word-${index}`,
+      })),
+      { action: "change_recent_state", count: 2, destination: "learning" },
+    ],
+  }, overLimit.scope);
+  assert.deepEqual(result, { ok: false, error: "change_limit_exceeded" });
+  assert.deepEqual(overLimit.calls, []);
+
+  const atLimit = createHarness("organize these");
+  assert.equal((await atLimit.handlers.proposeVocabularyChangeSet({
+    changes: [{ action: "change_recent_state", count: 30, destination: "learned" }],
+  }, atLimit.scope)).ok, true);
+  assert.equal(atLimit.calls[0].method, "changeSet");
+});
+
+test("composite proposal returns only typed server validation reasons", async () => {
+  for (const reason of [
+    "missing_target",
+    "ambiguous_meaning",
+    "conflicting_changes",
+    "change_limit_exceeded",
+    "unsupported_change",
+  ]) {
+    const harness = createHarness("organize these", {
+      planChangeSetError: new mutationsModule.VocabularyMutationPlanError(
+        "private planner detail",
+        reason,
+      ),
+    });
+    assert.deepEqual(await harness.handlers.proposeVocabularyChangeSet({
+      changes: [{ action: "add_entry", text: "safe word" }],
+    }, harness.scope), { ok: false, error: reason });
+    assert.equal(JSON.stringify(harness.calls).includes("private planner detail"), false);
+  }
+});
+
+test("composite proposal deduplicates one normalized action target", async () => {
+  const harness = createHarness("organize these");
+  assert.equal((await harness.handlers.proposeVocabularyChangeSet({
+    changes: [
+      { action: "add_meaning", text: " Run ", translation: "управлять" },
+      { action: "add_meaning", text: "run", translation: "управлять" },
+    ],
+  }, harness.scope)).ok, true);
+
+  assert.deepEqual(harness.calls[0], {
+    method: "changeSet",
+    userId: "user-a",
+    input: {
+      changes: [{ action: "add_meaning", text: "Run", translation: "управлять" }],
+    },
+  });
+  assert.equal(harness.calls[1].publicPayload.items.length, 1);
+});
+
+test("composite proposal keeps distinct meanings for the same word", async () => {
+  const harness = createHarness("add two meanings");
+  assert.equal((await harness.handlers.proposeVocabularyChangeSet({
+    changes: [
+      { action: "add_meaning", text: "run", translation: "бежать" },
+      { action: "add_meaning", text: "RUN", translation: "управлять" },
+    ],
+  }, harness.scope)).ok, true);
+
+  assert.deepEqual(harness.calls[0].input.changes, [
+    { action: "add_meaning", text: "run", translation: "бежать" },
+    { action: "add_meaning", text: "RUN", translation: "управлять" },
+  ]);
+});
+
+test("composite proposal permits compatible mixed actions on one existing target", async () => {
+  const harness = createHarness("organize these");
+  assert.equal((await harness.handlers.proposeVocabularyChangeSet({
+    changes: [
+      { action: "add_meaning", text: "run", translation: "управлять" },
+      {
+        action: "update_meaning",
+        text: "RUN",
+        currentTranslation: "управлять",
+        translation: "руководить",
+      },
+      { action: "change_state", text: "Run", destination: "learning" },
+    ],
+  }, harness.scope)).ok, true);
+  assert.equal(harness.calls[0].input.changes.length, 3);
+});
+
+test("composite proposal rejects incompatible actions on one normalized target", async () => {
+  for (const changes of [
+    [
+      { action: "add_entry", text: "Run" },
+      { action: "add_meaning", text: "run", translation: "управлять" },
+    ],
+    [
+      { action: "change_state", text: "RUN", destination: "removed" },
+      { action: "update_meaning", text: "run", translation: "руководить" },
+    ],
+    [
+      { action: "change_state", text: "run", destination: "learning" },
+      { action: "change_state", text: "Run", destination: "learned" },
+    ],
+  ]) {
+    const harness = createHarness("organize these");
+    assert.deepEqual(
+      await harness.handlers.proposeVocabularyChangeSet({ changes }, harness.scope),
+      { ok: false, error: "conflicting_changes" },
+    );
+    assert.deepEqual(harness.calls, []);
+  }
+});
+
+test("composite handler enforces the same closed union as the provider schema", async () => {
+  for (const change of [
+    { action: "add_entry", text: "run", destination: "learned" },
+    { action: "change_recent_state", count: 2, destination: "learning", text: "run" },
+    { action: "unsupported", text: "run" },
+    { action: "add_meaning", text: "run" },
+  ]) {
+    const harness = createHarness("organize these");
+    assert.deepEqual(
+      await harness.handlers.proposeVocabularyChangeSet({ changes: [change] }, harness.scope),
+      { ok: false, error: "invalid_input" },
+    );
+    assert.deepEqual(harness.calls, []);
+  }
 });
 
 test("every vocabulary tool is constructed through one traced budget wrapper", async () => {
@@ -995,14 +1256,9 @@ test("every vocabulary tool is constructed through one traced budget wrapper", a
 });
 
 test("AI SDK proposal adapters forward provider identity, name, and arguments to the trace executor", async () => {
-  const currentMessage = [
-    "Добавь слово serendipity — счастливая случайность.",
-    "Добавь к run значение управлять.",
-    "Исправь у run перевод управлять на руководить.",
-  ].join(" ");
   const invocations = [];
   const freshTools = () => {
-    const harness = createHarness(currentMessage);
+    const harness = createHarness("organize these");
     return toolsModule.createAiVocabularyTools(harness.handlers, {
       async execute(input) {
         invocations.push({
@@ -1015,9 +1271,7 @@ test("AI SDK proposal adapters forward provider identity, name, and arguments to
     });
   };
   const readTools = freshTools();
-  const entryTools = freshTools();
-  const meaningTools = freshTools();
-  const updateTools = freshTools();
+  const mutationTools = freshTools();
   const options = (toolCallId) => ({
     toolCallId,
     messages: [],
@@ -1026,17 +1280,18 @@ test("AI SDK proposal adapters forward provider identity, name, and arguments to
 
   await readTools.list_vocabulary.execute({ limit: 5 }, options("provider-read"));
   await readTools.find_vocabulary.execute({ query: "run", limit: 3 }, options("provider-search"));
-  await entryTools.propose_vocabulary_entries.execute({
-    entries: [{ text: "serendipity", translation: "счастливая случайность" }],
-  }, options("provider-add-entry"));
-  await meaningTools.propose_vocabulary_meaning.execute({
-    phraseId: "phrase-run",
-    translation: "управлять",
-  }, options("provider-add-meaning"));
-  await updateTools.propose_vocabulary_meaning_update.execute({
-    meaningId: "meaning-owned",
-    translation: "руководить",
-  }, options("provider-update-meaning"));
+  await mutationTools.propose_vocabulary_change_set.execute({
+    changes: [
+      { action: "add_entry", text: "serendipity", translation: "счастливая случайность" },
+      { action: "add_meaning", text: "run", translation: "управлять" },
+      {
+        action: "update_meaning",
+        text: "run",
+        currentTranslation: "управлять",
+        translation: "руководить",
+      },
+    ],
+  }, options("provider-change-set"));
 
   assert.deepEqual(invocations, [
     {
@@ -1050,24 +1305,25 @@ test("AI SDK proposal adapters forward provider identity, name, and arguments to
       args: { query: "run", limit: 3 },
     },
     {
-      providerToolCallId: "provider-add-entry",
-      toolName: "propose_vocabulary_entries",
-      args: { entries: [{ text: "serendipity", translation: "счастливая случайность" }] },
-    },
-    {
-      providerToolCallId: "provider-add-meaning",
-      toolName: "propose_vocabulary_meaning",
-      args: { phraseId: "phrase-run", translation: "управлять" },
-    },
-    {
-      providerToolCallId: "provider-update-meaning",
-      toolName: "propose_vocabulary_meaning_update",
-      args: { meaningId: "meaning-owned", translation: "руководить" },
+      providerToolCallId: "provider-change-set",
+      toolName: "propose_vocabulary_change_set",
+      args: {
+        changes: [
+          { action: "add_entry", text: "serendipity", translation: "счастливая случайность" },
+          { action: "add_meaning", text: "run", translation: "управлять" },
+          {
+            action: "update_meaning",
+            text: "run",
+            currentTranslation: "управлять",
+            translation: "руководить",
+          },
+        ],
+      },
     },
   ]);
 });
 
-test("state-change adapter proposes exact current targets, including removal, without writing", async () => {
+test("change-set adapter delegates target resolution to the composite planner", async () => {
   const harness = createHarness("Удали run из моего Practice.");
   const invocations = [];
   const tools = toolsModule.createAiVocabularyTools(harness.handlers, {
@@ -1080,9 +1336,8 @@ test("state-change adapter proposes exact current targets, including removal, wi
       return input.run(harness.scope);
     },
   });
-  const result = await tools.propose_vocabulary_state_change.execute({
-    entries: [{ text: "run" }],
-    destination: "removed",
+  const result = await tools.propose_vocabulary_change_set.execute({
+    changes: [{ action: "change_state", text: "run", destination: "removed" }],
   }, {
     toolCallId: "provider-change-state",
     messages: [],
@@ -1092,71 +1347,31 @@ test("state-change adapter proposes exact current targets, including removal, wi
   assert.equal(result.ok, true);
   assert.deepEqual(invocations, [{
     providerToolCallId: "provider-change-state",
-    toolName: "propose_vocabulary_state_change",
-    args: { entries: [{ text: "run" }], destination: "removed" },
+    toolName: "propose_vocabulary_change_set",
+    args: { changes: [{ action: "change_state", text: "run", destination: "removed" }] },
   }]);
-  assert.deepEqual(harness.calls, [{
-    method: "getStateTargets",
-    userId: "user-a",
-    texts: ["run"],
-  }, {
-    method: "changeState",
-    userId: "user-a",
-    input: {
-      destination: "removed",
-      entries: [{
-        phraseId: "phrase-run",
-        text: "run",
-        sourceType: "preset",
-        expectedStoredStatus: "learning_now",
-      }],
-    },
-  }, {
-    method: "propose",
-    plan: {
-      operation: "vocabulary.change-state/v1",
-      targetKey: "entries",
-      canonicalArgs: {
-        destination: "removed",
-        entries: [{
-          phraseId: "phrase-run",
-          text: "run",
-          sourceType: "preset",
-          expectedStoredStatus: "learning_now",
-        }],
-      },
-      canonicalResult: {
-        ok: true,
-        updated: true,
-        entries: [{ phraseId: "phrase-run", text: "run", state: "removed" }],
-      },
-    },
-    publicPayload: {
-      operation: "change_vocabulary_state",
-      items: [{
-        id: "phrase-run",
-        text: "run",
-        fromCategory: "learning",
-        toCategory: "removed",
-      }],
-    },
-  }]);
+  assert.deepEqual(harness.calls.map(({ method }) => method), ["changeSet", "propose"]);
 });
 
-test("state-change schema bounds one exact-text batch to ten entries and all destinations", () => {
+test("change-set schema bounds explicit and recent state actions", () => {
   const { executor, handlers } = createHarness("change them");
   const tools = toolsModule.createAiVocabularyTools(handlers, executor);
-  const schema = tools.propose_vocabulary_state_change.inputSchema.jsonSchema;
-  assert.equal(schema.properties.entries.minItems, 1);
-  assert.equal(schema.properties.entries.maxItems, 10);
-  assert.deepEqual(schema.properties.entries.items.required, ["text"]);
-  assert.deepEqual(schema.properties.destination.enum, [
+  const variants = tools.propose_vocabulary_change_set.inputSchema.jsonSchema
+    .properties.changes.items.oneOf;
+  const state = variants.find((variant) => variant.properties.action.const === "change_state");
+  const recent = variants.find(
+    (variant) => variant.properties.action.const === "change_recent_state",
+  );
+  assert.deepEqual(state.required, ["action", "text", "destination"]);
+  assert.deepEqual(state.properties.destination.enum, [
     "to_learn",
     "learning",
     "learned",
     "removed",
   ]);
-  assert.deepEqual(schema.required, ["entries", "destination"]);
+  assert.deepEqual(recent.required, ["action", "count", "destination"]);
+  assert.equal(recent.properties.count.minimum, 1);
+  assert.equal(recent.properties.count.maximum, 30);
 });
 
 test("state-change resolves the whole batch once and rejects any missing owner-visible phrase", async () => {
@@ -1284,8 +1499,8 @@ test("a failed mutation opens a per-turn circuit before another provider tool ca
     abortSignal: new AbortController().signal,
   });
 
-  assert.deepEqual(await tools.propose_vocabulary_entries.execute(
-    { entries: [{ text: "uncanny" }] },
+  assert.deepEqual(await tools.propose_vocabulary_change_set.execute(
+    { changes: [{ action: "add_entry", text: "uncanny" }] },
     options("failed-mutation"),
   ), { ok: false, error: "operation_failed" });
   assert.deepEqual(await tools.list_vocabulary.execute(

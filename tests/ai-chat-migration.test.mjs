@@ -44,6 +44,18 @@ function writeProposalMigrationName() {
   return matches[0];
 }
 
+function terminalTelemetryMigrationName() {
+  const matches = migrationNames().filter((name) => name.startsWith("0022_"));
+  assert.equal(matches.length, 1, "exactly one append-only 0022 migration is required");
+  return matches[0];
+}
+
+function proposalAttemptScopeMigrationName() {
+  const matches = migrationNames().filter((name) => name.startsWith("0023_"));
+  assert.equal(matches.length, 1, "exactly one append-only 0023 migration is required");
+  return matches[0];
+}
+
 function applyMigration(db, name) {
   db.exec(readFileSync(join(migrationsDir, name), "utf8"));
 }
@@ -102,13 +114,55 @@ test("0021 adds durable vocabulary write proposals without rewriting prior migra
 
   const db = new DatabaseSync(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
-  for (const migration of migrationNames()) applyMigration(db, migration);
+  for (const migration of migrationNames().filter((migration) => migration <= name)) {
+    applyMigration(db, migration);
+  }
   assert.ok(tableNames(db).includes("ai_chat_vocabulary_write_proposals"));
   assert.deepEqual(
     indexColumns(db, "ai_chat_vocabulary_write_proposals")
       .get("idx_ai_chat_write_proposals_message_operation_target"),
     { columns: ["user_message_id", "operation", "target_key"], unique: true },
   );
+});
+
+test("0022 adds bounded terminal telemetry to assistant attempts", () => {
+  const name = terminalTelemetryMigrationName();
+  const sql = readFileSync(join(migrationsDir, name), "utf8");
+  assert.match(sql.trim(), /^ALTER TABLE ai_chat_assistant_attempts ADD COLUMN terminal_json\b/iu);
+
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  for (const migration of migrationNames()) applyMigration(db, migration);
+
+  const terminalColumn = db.prepare("PRAGMA table_info('ai_chat_assistant_attempts')")
+    .all()
+    .find((column) => column.name === "terminal_json");
+  assert.ok(terminalColumn);
+  assert.equal(terminalColumn.notnull, 0);
+  const createSql = db.prepare(`
+    SELECT sql FROM sqlite_master
+    WHERE type = 'table' AND name = 'ai_chat_assistant_attempts'
+  `).get().sql;
+  assert.match(createSql, /json_valid\(terminal_json\)/iu);
+  assert.match(createSql, /length\(terminal_json\) <= 2048/iu);
+});
+
+test("0023 scopes proposal idempotency to one immutable origin attempt", () => {
+  const name = proposalAttemptScopeMigrationName();
+  const sql = readFileSync(join(migrationsDir, name), "utf8");
+  assert.match(sql, /DROP INDEX `idx_ai_chat_write_proposals_message_operation_target`/u);
+  assert.match(sql, /CREATE UNIQUE INDEX `idx_ai_chat_write_proposals_attempt_operation_target`/u);
+
+  const db = new DatabaseSync(":memory:");
+  db.exec("PRAGMA foreign_keys = ON");
+  for (const migration of migrationNames()) applyMigration(db, migration);
+
+  const indexes = indexColumns(db, "ai_chat_vocabulary_write_proposals");
+  assert.equal(indexes.has("idx_ai_chat_write_proposals_message_operation_target"), false);
+  assert.deepEqual(indexes.get("idx_ai_chat_write_proposals_attempt_operation_target"), {
+    columns: ["origin_attempt_id", "operation", "target_key"],
+    unique: true,
+  });
 });
 
 test("0016 preserves existing vocabulary, progress, examples, and videos", () => {

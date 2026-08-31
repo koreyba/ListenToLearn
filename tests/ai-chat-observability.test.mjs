@@ -58,7 +58,7 @@ test("terminal generation events keep useful bounded telemetry and no raw conten
     stepCount: 3,
     toolCallCount: 2,
     outputCharacters: 8_200,
-    requiredToolRetries: 2,
+    removedRetryMetric: 2,
     text: "PRIVATE_PARTIAL_RESPONSE",
     rawFinishReason: "PRIVATE_PROVIDER_REASON",
   }, (record) => records.push(record));
@@ -74,8 +74,7 @@ test("terminal generation events keep useful bounded telemetry and no raw conten
     stepCount: 2,
     toolCallCount: 1,
     outputCharacters: 240,
-    requiredToolRetries: 2,
-    requiredToolFallbacks: 1,
+    removedFallbackMetric: 1,
     text: "PRIVATE_COMPLETE_RESPONSE",
   }, (record) => records.push(record));
 
@@ -91,7 +90,6 @@ test("terminal generation events keep useful bounded telemetry and no raw conten
       stepCount: 3,
       toolCallCount: 2,
       outputCharacters: 8_200,
-      requiredToolRetries: 2,
     },
     {
       event: "ai_chat_generation_completed",
@@ -105,8 +103,6 @@ test("terminal generation events keep useful bounded telemetry and no raw conten
       stepCount: 2,
       toolCallCount: 1,
       outputCharacters: 240,
-      requiredToolRetries: 2,
-      requiredToolFallbacks: 1,
     },
   ]);
   assert.doesNotMatch(JSON.stringify(records), /PRIVATE/u);

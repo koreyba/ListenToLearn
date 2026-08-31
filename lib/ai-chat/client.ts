@@ -22,6 +22,82 @@ export type AiChatUiMetadata = {
 
 export type AiChatUiMessage = UIMessage<AiChatUiMetadata>;
 
+export type AiChatOutboundTurn = {
+  clientMessageId: string;
+  text: string;
+};
+
+export const AI_CHAT_CANCEL_RECOVERY_TIMEOUT_MS = 8_000;
+
+export async function withAiChatCancelDeadline<Result>(
+  operation: (signal: AbortSignal) => Promise<Result>,
+  timeoutMs = AI_CHAT_CANCEL_RECOVERY_TIMEOUT_MS,
+) {
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      const error = new Error("AI chat cancellation timed out.");
+      error.name = "TimeoutError";
+      controller.abort(error);
+      reject(error);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([operation(controller.signal), deadline]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
+}
+
+export function shouldCancelAiChatFinishedStream(input: {
+  isAbort: boolean;
+  isDisconnect: boolean;
+  isError: boolean;
+  finishReason?: string;
+}) {
+  return input.isAbort
+    || input.isDisconnect
+    || input.isError
+    || !input.finishReason;
+}
+
+export function isAiChatTurnBlocked(input: {
+  streamBusy: boolean;
+  canonicalPendingClientMessageId: string | null;
+  activeClientMessageId: string | null;
+  cancelling: boolean;
+}) {
+  return input.streamBusy
+    || Boolean(input.canonicalPendingClientMessageId)
+    || Boolean(input.activeClientMessageId)
+    || input.cancelling;
+}
+
+export function reconcileAiChatOutboundTurn(input: {
+  outbound: AiChatOutboundTurn;
+  canonicalMessages: readonly AiChatClientMessage[];
+  currentDraft: string;
+}) {
+  const accepted = input.canonicalMessages.some((message) => (
+    message.role === "user" && message.clientMessageId === input.outbound.clientMessageId
+  ));
+  if (accepted) {
+    return { accepted: true, draft: input.currentDraft, recoverable: null };
+  }
+  if (!input.currentDraft) {
+    return { accepted: false, draft: input.outbound.text, recoverable: null };
+  }
+  return { accepted: false, draft: input.currentDraft, recoverable: input.outbound };
+}
+
+export function preserveUnverifiedAiChatOutboundTurn(input: {
+  outbound: AiChatOutboundTurn;
+  currentDraft: string;
+}) {
+  return { draft: input.currentDraft, recoverable: input.outbound };
+}
+
 export type AiChatTargetRequest =
   | { phraseId: string; meaningMode: AiChatMeaningMode; selectedMeaningId?: string }
   | { text: string; meaningMode: Exclude<AiChatMeaningMode, "selected"> };

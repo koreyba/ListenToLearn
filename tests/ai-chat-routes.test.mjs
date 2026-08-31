@@ -9,6 +9,10 @@ const routeUrls = {
   detail: new URL("../app/api/ai/chats/[chatId]/route.ts", import.meta.url),
   targets: new URL("../app/api/ai/chats/[chatId]/targets/route.ts", import.meta.url),
   messages: new URL("../app/api/ai/chats/[chatId]/messages/route.ts", import.meta.url),
+  cancelTurn: new URL(
+    "../app/api/ai/chats/[chatId]/messages/[clientMessageId]/cancel/route.ts",
+    import.meta.url,
+  ),
   meanings: new URL("../app/api/ai/meanings/route.ts", import.meta.url),
   writeProposal: new URL(
     "../app/api/ai/chats/[chatId]/write-proposals/[proposalId]/route.ts",
@@ -50,14 +54,32 @@ test("every AI route stays dynamic, authenticated, owner-scoped, and uncached", 
 
 test("AI mutations share the exact-origin bounded body boundary", async () => {
   const routeSources = await sources();
-  for (const name of ["chats", "targets", "messages", "meanings", "writeProposal"]) {
+  for (const name of [
+    "chats",
+    "targets",
+    "messages",
+    "cancelTurn",
+    "meanings",
+    "writeProposal",
+  ]) {
     assert.match(routeSources[name], /readAiMutationPayload\(/, name);
   }
   assert.match(routeSources.chats, /readCreateChatPayload/);
   assert.match(routeSources.targets, /readReplaceTargetsPayload/);
   assert.match(routeSources.messages, /readGenerateMessagePayload/);
+  assert.match(routeSources.cancelTurn, /readCancelTurnPayload/);
   assert.match(routeSources.meanings, /readCreateMeaningPayload/);
   assert.match(routeSources.writeProposal, /readWriteProposalDecisionPayload/);
+});
+
+test("turn cancellation route terminalizes through the owner-scoped service without generation", async () => {
+  const routeSources = await sources();
+  assert.match(routeSources.cancelTurn, /export async function POST/);
+  assert.match(routeSources.cancelTurn, /cancelAiChatTurn\(/);
+  assert.match(routeSources.cancelTurn, /createAiChatRepository\(getD1\(\)\)/);
+  assert.match(routeSources.cancelTurn, /toPublicAiChatTurnTerminal\(/);
+  assert.doesNotMatch(routeSources.cancelTurn, /prepareAiChatGeneration|createUIMessageStreamResponse/);
+  assert.doesNotMatch(routeSources.cancelTurn, /enforceAiChatGenerationRateLimit/);
 });
 
 test("message streaming delegates canonical state and configuration to the service", async () => {
@@ -177,6 +199,42 @@ test("chat routes expose a whitelisted public message contract", async () => {
   assert.match(routeSources.chats, /toPublicAiChatDetail\(chat\)/);
   assert.match(routeSources.detail, /toPublicAiChatDetail\(chat\)/);
   assert.match(routeSources.detail, /listForChat\(/);
+});
+
+test("turn cancellation exposes only the stable public terminal message state", () => {
+  const terminal = httpModule.toPublicAiChatTurnTerminal({
+    state: "existing",
+    user: {
+      id: "user-row",
+      clientMessageId: "turn-1",
+      content: "private prompt",
+    },
+    assistant: {
+      id: "assistant-row",
+      status: "failed",
+      errorCode: "generation_cancelled",
+      provider: "private-provider",
+      model: "private-model",
+      usage: { inputTokens: 123 },
+    },
+    attempt: {
+      id: "attempt-row",
+      status: "failed",
+      errorCode: "generation_cancelled",
+      configuredProvenance: { provider: "private", model: "private" },
+    },
+  });
+
+  assert.deepEqual(terminal, {
+    clientMessageId: "turn-1",
+    assistantMessageId: "assistant-row",
+    status: "failed",
+    errorCode: "generation_cancelled",
+  });
+  assert.equal("attempt" in terminal, false);
+  assert.equal("provider" in terminal, false);
+  assert.equal("model" in terminal, false);
+  assert.equal("usage" in terminal, false);
 });
 
 test("server and browser share explicit allowlisted chat DTOs", async () => {

@@ -319,32 +319,40 @@ async function runWorstCaseColdTurn({
   if (scenario === "legacyParallelRollback") {
     fixture.database.throwAfterNextBatchRollback = true;
     const [firstWrite, secondWrite] = await Promise.all([
-      vocabularyTools.propose_vocabulary_meaning_update.execute({
-        meaningId: "legacy:phrase-legacy-budget",
+      vocabularyTools.propose_vocabulary_change_set.execute({ changes: [{
+        action: "update_meaning",
+        text: "break even",
+        currentTranslation: "окупаться",
         translation: "выходить в ноль",
-      }, toolOptions("update-legacy-first")),
-      vocabularyTools.propose_vocabulary_meaning_update.execute({
-        meaningId: "legacy:phrase-legacy-budget",
+      }] }, toolOptions("update-legacy-first")),
+      vocabularyTools.propose_vocabulary_change_set.execute({ changes: [{
+        action: "update_meaning",
+        text: "break even",
+        currentTranslation: "окупаться",
         translation: "выходить в ноль",
-      }, toolOptions("update-legacy-concurrent")),
+      }] }, toolOptions("update-legacy-concurrent")),
     ]);
     assert.deepEqual(firstWrite, { ok: false, error: "operation_failed" });
     assert.deepEqual(secondWrite, { ok: false, error: "tool_budget_exceeded" });
   } else if (scenario === "legacyRollback") {
     fixture.database.throwAfterNextBatchRollback = true;
-    assert.deepEqual(await vocabularyTools.propose_vocabulary_meaning_update.execute({
-      meaningId: "legacy:phrase-legacy-budget",
+    assert.deepEqual(await vocabularyTools.propose_vocabulary_change_set.execute({ changes: [{
+      action: "update_meaning",
+      text: "break even",
+      currentTranslation: "окупаться",
       translation: "выходить в ноль",
-    }, toolOptions("update-legacy-first")), {
+    }] }, toolOptions("update-legacy-first")), {
       ok: false,
       error: "operation_failed",
     });
     assert.equal(fixture.database.throwAfterNextBatchRollback, false);
     const countAfterFailure = fixture.database.statementCount;
-    assert.deepEqual(await vocabularyTools.propose_vocabulary_meaning_update.execute({
-      meaningId: "legacy:phrase-legacy-budget",
+    assert.deepEqual(await vocabularyTools.propose_vocabulary_change_set.execute({ changes: [{
+      action: "update_meaning",
+      text: "break even",
+      currentTranslation: "окупаться",
       translation: "выходить в ноль",
-    }, toolOptions("update-legacy-retry")), {
+    }] }, toolOptions("update-legacy-retry")), {
       ok: false,
       error: "tool_budget_exceeded",
     });
@@ -354,11 +362,21 @@ async function runWorstCaseColdTurn({
       fixture.database.throwAfterNextBatchCommit = true;
     }
     if (scenario === "rollback") fixture.database.throwAfterNextBatchRollback = true;
-    const firstWrite = await vocabularyTools.propose_vocabulary_entries.execute({
-      entries: Array.from({ length: bulkEntryCount }, (_, index) => ({
-        text: `budget word ${index + 1}`,
-        translation: `перевод ${index + 1}`,
-      })),
+    const changes = Array.from({ length: bulkEntryCount }, (_, index) => ({
+      action: "add_entry",
+      text: `budget word ${index + 1}`,
+      translation: `перевод ${index + 1}`,
+    }));
+    if (secondProposal) {
+      changes.push({
+        action: "update_meaning",
+        text: "break even",
+        currentTranslation: "окупаться",
+        translation: "выходить в ноль",
+      });
+    }
+    const firstWrite = await vocabularyTools.propose_vocabulary_change_set.execute({
+      changes,
     }, toolOptions("add-uncanny"));
     if (scenario === "rollback") {
       assert.deepEqual(firstWrite, { ok: false, error: "operation_failed" });
@@ -372,18 +390,13 @@ async function runWorstCaseColdTurn({
       assert.equal(fixture.database.throwAfterNextBatchRollback, false);
     }
     if (secondProposal) {
-      const secondWrite = await vocabularyTools.propose_vocabulary_meaning_update.execute({
-        meaningId: "legacy:phrase-legacy-budget",
-        translation: "выходить в ноль",
-      }, toolOptions("add-break-even"));
+      const secondRead = await vocabularyTools.list_vocabulary.execute(
+        { limit: 1 },
+        toolOptions("read-after-change-set"),
+      );
       if (scenario === "rollback") {
-        assert.deepEqual(secondWrite, { ok: false, error: "tool_budget_exceeded" });
-      } else {
-        assert.equal(secondWrite.ok, true);
-        assert.equal(secondWrite.proposed, true);
-        assert.equal(secondWrite.approvalRequired, true);
-        assert.equal(typeof secondWrite.proposalId, "string");
-      }
+        assert.deepEqual(secondRead, { ok: false, error: "tool_budget_exceeded" });
+      } else assert.equal(secondRead.ok, true);
     } else {
       const secondRead = await vocabularyTools.list_vocabulary.execute(
         { limit: 1 },
@@ -525,9 +538,12 @@ async function runStateChangeProposalTurn(entryCount) {
     },
   });
   assert.equal(generation.ok, true);
-  const proposed = await vocabularyTools.propose_vocabulary_state_change.execute({
-    entries,
-    destination: "removed",
+  const proposed = await vocabularyTools.propose_vocabulary_change_set.execute({
+    changes: entries.map(({ text }) => ({
+      action: "change_state",
+      text,
+      destination: "removed",
+    })),
   }, {
     toolCallId: `remove-state-${entryCount}`,
     messages: [],
@@ -549,16 +565,16 @@ async function runStateChangeProposalTurn(entryCount) {
   return { fixture, proposalId: proposed.proposalId };
 }
 
-test("a cold two-proposal turn stays within D1 Free's statement limit", async () => {
+test("a cold mixed change-set turn stays within D1 Free's statement limit", async () => {
   const fixture = await runWorstCaseColdTurn();
-  assert.equal(fixture.database.statementCount, 40);
+  assert.equal(fixture.database.statementCount, 36);
   assert.ok(fixture.database.statementCount <= 50);
   fixture.sqlite.close();
 });
 
 test("one ambiguous proposal commit still leaves D1 Free headroom", async () => {
   const fixture = await runWorstCaseColdTurn({ ambiguousCommit: true });
-  assert.equal(fixture.database.statementCount, 42);
+  assert.equal(fixture.database.statementCount, 38);
   assert.ok(fixture.database.statementCount <= 50);
   fixture.sqlite.close();
 });
@@ -601,7 +617,7 @@ test("provider failure after an ambiguous proposal stays within D1 Free", async 
     ambiguousCommit: true,
     terminal: "failed",
   });
-  assert.equal(fixture.database.statementCount, 42);
+  assert.equal(fixture.database.statementCount, 38);
   assert.ok(fixture.database.statementCount <= 50);
   fixture.sqlite.close();
 });
@@ -623,7 +639,7 @@ test("meaning-update proposal rollback plus ambiguous failure stays within D1 Fr
     ambiguousTerminal: true,
     terminal: "failed",
   });
-  assert.equal(fixture.database.statementCount, 37);
+  assert.equal(fixture.database.statementCount, 34);
   assert.ok(fixture.database.statementCount <= 50);
   fixture.sqlite.close();
 });
@@ -634,21 +650,21 @@ test("parallel provider proposals are serialized before the D1 failure circuit",
     ambiguousTerminal: true,
     terminal: "failed",
   });
-  assert.equal(fixture.database.statementCount, 37);
+  assert.equal(fixture.database.statementCount, 34);
   assert.ok(fixture.database.statementCount <= 50);
   fixture.sqlite.close();
 });
 
-test("confirming one or ten bulk entries has the same bounded D1 statement cost", async () => {
+test("confirming one, ten, or thirty additions has the same bounded D1 statement cost", async () => {
   const observed = [];
-  for (const entryCount of [1, 10]) {
+  for (const entryCount of [1, 10, 30]) {
     const fixture = await runWorstCaseColdTurn({
       bulkEntryCount: entryCount,
       secondProposal: false,
     });
     const proposal = fixture.sqlite.prepare(`
       SELECT id FROM ai_chat_vocabulary_write_proposals
-      WHERE operation = 'vocabulary.add-entries/v1'
+      WHERE operation = 'vocabulary.change-set/v1'
     `).get();
     assert.ok(proposal?.id);
     fixture.database.resetStatementCount();
@@ -666,7 +682,7 @@ test("confirming one or ten bulk entries has the same bounded D1 statement cost"
     ).decide(USER.subject, "chat-a", proposal.id, "confirm");
 
     assert.equal(result.status, "confirmed");
-    assert.equal(result.result.entries.length, entryCount);
+    assert.equal(result.result.count, entryCount);
     assert.equal(fixture.sqlite.prepare(`
       SELECT COUNT(*) AS count FROM phrases
       WHERE owner_id = 'user-a' AND text LIKE 'budget word %'
@@ -675,14 +691,14 @@ test("confirming one or ten bulk entries has the same bounded D1 statement cost"
     fixture.sqlite.close();
   }
 
-  assert.deepEqual(observed, [10, 10]);
+  assert.deepEqual(observed, [15, 15, 15]);
   assert.ok(observed.every((count) => count <= 50));
 });
 
-test("proposing and confirming removal stay set-based for one or ten entries", async () => {
+test("proposing and confirming removal stay set-based through thirty entries", async () => {
   const proposalCounts = [];
   const confirmCounts = [];
-  for (const entryCount of [1, 10]) {
+  for (const entryCount of [1, 10, 30]) {
     const { fixture, proposalId } = await runStateChangeProposalTurn(entryCount);
     proposalCounts.push(fixture.database.statementCount);
     fixture.database.resetStatementCount();
@@ -700,14 +716,37 @@ test("proposing and confirming removal stay set-based for one or ten entries", a
     ).decide(USER.subject, "chat-a", proposalId, "confirm");
 
     assert.equal(result.status, "confirmed");
-    assert.equal(result.result.entries.length, entryCount);
+    assert.equal(result.result.count, entryCount);
     confirmCounts.push(fixture.database.statementCount);
     fixture.sqlite.close();
   }
 
-  assert.deepEqual(proposalCounts, [30, 30]);
-  assert.deepEqual(confirmCounts, [10, 10]);
+  assert.deepEqual(proposalCounts, [30, 30, 30]);
+  assert.deepEqual(confirmCounts, [15, 15, 15]);
   assert.ok([...proposalCounts, ...confirmCounts].every((count) => count <= 50));
+});
+
+test("turn cancellation is a separate five-statement repository invocation", async () => {
+  const fixture = await createFixture();
+  const started = await fixture.chatRepository.beginTurn("user-a", "chat-a", {
+    clientMessageId: "budget-cancel",
+    content: "Stop this response.",
+    practiceContext: [],
+  });
+  assert.equal(started.assistant.status, "pending");
+  fixture.database.resetStatementCount();
+
+  const cancelled = await fixture.chatRepository.cancelTurn(
+    "user-a",
+    "chat-a",
+    "budget-cancel",
+  );
+
+  assert.equal(cancelled.assistant.errorCode, "generation_cancelled");
+  assert.equal(cancelled.attempt.errorCode, "generation_cancelled");
+  assert.equal(fixture.database.statementCount, 5);
+  assert.ok(fixture.database.statementCount <= 50);
+  fixture.sqlite.close();
 });
 
 test("ambiguous max-target chat creation recovers within D1 Free's statement limit", async () => {

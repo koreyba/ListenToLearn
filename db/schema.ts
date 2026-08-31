@@ -217,6 +217,7 @@ export const aiChatAssistantAttempts = sqliteTable("ai_chat_assistant_attempts",
   model: text("model"),
   usageJson: text("usage_json"),
   errorCode: text("error_code"),
+  terminalJson: text("terminal_json"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
   completedAt: text("completed_at"),
@@ -242,6 +243,10 @@ export const aiChatAssistantAttempts = sqliteTable("ai_chat_assistant_attempts",
   check(
     "ai_chat_assistant_attempts_usage_json_check",
     sql`${table.usageJson} IS NULL OR (json_valid(${table.usageJson}) AND length(${table.usageJson}) <= 4096)`,
+  ),
+  check(
+    "ai_chat_assistant_attempts_terminal_json_check",
+    sql`${table.terminalJson} IS NULL OR (json_valid(${table.terminalJson}) AND length(${table.terminalJson}) <= 2048)`,
   ),
 ]);
 
@@ -387,8 +392,8 @@ export const aiChatVocabularyWriteProposals = sqliteTable("ai_chat_vocabulary_wr
   updatedAt: text("updated_at").notNull(),
   decidedAt: text("decided_at"),
 }, (table) => [
-  uniqueIndex("idx_ai_chat_write_proposals_message_operation_target")
-    .on(table.userMessageId, table.operation, table.targetKey),
+  uniqueIndex("idx_ai_chat_write_proposals_attempt_operation_target")
+    .on(table.originAttemptId, table.operation, table.targetKey),
   uniqueIndex("idx_ai_chat_write_proposals_origin_call")
     .on(table.originToolCallId),
   index("idx_ai_chat_write_proposals_user_chat_assistant_created")

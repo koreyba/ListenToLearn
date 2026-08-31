@@ -102,6 +102,14 @@ export function readWriteProposalDecisionPayload(
   return { ok: true, value: { decision: payload.decision } };
 }
 
+export function readCancelTurnPayload(
+  payload: ObjectValue,
+): AiChatValidationResult<Record<string, never>> {
+  return hasExactKeys(payload, [])
+    ? { ok: true, value: {} }
+    : invalidRequest();
+}
+
 export function aiChatErrorResponse(error: { code: AiChatErrorCode; status: number }) {
   return Response.json(
     { error: { code: error.code } },

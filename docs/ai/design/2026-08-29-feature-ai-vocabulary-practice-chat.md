@@ -21,7 +21,7 @@ flowchart LR
   SDK --> Read["category pages / search"]
   Continuation["validated cross-turn cursor"] --> SDK
   SDK --> Context["vocabulary practice reader"]
-  SDK --> Proposal["durable write proposal"]
+  SDK --> Proposal["one mixed durable proposal"]
   Read --> Vocabulary[(D1 vocabulary)]
   Context --> Vocabulary
   Proposal --> Ledger["tool-call ledger + proposal receipt"]
@@ -41,6 +41,9 @@ Guests may render the sign-in boundary; generation and tools remain account-only
 - `GET /api/ai/chats/:id` restores an owned chat.
 - `POST /api/ai/chats/:id/messages` accepts only
   `{ clientMessageId, content }` and streams the assistant response.
+- `POST /api/ai/chats/:id/messages/:clientMessageId/cancel` accepts only `{}` and
+  returns the sanitized current terminal message state. It is owner-scoped,
+  idempotent, and performs no provider call.
 - `PATCH /api/ai/chats/:id/write-proposals/:proposalId` accepts only
   `{ decision: "confirm" | "cancel" }`, never mutation arguments. It loads the
   owned immutable proposal by ID; confirmation performs no model call.
@@ -195,7 +198,7 @@ full traversal possible across turns while preserving the two-call per-turn budg
 ## Versioned Prompt Contract
 
 The prompt is isolated at `lib/ai-chat/prompts/vocabulary-practice.ts` with stable
-ID `unmumble.vocabulary-practice` and version `4`. Its contract is learner-led,
+ID `unmumble.vocabulary-practice` and version `5`. Its contract is learner-led,
 plain-text, treats openings/targets/tool results as untrusted data, forbids inferred
 writes or autonomous category changes, and carries only a validated list cursor for
 continuation. Natural user references may resolve against bounded canonical history,
@@ -203,45 +206,62 @@ but a mutation tool creates a proposal only. The prompt must never claim a domai
 write succeeded while the proposal is pending. The service passes prompt ID/version
 into privacy-safe lifecycle events; prompt text itself is never logged.
 
-## Proposal Tools and Confirmation Authorization
+## Mixed Proposal Tool and Confirmation Authorization
 
-The model has four proposal tools: `propose_vocabulary_entries`,
-`propose_vocabulary_meaning`, `propose_vocabulary_meaning_update`, and
-`propose_vocabulary_state_change`. Together with the two reads this remains an exact
-six-tool registry with the existing two-call turn budget. JSON Schemas reject extra
-properties and omit identity/raw stored status. Entry and state-change proposals
-accept 1–10 exact texts; state destinations are `to_learn`, `learning`, `learned`,
-or `removed`.
+The model has exactly three tools: the two owner-scoped reads `list_vocabulary` and
+`find_vocabulary`, plus one mutation proposal tool,
+`propose_vocabulary_change_set`. The proposal schema is a closed union of
+`add_entry`, `add_meaning`, `update_meaning`, `change_state`, and
+`change_recent_state`; identity, raw stored status, and arbitrary operations are
+not provider inputs.
 
-There is no regex or current-turn literal policy. The model may resolve natural
-references from bounded canonical history, then the server enriches entity-changing
-proposals with the current owner-visible IDs and compare-and-swap values. The tool
-atomically stores immutable canonical arguments plus a bounded public display model
-and returns `pending_confirmation`; it never executes the domain mutation.
+Natural, unambiguous references may resolve from bounded canonical history. Exact
+entry text is sufficient for entity lookup; `update_meaning` may include the current
+translation when one entry has several meanings, and `change_recent_state` resolves
+an exact latest-N selection. The server performs owner-visible set reads and captures
+immutable IDs plus compare-and-swap values. Missing, ambiguous, inactive,
+conflicting, or unsupported targets produce an explicit validation result; they are
+never guessed or converted into a write by an application parser. In particular,
+editing a shared preset's legacy meaning returns the closed `unsupported_change`
+reason, which generation maps to a deterministic safe explanation without a second
+provider call or private planner detail.
 
-State-change texts resolve in one owner-scoped set query. Confirmation applies the
-whole immutable snapshot atomically: removal resets only this learner's shared
-preset progress to `pick`, while an owned custom phrase and its owned children are
-deleted. Shared Library rows and another learner's rows are never deleted. One- and
-ten-entry proposal/confirm paths use the same statement counts rather than N writes.
+The provider input contains at most 30 requested union members, while the resolved
+limit is 30 concrete changes: ordinary actions weigh one and a recent-N action
+weighs N. At most one recent selector is accepted. Equivalent duplicates collapse;
+incompatible actions on one normalized target reject the entire change set. Meaning
+adds and updates are also checked together by their final normalized translation, so
+two actions cannot converge on the same owner/phrase meaning. The tool atomically
+stores immutable canonical arguments plus a bounded public display model and
+returns `pending_confirmation`; it never executes a domain mutation.
 
-The inline card is the authorization surface. Confirm and Cancel remain visible for
-a pending proposal and use at least 44px semantic buttons. Long entry batches show
-three items initially with an accessible inline disclosure. Busy and terminal
-confirmed/cancelled/failed states use live regions and never remain actionable.
+New phrase/meaning identifiers embedded in canonical change-set arguments use 16
+cryptographically random bytes encoded as 22 URL-safe Base64 characters plus a
+two-character kind prefix. This preserves 128 bits of entropy while allowing 30
+short translated additions to fit below the 3,600-byte planner ceiling and the
+durable 4,096-byte proposal-input check.
+
+The inline card is the authorization surface. One proposal renders as one card with
+items grouped by Add, Add meaning, Update meaning, and Move/Remove. It exposes the
+total count, previews at least one item from each present group, expands accessibly
+up to all 30 concrete changes, and provides exactly one Confirm plus one Cancel for
+the whole set. Controls remain at least 44px; busy and terminal
+confirmed/cancelled/failed states use live regions and are not actionable.
 
 Confirmation identifies only the proposal and decision. The server reloads the
-owned proposal and dispatches its versioned operation to deterministic planners; it
-does not trust the card payload and does not call the model. Meaning updates and category changes use
-captured owner-scoped compare-and-swap inputs. A wrong owner, stale entity, or
-concurrent edit fails the postcondition and becomes a durable failed decision.
+owned immutable proposal and dispatches its versioned operation to deterministic
+planners; it does not trust the card payload and does not call the model. Set-based
+domain statements plus the guarded proposal transition form one atomic D1 batch.
+Meaning and state changes use captured owner-scoped compare-and-swap inputs. A wrong
+owner, stale entity, count mismatch, or concurrent edit rolls back every concrete
+change and becomes a durable explicit failure.
 
-`propose_vocabulary_entries` canonicalizes the whole set before persistence.
-Identical duplicates collapse; normalized-text collisions with different
-translation/context reject the proposal. Confirmation performs one set-based read
-and bounded set-based writes for all 1–10 entries, preserving exact NFC literals and
-mixed-language items. The entire batch commits or rolls back, and each result is
-`added` or `already_saved`.
+Entry additions preserve exact NFC literals and mixed-language items and report
+`added` or `already_saved`. State changes resolve in owner-scoped set reads: removal
+resets only this learner's shared preset progress to `pick`, while an owned custom
+phrase and its owned children are deleted. Shared Library rows and another learner's
+rows are never deleted. Statement count is bounded by set-based SQL rather than
+growing one query per requested action.
 
 The existing manual phrase `PATCH` and selection `POST /api/phrases` remain outside
 the agent proposal boundary and execute immediately. For a
@@ -273,21 +293,24 @@ and SHA-256 detect conflicting ID reuse. Terminal states are `succeeded`,
 
 `ai_chat_vocabulary_write_proposals` is the approval boundary. Each immutable
 proposal binds owner/chat/user message/assistant message/origin attempt/tool call,
-a versioned operation and target key, canonical planner input plus SHA-256, and a
-sanitized display projection. Only lifecycle/result fields transition from
-`pending` to one terminal state: `committed`, `cancelled`, or `conflict`. A unique
-`(user_message_id, operation, target_key)` key makes equal-hash retries reuse the
-proposal and rejects changed arguments. Public DTOs omit target keys, hashes,
-canonical input, and trace IDs. Proposals are never included in model history and
-are exposed only after their assistant message is complete.
+the versioned `vocabulary_change_set` operation and target key, canonical planner
+input plus SHA-256, and a sanitized display projection with an action type per
+concrete item. Only lifecycle/result fields transition from `pending` to one
+terminal state: `committed`, `cancelled`, or `conflict`. A unique
+`(origin_attempt_id, operation, target_key)` key makes equal-hash calls within one
+attempt reuse the proposal and rejects changed arguments. Migration 0023 replaces
+the earlier message-scoped index with this attempt-scoped index. An explicit retry
+therefore creates a new immutable proposal for the new attempt; the failed origin's
+proposal stays hidden and unconfirmable. Public DTOs omit target keys, hashes,
+canonical input, and trace IDs. Proposals never enter model history and become
+listable/confirmable only when their exact immutable origin attempt is complete.
 
 The registry serializes provider tool calls from the same model step through one
 execution queue before applying the shared call counter and mutation circuit. If a
 mutation returns any bounded failure or throws, the circuit opens and every later
-queued provider tool call in that model turn returns `tool_budget_exceeded` before
-the traced executor. A failed mutation can therefore consume its recovery envelope,
-but even provider calls issued concurrently cannot trigger a second tool-side D1
-call in the same turn.
+queued provider tool call in that turn is rejected before the traced executor.
+Even provider calls emitted concurrently therefore cannot trigger a second
+tool-side D1 path after a failed mixed proposal.
 
 `ai_chat_tool_mutation_receipts` remains the domain-commit idempotency boundary. Its
 unique key is `(user_message_id, operation, target_key)`. Operations are versioned
@@ -319,28 +342,33 @@ proposal pending and returns a retryable safe error.
 2. The service rebuilds bounded canonical history only before this user sequence,
    restores at most one validated continuation from the latest earlier completed
    `list_vocabulary` ledger result, builds prompt ID/version
-   `unmumble.vocabulary-practice`/`4`, creates the tool executor with
-   user/chat/message/attempt IDs, and
-   starts a maximum five-step AI SDK loop.
+   `unmumble.vocabulary-practice`/`5`, creates the tool executor with
+   user/chat/message/attempt IDs, and starts one bounded provider generation with
+   exactly two read tools plus the mixed proposal tool.
 3. Each tool call is registered and fenced before execution. The hard per-turn
-   budget is two calls. A pre-trace adapter fence rejects call three onward without
-   D1 trace work; same-step calls are serialized, and a failed/thrown proposal opens
-   the earlier circuit before any later queued provider tool call. Counting each
-   batch statement, current generation envelopes are 35 for two maximum reads, 40
-   for two cold proposals, 42 with one ambiguous proposal commit, 32 for proposal
-   rollback/circuit, 34 for rollback plus ambiguous terminal failure, and 37 for a
-   meaning-update proposal rollback plus ambiguous terminal failure (including the
-   concurrent duplicate case). A separate Confirm request, including session and
-   user refresh, costs 10 statements for either one or ten bulk entries. Maximum-size
-   create-chat ambiguous recovery remains 49/50. Tools are disabled for the final
-   model step.
-4. Final text/usage completes only the current attempt and assistant row. Both
+   budget remains two calls so a grounded read may precede one mixed proposal. A
+   pre-trace adapter fence rejects call three onward without D1 trace work;
+   same-step calls serialize, and a failed/thrown proposal opens the circuit before
+   any later queued provider call. A successful proposal ends the provider path:
+   the server persists a deterministic assistant/proposal result without another
+   model round-trip. Fresh statement-count tests, rather than historical constants,
+   own the sub-50 generation and separate-confirm envelopes.
+4. Final text or the deterministic proposal result completes only the current
+   attempt and assistant row. Both
    `finishTurn` and `failTurn` start from owner-scoped `findTurn`, avoiding a
    redundant ownership query. A normal successful terminal batch returns locally
    constructed terminal state without another read. Error, abort, cancellation, or
-   timeout fails only that current attempt; exact readback is used only after an
-   ambiguous D1 response or failed postcondition, and accepts only this attempt's
-   own committed terminal state.
+   timeout makes only that current attempt terminal and releases the chat for later
+   input. Exact readback is used only after an ambiguous D1 response or failed
+   postcondition and accepts only this attempt's own committed terminal state. A
+   user row is admitted to canonical provider history only together with its
+   complete assistant row; failed, pending, cancelled, and interrupted pairs are
+   excluded.
+   Separately, browser Stop or stream interruption calls the cancellation endpoint;
+   one owner-scoped turn lookup plus a three-statement terminal batch immediately
+   marks the exact pending attempt `generation_cancelled`, including an elapsed
+   lease. The separate cancellation invocation adds no statement to a normal
+   successful turn, and its terminal state fences late finish/fail callbacks.
 5. Retry retains the same user, practice snapshot, and assistant message, expires
    any stale pending attempt, inserts the next attempt number, and replays matching
    durable receipts. Later target changes cannot rewrite an older turn's context.
@@ -352,20 +380,19 @@ service to continue generation rather than return a false conflict.
 
 Generation uses a 45-second total deadline, 25 seconds per model step, 20 seconds
 to the first chunk, 20 seconds between chunks, and 5 seconds per tool execution;
-the pending lease is 55 seconds. Complete or
+the pending lease is a 55-second emergency fence. Complete or
 fresh-pending duplicate client turns return conflict/existing state rather than
 starting another paid request; reuse with different user content is rejected. A
 fresh pending attempt for any other turn in the same chat is also rejected.
 
-Mutation intent routing exposes only the matching proposal tool and uses required
-tool choice. Its stream is buffered until a tool call is observed, so provider prose
-cannot become a false proposal claim. A text-only result is discarded and retried
-up to two additional times inside the same first-chunk and step deadlines. If all
-three attempts drift, a conservative current-message parser may synthesize that
-same tool call only for explicit values; ambiguous references, negation, or missing
-values fail with a retryable public error. The synthetic call still creates only a
-pending durable proposal and therefore cannot bypass learner Confirm. Ordinary
-non-mutation chat keeps direct streaming and is not buffered by this adapter.
+The application does not use a rigid current-message grammar to authorize writes.
+The model sees the same closed three-tool registry and may produce the mixed
+proposal only when it can resolve unambiguous values. Provider prose is never
+reinterpreted as a tool call. A schema, entity-resolution, ambiguity, timeout, or
+tool failure ends that attempt with one stable user-facing error; the server does
+not make an automatic provider resubmission or synthesize a fallback call. An
+explicit learner Retry creates a new immutable attempt. Ordinary non-mutation chat
+keeps direct streaming.
 
 Provider stream data passes through a public allowlist: start, remapped text
 start/delta/end, sanitized finish, stable error, and abort. Tool, reasoning, source,
@@ -399,8 +426,8 @@ not globally atomic or exact spend accounting.
 The service emits only four allowlisted structured events: generation started,
 completed, failed, and rate-limit rejected. Generation events include bounded
 attempt, provider/configured-or-actual-model, prompt ID/version, safe error
-identifiers, and terminal elapsed/finish/step/tool/output-size plus required-tool
-retry/fallback counters; prompts,
+identifiers, and terminal elapsed/finish/step/tool/output-size plus bounded
+termination classification; prompts,
 messages, vocabulary, tool arguments/results, credentials, and upstream bodies are
 excluded.
 
@@ -416,7 +443,11 @@ entry. A list has no overall entry cap and advances by a <=512-character opaque
 cursor. A successful compact result is capped at 7,800 JSON characters. Practice target
 data is capped at 12 targets/48,000 characters. Tool trace JSON is limited to 4,096
 argument and 8,192 result characters; provider call ID/tool name are limited to
-240/120 characters.
+240/120 characters. A mixed proposal resolves at most 30 weighted concrete changes:
+ordinary actions weigh one and a recent-N selector weighs N.
+Re-adding an entry whose owner progress is `pick` changes it to `to_learn` and
+refreshes both activation recency timestamps; re-adding an already-active entry
+preserves its existing status and recency.
 
 Every mutation requires exact origin; every D1 operation is owner scoped. Stored
 vocabulary is untrusted prompt data, assistant output is plain text, and public
@@ -425,23 +456,11 @@ results, and upstream bodies.
 
 ## Local Verification
 
-Fresh 2026-08-31 exact-diff evidence passes full `npm test` 598/598 (including the
-production build), plus typecheck, diff check, and lint with zero errors plus three
-existing warnings. Focused proposal lifecycle, intent routing, required-tool
-recovery, route, tool, prompt, schema/migration, bulk, D1-budget, and UI suites are
-green. A real-model 25-turn local run completed every response and proposal flow;
-D1 ended with 25 complete/zero failed attempts, six committed/two cancelled/zero
-pending proposals, and same-turn list/find traces after relevant mutations.
-Controlled 1280px and 390px browser checks of the actual themed card confirm
-three-item disclosure, 44px actions, and no horizontal overflow; earlier controlled
-chat checks cover word actions, current-selection translate/add payloads,
-native-selection regressions, rounded focus, compact no-scroll input, and expanded
-editing. Independent exact-diff review found no P0/P1. Backend commit `8f671288` is
-pushed and PR #32 has green CodeQL, Analyze, Sonar, and Workers checks.
-Authenticated provider-backed preview requests
-for latest ten/all available and `To Learn` each returned the account's two matching
-entries without a user-data mutation. These close local/published read-path gates, not manual >10
-cross-turn traversal, write/replay, or production rollout gates.
+Fresh 2026-08-31 focused evidence passes 134/134 tests covering generation,
+vocabulary tools, mixed planner/confirmation, proposal retry, schema/migrations,
+and D1 statement budgets. The resource-first exact diff has not yet been revalidated
+with the full suite, browser E2E, preview deployment, or push; those remain open
+release gates.
 
 ## Duplicate Migration Contract
 

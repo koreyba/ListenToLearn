@@ -9,8 +9,6 @@ type AiChatTerminalOperationalTelemetry = {
   stepCount?: number;
   toolCallCount?: number;
   outputCharacters?: number;
-  requiredToolRetries?: number;
-  requiredToolFallbacks?: number;
 };
 
 export type AiChatOperationalEvent =
@@ -77,8 +75,6 @@ function terminalRecord(event: AiChatTerminalOperationalTelemetry): OperationalR
   const stepCount = safeMetric(event.stepCount, 100);
   const toolCallCount = safeMetric(event.toolCallCount, 100);
   const outputCharacters = safeMetric(event.outputCharacters, 1_000_000);
-  const requiredToolRetries = safeMetric(event.requiredToolRetries, 10);
-  const requiredToolFallbacks = safeMetric(event.requiredToolFallbacks, 10);
   const finishReason = typeof event.finishReason === "string"
     && ["stop", "length", "content-filter", "tool-calls", "error", "other", "unknown"]
       .includes(event.finishReason)
@@ -90,8 +86,6 @@ function terminalRecord(event: AiChatTerminalOperationalTelemetry): OperationalR
     ...(stepCount === null ? {} : { stepCount }),
     ...(toolCallCount === null ? {} : { toolCallCount }),
     ...(outputCharacters === null ? {} : { outputCharacters }),
-    ...(requiredToolRetries === null ? {} : { requiredToolRetries }),
-    ...(requiredToolFallbacks === null ? {} : { requiredToolFallbacks }),
   };
 }
 

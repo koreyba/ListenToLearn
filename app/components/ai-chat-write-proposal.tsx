@@ -7,7 +7,14 @@ export type AiWriteProposalOperation =
   | "add_vocabulary_meaning"
   | "update_vocabulary_meaning"
   | "set_vocabulary_category"
-  | "change_vocabulary_state";
+  | "change_vocabulary_state"
+  | "vocabulary_change_set";
+
+export type AiWriteProposalActionType =
+  | "add_entry"
+  | "add_meaning"
+  | "update_meaning"
+  | "change_state";
 
 export type AiWriteProposalStatus =
   | "pending"
@@ -19,6 +26,7 @@ export type AiWriteProposalStatus =
 export type AiWriteProposalItem = Readonly<{
   id: string;
   text: string;
+  actionType?: AiWriteProposalActionType;
   translation?: string;
   context?: string;
   previousTranslation?: string;
@@ -44,6 +52,20 @@ function entryCountLabel(count: number) {
   return `${count} ${count === 1 ? "entry" : "entries"}`;
 }
 
+function changeCountLabel(count: number) {
+  return `${count} ${count === 1 ? "change" : "changes"}`;
+}
+
+const changeSetGroups = [
+  { actionType: "add_entry", label: "Add" },
+  { actionType: "add_meaning", label: "Add meaning" },
+  { actionType: "update_meaning", label: "Update meaning" },
+  { actionType: "change_state", label: "Move / remove" },
+] as const satisfies readonly {
+  actionType: AiWriteProposalActionType;
+  label: string;
+}[];
+
 function isRemovalProposal(
   operation: AiWriteProposalOperation,
   items: readonly AiWriteProposalItem[],
@@ -61,7 +83,22 @@ function categoryLabel(category: string) {
   return category;
 }
 
+function ProposalItem({ item }: Readonly<{ item: AiWriteProposalItem }>) {
+  return (
+    <li>
+      <strong>{item.text}</strong>
+      {item.previousTranslation && item.translation ? (
+        <span>{item.previousTranslation} → {item.translation}</span>
+      ) : item.translation ? <span>{item.translation}</span> : null}
+      {item.fromCategory && item.toCategory && (
+        <span>{categoryLabel(item.fromCategory)} → {categoryLabel(item.toCategory)}</span>
+      )}
+    </li>
+  );
+}
+
 function proposalTitle(operation: AiWriteProposalOperation, removal: boolean) {
+  if (operation === "vocabulary_change_set") return "Review vocabulary changes";
   if (removal) return "Remove from Practice";
   if (operation === "add_vocabulary_meaning") return "Add meaning";
   if (operation === "update_vocabulary_meaning") return "Update meaning";
@@ -80,6 +117,17 @@ function proposalStatusMessage(
   result: unknown,
   removal: boolean,
 ) {
+  if (operation === "vocabulary_change_set") {
+    if (status === "busy") return "Applying changes…";
+    if (status === "confirmed") return "Vocabulary changes applied.";
+    if (status === "cancelled") {
+      return "Proposal cancelled. No vocabulary changes were made.";
+    }
+    if (status === "failed") {
+      return errorMessage?.trim() || "The vocabulary changes could not be completed.";
+    }
+    return `Review ${count} vocabulary ${count === 1 ? "change" : "changes"} before applying ${count === 1 ? "it" : "them"}.`;
+  }
   const entries = entryCountLabel(count);
   if (removal) {
     if (status === "busy") return "Applying your decision…";
@@ -148,12 +196,41 @@ export function AiChatWriteProposal({
   const listId = useId();
   const [expanded, setExpanded] = useState(false);
   const count = items.length;
+  const isChangeSet = operation === "vocabulary_change_set";
   const removal = isRemovalProposal(operation, items);
   const previewCount = Math.max(1, Math.floor(collapsedItemCount));
-  const expandable = count > previewCount;
-  const visibleItems = expandable && !expanded
+  const groupedChangeSetItems = isChangeSet
+    ? changeSetGroups.map((group) => ({
+        ...group,
+        items: items.filter((item) => item.actionType === group.actionType),
+      })).filter((group) => group.items.length > 0)
+    : [];
+  const changeSetPreviewCount = Math.max(previewCount, groupedChangeSetItems.length);
+  const expandable = count > (isChangeSet ? changeSetPreviewCount : previewCount);
+  const visibleItems = !isChangeSet && expandable && !expanded
     ? items.slice(0, previewCount)
     : items;
+  const additionalChangeSetPreviewSlots = Math.max(
+    0,
+    previewCount - groupedChangeSetItems.length,
+  );
+  const visibleChangeSetGroups = groupedChangeSetItems.map((group, groupIndex) => {
+    if (!expandable || expanded) return { ...group, visibleItems: group.items };
+    const previousGroupCapacity = groupedChangeSetItems
+      .slice(0, groupIndex)
+      .reduce((total, previousGroup) => total + previousGroup.items.length - 1, 0);
+    const additionalItemCount = Math.min(
+      group.items.length - 1,
+      Math.max(0, additionalChangeSetPreviewSlots - previousGroupCapacity),
+    );
+    return {
+      ...group,
+      visibleItems: group.items.slice(0, additionalItemCount + 1),
+    };
+  });
+  const visibleItemCount = isChangeSet
+    ? visibleChangeSetGroups.reduce((total, group) => total + group.visibleItems.length, 0)
+    : visibleItems.length;
   const busy = status === "busy";
   const showActions = status === "pending" || busy;
   const statusRole = status === "failed" ? "alert" : "status";
@@ -169,23 +246,39 @@ export function AiChatWriteProposal({
       <header className="ai-chat-write-proposal-heading">
         <div>
           <h3 id={titleId}>{proposalTitle(operation, removal)}</h3>
-          <p className="ai-chat-write-proposal-count">{entryCountLabel(count)}</p>
+          <p className="ai-chat-write-proposal-count">
+            {isChangeSet ? changeCountLabel(count) : entryCountLabel(count)}
+          </p>
         </div>
       </header>
 
-      <ol className="ai-chat-write-proposal-items" id={listId}>
-        {visibleItems.map((item) => (
-          <li key={item.id}>
-            <strong>{item.text}</strong>
-            {item.previousTranslation && item.translation ? (
-              <span>{item.previousTranslation} → {item.translation}</span>
-            ) : item.translation ? <span>{item.translation}</span> : null}
-            {item.fromCategory && item.toCategory && (
-              <span>{categoryLabel(item.fromCategory)} → {categoryLabel(item.toCategory)}</span>
-            )}
-          </li>
-        ))}
-      </ol>
+      {isChangeSet ? (
+        <div className="ai-chat-write-proposal-groups" id={listId}>
+          {visibleChangeSetGroups.map((group) => (
+            <section
+              className="ai-chat-write-proposal-group"
+              data-action-group={group.actionType}
+              key={group.actionType}
+            >
+              <h4>
+                <span>{group.label}</span>
+                <span>{changeCountLabel(group.items.length)}</span>
+              </h4>
+              <ol className="ai-chat-write-proposal-items">
+                {group.visibleItems.map((item) => (
+                  <ProposalItem item={item} key={item.id} />
+                ))}
+              </ol>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <ol className="ai-chat-write-proposal-items" id={listId}>
+          {visibleItems.map((item) => (
+            <ProposalItem item={item} key={item.id} />
+          ))}
+        </ol>
+      )}
 
       {expandable && (
         <button
@@ -195,7 +288,7 @@ export function AiChatWriteProposal({
           onClick={() => setExpanded((value) => !value)}
           style={actionStyle}
           type="button"
-        >{expanded ? "Show fewer" : `Show ${count - previewCount} more`}</button>
+        >{expanded ? "Show fewer" : `Show ${count - visibleItemCount} more`}</button>
       )}
 
       <p
@@ -224,7 +317,7 @@ export function AiChatWriteProposal({
             onClick={() => onConfirm?.(proposalId)}
             style={actionStyle}
             type="button"
-          >{busy ? "Applying…" : "Confirm"}</button>
+          >{busy ? "Applying…" : isChangeSet ? "Confirm changes" : "Confirm"}</button>
         </div>
       )}
     </section>

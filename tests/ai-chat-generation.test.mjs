@@ -177,132 +177,197 @@ test("generation streams only canonical server prompt with a stable assistant id
   assert.equal(harness.calls.toUIMessageStream.sendSources, false);
 });
 
-test("generation forces a routed proposal tool only on the first model step", () => {
-  for (const [message, toolName] of [
-    ["Добавь их в словарь.", "propose_vocabulary_entries"],
-    ["Remove run from Practice.", "propose_vocabulary_state_change"],
-  ]) {
-    const harness = createHarness();
-    harness.input.prompt.messages.at(-1).content = message;
-
-    generationModule.startAiChatGeneration(harness.input, harness.dependencies);
-
-    assert.equal(harness.calls.wrapLanguageModel.model, harness.model);
-    assert.equal(typeof harness.calls.wrapLanguageModel.middleware.wrapStream, "function");
-    assert.equal(harness.calls.streamText.model, harness.calls.wrappedModel);
-
-    assert.deepEqual(
-      harness.calls.streamText.prepareStep({ stepNumber: 0, steps: [] }),
-      {
-        activeTools: [toolName],
-        toolChoice: "required",
-      },
-      message,
-    );
-    assert.equal(
-      harness.calls.streamText.prepareStep({
-        stepNumber: 1,
-        steps: [{ toolCalls: [{}] }],
-      }),
-      undefined,
-    );
-    assert.deepEqual(
-      harness.calls.streamText.prepareStep({
-        stepNumber: 2,
-        steps: [{ toolCalls: [{}, {}] }],
-      }),
-      { activeTools: [], toolChoice: "none" },
-    );
-  }
-});
-
-test("generation reports privacy-safe required-tool retry counts", async () => {
+test("the model chooses tools without regex routing, forced tool choice, or retry middleware", () => {
   const harness = createHarness();
   harness.input.prompt.messages.at(-1).content = "Добавь их в словарь.";
   generationModule.startAiChatGeneration(harness.input, harness.dependencies);
-  const ignored = new ReadableStream({
-    start(controller) {
-      controller.enqueue({ type: "text-delta", delta: "invented proposal" });
-      controller.close();
-    },
-  });
-  const called = new ReadableStream({
-    start(controller) {
-      controller.enqueue({ type: "tool-call", toolName: "propose_vocabulary_entries" });
-      controller.close();
-    },
-  });
-  const attempts = [{ stream: ignored }, { stream: called }];
-  const retried = await harness.calls.wrapLanguageModel.middleware.wrapStream({
-    doStream: async () => attempts.shift(),
-    params: { toolChoice: { type: "required" } },
-    model: harness.model,
-  });
-  const drained = [];
-  for await (const chunk of retried.stream) drained.push(chunk);
-  assert.equal(drained.length, 1);
 
-  await harness.calls.streamText.onEnd({
-    text: "Proposal ready for review.",
-    finishReason: "stop",
-    usage: {},
-    steps: [{ toolCalls: [{}] }],
-    finalStep: { response: { modelId: "configured/model" } },
-  });
-
-  assert.equal(harness.calls.completions[0].terminal.requiredToolRetries, 1);
+  assert.equal(harness.calls.streamText.model, harness.model);
+  assert.equal(harness.calls.wrapLanguageModel, undefined);
+  assert.equal(
+    harness.calls.streamText.prepareStep({ stepNumber: 0, steps: [] }),
+    undefined,
+  );
 });
 
-test("generation wires a conservative fallback and reports its aggregate count", async () => {
+test("a successful change-set proposal stops before another provider step and completes deterministically", async () => {
   const harness = createHarness();
-  harness.input.prompt.messages.at(-1).content = "Перемести quiet comet в категорию Learning.";
   generationModule.startAiChatGeneration(harness.input, harness.dependencies);
-  let attempts = 0;
-  const retried = await harness.calls.wrapLanguageModel.middleware.wrapStream({
-    doStream: async () => {
-      attempts += 1;
-      return {
-        stream: new ReadableStream({
-          start(controller) {
-            controller.enqueue({ type: "stream-start", warnings: [] });
-            controller.enqueue({ type: "text-delta", delta: `ignored-${attempts}` });
-            controller.enqueue({
-              type: "finish",
-              usage: {},
-              finishReason: { unified: "stop", raw: "stop" },
-            });
-            controller.close();
-          },
-        }),
-      };
+  const proposalResult = {
+    type: "tool-result",
+    toolCallId: "private-proposal-call",
+    toolName: "propose_vocabulary_change_set",
+    output: {
+      ok: true,
+      proposed: true,
+      approvalRequired: true,
+      proposalId: "private-proposal-id",
     },
-    params: { toolChoice: { type: "required" } },
-    model: harness.model,
-  });
-  const chunks = [];
-  for await (const chunk of retried.stream) chunks.push(chunk);
-  const fallback = chunks.find((chunk) => chunk.type === "tool-call");
-  assert.equal(attempts, 3);
-  assert.equal(fallback.toolName, "propose_vocabulary_state_change");
-  assert.deepEqual(JSON.parse(fallback.input), {
-    entries: [{ text: "quiet comet" }],
-    destination: "learning",
-  });
+  };
+  const proposalStep = {
+    toolCalls: [{
+      toolCallId: "private-proposal-call",
+      toolName: "propose_vocabulary_change_set",
+    }],
+    toolResults: [proposalResult],
+    content: [proposalResult],
+  };
+
+  assert.equal(await harness.calls.streamText.stopWhen({ steps: [proposalStep] }), true);
 
   await harness.calls.streamText.onEnd({
-    text: "Proposal ready for review.",
-    finishReason: "stop",
-    usage: {},
-    steps: [{ toolCalls: [{}] }],
+    text: "Provider text that must not become the proposal confirmation.",
+    finishReason: "tool-calls",
+    usage: { inputTokens: 20, outputTokens: 4, totalTokens: 24 },
+    steps: [proposalStep],
     finalStep: { response: { modelId: "configured/model" } },
   });
-  assert.deepEqual(
-    {
-      retries: harness.calls.completions[0].terminal.requiredToolRetries,
-      fallbacks: harness.calls.completions[0].terminal.requiredToolFallbacks,
-    },
-    { retries: 2, fallbacks: 1 },
+
+  assert.equal(harness.calls.completions.length, 1);
+  assert.equal(
+    harness.calls.completions[0].text,
+    "Review the proposed changes below.",
   );
+  assert.equal(harness.calls.completions[0].terminal.finishReason, "tool-calls");
+  assert.equal(harness.calls.failures, undefined);
+  assert.equal(
+    JSON.stringify(harness.calls.completions).includes("private-proposal"),
+    false,
+  );
+});
+
+test("read tools allow at most one following provider step", async () => {
+  const harness = createHarness();
+  generationModule.startAiChatGeneration(harness.input, harness.dependencies);
+  const readResult = {
+    type: "tool-result",
+    toolCallId: "read-call",
+    toolName: "find_vocabulary",
+    output: { ok: true, entries: [] },
+  };
+  const firstStep = {
+    toolCalls: [{ toolCallId: "read-call", toolName: "find_vocabulary" }],
+    toolResults: [readResult],
+    content: [readResult],
+  };
+  const followingStep = {
+    toolCalls: [{ toolCallId: "second-read", toolName: "list_vocabulary" }],
+    toolResults: [{
+      type: "tool-result",
+      toolCallId: "second-read",
+      toolName: "list_vocabulary",
+      output: { ok: true, entries: [] },
+    }],
+  };
+
+  assert.equal(await harness.calls.streamText.stopWhen({ steps: [firstStep] }), false);
+  assert.equal(
+    await harness.calls.streamText.stopWhen({ steps: [firstStep, followingStep] }),
+    true,
+  );
+});
+
+test("tool timeout and failure results stop terminally with exact stable codes", async () => {
+  for (const [toolPart, expectedCode] of [
+    [
+      {
+        type: "tool-error",
+        toolCallId: "timeout-call",
+        toolName: "find_vocabulary",
+        error: new DOMException("Tool timeout of 5000ms exceeded", "TimeoutError"),
+      },
+      "tool_timeout",
+    ],
+    [
+      {
+        type: "tool-error",
+        toolCallId: "failed-call",
+        toolName: "propose_vocabulary_change_set",
+        error: new Error("private D1 failure"),
+      },
+      "tool_failed",
+    ],
+    [
+      {
+        type: "tool-result",
+        toolCallId: "rejected-call",
+        toolName: "propose_vocabulary_change_set",
+        output: { ok: false, error: "mutation_conflict" },
+      },
+      "tool_failed",
+    ],
+  ]) {
+    const harness = createHarness();
+    generationModule.startAiChatGeneration(harness.input, harness.dependencies);
+    const step = {
+      toolCalls: [{ toolCallId: toolPart.toolCallId, toolName: toolPart.toolName }],
+      toolResults: toolPart.type === "tool-result" ? [toolPart] : [],
+      content: [toolPart],
+    };
+
+    assert.equal(await harness.calls.streamText.stopWhen({ steps: [step] }), true);
+    await harness.calls.streamText.onEnd({
+      text: "Must not continue after a tool failure.",
+      finishReason: "tool-calls",
+      usage: {},
+      steps: [step],
+      finalStep: { response: { modelId: "configured/model" } },
+    });
+
+    assert.equal(harness.calls.completions, undefined);
+    assert.deepEqual(harness.calls.failures, [{
+      assistantId: "assistant-stable-id",
+      errorCode: expectedCode,
+      terminal: {
+        elapsedMs: 0,
+        finishReason: "tool-calls",
+        stepCount: 1,
+        toolCallCount: 1,
+        outputCharacters: 39,
+      },
+    }]);
+    assert.equal(JSON.stringify(harness.calls.failures).includes("private D1"), false);
+  }
+});
+
+test("typed vocabulary validation completes with a precise deterministic response", async () => {
+  const expected = {
+    missing_target: "I couldn't find every requested saved word or enough recent entries. No changes were prepared.",
+    ambiguous_meaning: "I found more than one possible saved meaning. Name the current translation you want to change.",
+    conflicting_changes: "Some requested vocabulary changes conflict with each other. Clarify or split those items.",
+    change_limit_exceeded: "I can prepare up to 30 vocabulary changes at once. Shorten or split this request.",
+    unsupported_change: "That shared preset meaning can't be edited. Ask me to add a personal meaning instead.",
+    invalid_input: "I couldn't safely resolve every requested vocabulary change. Clarify the request and try again.",
+  };
+  for (const [error, text] of Object.entries(expected)) {
+    const harness = createHarness();
+    generationModule.startAiChatGeneration(harness.input, harness.dependencies);
+    const result = {
+      type: "tool-result",
+      toolCallId: `validation-${error}`,
+      toolName: "propose_vocabulary_change_set",
+      output: { ok: false, error },
+    };
+    const step = {
+      toolCalls: [{ toolCallId: result.toolCallId, toolName: result.toolName }],
+      toolResults: [result],
+      content: [result],
+    };
+
+    assert.equal(await harness.calls.streamText.stopWhen({ steps: [step] }), true);
+    await harness.calls.streamText.onEnd({
+      text: "private provider drift",
+      finishReason: "tool-calls",
+      usage: {},
+      steps: [step],
+      finalStep: { response: { modelId: "configured/model" } },
+    });
+
+    assert.equal(harness.calls.failures, undefined);
+    assert.equal(harness.calls.completions[0].text, text);
+    assert.equal(harness.calls.completions[0].terminal.outputCharacters, [...text].length);
+    assert.equal(JSON.stringify(harness.calls.completions).includes("private provider drift"), false);
+  }
 });
 
 test("browser stream exposes only assistant text and stable public failures", async () => {

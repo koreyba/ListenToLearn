@@ -1,12 +1,14 @@
 import {
   AiChatRepositoryError,
   type AiChatDetail,
+  type AiChatTurn,
 } from "./repository.ts";
 import { aiChatErrorResponse } from "./api-contracts.ts";
 import type { AiChatErrorCode } from "./contracts.ts";
 import type {
   AiChatPublicDetail,
   AiChatPublicMessage,
+  AiChatPublicTurnTerminal,
 } from "./public-contracts.ts";
 import type { AiChatPublicWriteProposal } from "./write-proposals.ts";
 
@@ -18,6 +20,17 @@ export function noStoreJson(body: unknown, init: ResponseInit = {}) {
 
 export type PublicAiChatMessage = AiChatPublicMessage;
 export type PublicAiChatDetail = AiChatPublicDetail;
+
+export function toPublicAiChatTurnTerminal(
+  turn: AiChatTurn,
+): AiChatPublicTurnTerminal {
+  return {
+    clientMessageId: turn.user.clientMessageId,
+    assistantMessageId: turn.assistant.id,
+    status: turn.assistant.status,
+    errorCode: turn.assistant.errorCode,
+  };
+}
 
 export function toPublicAiChatDetail(
   chat: AiChatDetail & { writeProposals?: readonly AiChatPublicWriteProposal[] },

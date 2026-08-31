@@ -8,12 +8,10 @@ description: Verified agent-tool contracts and remaining end-to-end gates
 
 ## Fresh Automated Evidence
 
-Fresh 2026-08-31 evidence passes full `npm test` 598/598, including the production
-build, plus typecheck, diff check, and lint with zero errors and three existing
-warnings. Earlier focused UI evidence passes 95/95 and exact-diff backend evidence on
-2026-08-29 passes focused backend tests 219/219, plus Drizzle validation, dependency
-audit, lifecycle lint, diff check, tracked-secret check, and ignore check.
-Independent final review found no P0/P1.
+Fresh 2026-08-31 focused evidence passes 134/134 generation, vocabulary-tool,
+mixed-planner, proposal-retry, schema/migration, and D1-budget tests. The full suite,
+browser E2E, preview deployment, and push have not been rerun for the resource-first
+exact diff.
 
 ### Covered in the current test tree
 
@@ -76,42 +74,81 @@ Independent final review found no P0/P1.
   ambiguous post-commit response resolves from the receipt, and changed arguments
   at the same `(userMessage, operation, target)` conflict.
 - [x] Instrumented cold full-turn tests count each D1 statement inside a batch:
-  maximum reads use 35, two cold proposals 40, one ambiguous proposal 42,
-  proposal rollback/circuit 32, rollback plus ambiguous terminal failure 34, and
-  meaning-update rollback plus ambiguous terminal failure 37. Maximum 12-target create-
+  maximum reads use 35, one cold mixed proposal 36, its ambiguous completion or
+  provider-failure envelope 38, proposal rollback/circuit 32, and rollback plus
+  ambiguous terminal recovery 34. Maximum 12-target create-
   chat ambiguous recovery remains the exact 49/50 worst case. Call three is
   rejected before trace work. A Promise-all regression combines legacy full
   rollback, a concurrent duplicate update, and ambiguous failed terminal at 37;
   the duplicate is rejected without D1.
-- [x] One and ten exact state-change targets resolve in one set query. Removal
-  proposal generation costs 30 D1 statements for either size; confirmation costs
-  10 for either size. Mixed preset/custom confirmation is atomic and owner-safe,
+- [x] One, ten, and thirty concrete changes resolve with set-based queries and
+  writes. Removal proposal generation costs 30 D1 statements for every tested size;
+  confirmation costs 15 for one, ten, or thirty additions/removals. Mixed
+  preset/custom confirmation is atomic and owner-safe,
   stale snapshots fully roll back, cancel performs no domain write, shared Library
   rows remain, and owned custom children cascade.
+- [x] The production ID generator uses 16 random bytes encoded as 22 URL-safe
+  Base64 characters plus a kind prefix. Thirty translated additions fit the
+  3,600-byte canonical planner limit and execute atomically with those real IDs.
+- [x] Two meaning actions for the same phrase cannot converge on one normalized
+  translation. The planner reports `conflicting_changes` before proposal storage.
+- [x] Editing a shared preset legacy meaning reports the typed
+  `unsupported_change` reason. The handler exposes no private planner detail and
+  generation completes deterministically with the supported alternative.
+- [x] Reactivating `pick` refreshes `created_at`, making that entry the deterministic
+  latest target; an already-active duplicate preserves its prior recency.
 - [x] A mutation-batch failure is never retried blindly. Tests distinguish receipt
   recovery, stale-attempt rejection, proven CAS `mutation_conflict`, and otherwise
   `operation_failed`, without a partial mutation.
 - [x] Failed/stale assistant retries create a new attempt, preserve the logical
   messages and their immutable <=48,000-character practice snapshot, ignore stale
   callbacks, replay receipts, and build older-turn context without later messages.
+  Canonical history excludes both the failed/pending assistant and its paired user
+  message until that logical turn completes successfully.
 - [x] Assistant and tool completion plus receipt insert/commit/replay require a
   pending unexpired lease; exact fresh IDs recover ambiguous committed begin/retry
   batches and continue generation. Finish/fail use owner-scoped `findTurn` without a
   redundant ownership query and return normal successful terminal state without an
   unconditional readback; ambiguous/failed-postcondition paths use exact readback.
-  Failed attempts retain configured provider/model provenance.
+  Failed attempts retain configured provider/model provenance. Terminal success and
+  failure callbacks persist sanitized aggregate telemetry in the existing
+  finish/fail batch, while lease expiry records `generation_interrupted` with
+  `lease_expired` telemetry and adds no D1 statement.
+- [x] Proposal listing and confirmation require both a complete assistant message
+  and the exact immutable origin attempt to be complete. A proposal from a failed
+  origin attempt remains pending internally but is hidden and unconfirmable even if
+  a later retry completes the shared assistant message.
+  Migration 0023 makes the proposal uniqueness key
+  `(origin_attempt_id, operation, target_key)`, so that retry creates a distinct
+  immutable proposal and only the successful retry origin becomes visible.
 - [x] Prompt, structured generation timeouts, 2,400-token output, abort/cancel/error
-  mapping, five-step/two-tool bound with a final text-only step, compact HTTP
-  transport, owner-scoped routes, and the chat-only UI source contract are covered.
-  Any non-`stop` finish is retryable `response_incomplete`; explicit cancellation
-  wins the abort race as `generation_cancelled`.
+  mapping, two-tool bound, compact HTTP transport, owner-scoped routes, and the
+  chat-only UI source contract are covered. A successful proposal terminates with
+  deterministic review text and no second provider step; a read permits one answer
+  step. Tool timeout/failure is terminal without provider resubmission. Any other
+  non-`stop` finish is retryable `response_incomplete`; explicit cancellation wins
+  the abort race as `generation_cancelled`.
   The public stream allowlist drops tool/reasoning/source/file/step/raw/provider
   metadata, and provider 429 maps to `provider_rate_limited`.
-- [x] Mutation intent routing exposes only the intended proposal tool with required
-  tool choice. Required-tool recovery buffers only mutation streams, discards and
-  retries text-only provider drift at most twice, then permits a conservative
-  explicit-value fallback that still creates only a pending proposal. Tests reject
-  ambiguous/reference/negated fallbacks and prove ordinary chat remains streamed.
+- [x] The dedicated turn-cancellation route requires auth, exact origin, and an empty
+  command. Repository tests cover immediate active/elapsed-lease terminalization,
+  cancelled/complete/failed replay, owner isolation, and finish/fail callback
+  fencing; the public response omits attempt/provider/model/usage data. The
+  repository cancellation path is exactly five D1 statements (two owner-scoped
+  reads plus a three-statement batch) in a separate invocation, so normal generation
+  envelopes are unchanged.
+- [x] Client cancellation remains a blocking `Stopping` phase after the local stream
+  aborts, preventing Stop-to-Send races. Focused reconciliation tests prove that a
+  pre-accept rejection restores an empty draft, preserves a newer non-empty draft
+  with a meaningful retry for the unsent text, and clears recovery only after the
+  canonical detail acknowledges the same `clientMessageId`. Cancellation plus
+  reconciliation has an eight-second hard deadline, and a quiet EOF/undefined finish
+  enters the same recovery path rather than being mistaken for success.
+- [x] The registry exposes exactly two read tools plus one mixed proposal tool. The
+  model uses automatic tool choice; there is no regex intent router, required-tool
+  middleware, provider resubmission, or application-generated fallback call.
+  Natural unambiguous references use bounded canonical history, while server-side
+  validation rejects the specific ambiguous/conflicting target.
 - [x] Each English token is rendered without changing message text, exposes a subtle
   clickable treatment, and participates in one roving tab stop per message. Keyboard
   arrows/Home/End and Enter/Space work, while a >=450ms mobile long press or completed
@@ -126,7 +163,7 @@ Independent final review found no P0/P1.
   cover auto-grow, full-screen dialog, focus trap/restoration, Escape, shared draft,
   and desktop/mobile layouts.
 - [x] Prompt tests import `lib/ai-chat/prompts/vocabulary-practice.ts`, assert ID
-  `unmumble.vocabulary-practice`/version `4`, learner-led/category/removal rules,
+  `unmumble.vocabulary-practice`/version `5`, learner-led/category/removal rules,
   same-turn fresh reads for current/latest claims, bounded continuation, and prompt
   ID/version on allowlisted lifecycle events.
 - [x] Compatibility targets accept bounded saved/ad-hoc entries and all three
@@ -154,8 +191,7 @@ Independent final review found no P0/P1.
   Deployment configs bind 10/account/minute and approximate 100/location/minute
   guards with distinct namespaces; tests do not claim global atomicity.
 - [x] Operational events expose only the exact safe metadata allowlist, including
-  bounded terminal elapsed/finish/step/tool/output-size and required-tool
-  retry/fallback fields; unknown events or
+  bounded terminal elapsed/finish/step/tool/output-size fields; unknown events or
   logger failures cannot affect persistence or leak private payloads.
 - [x] Server/browser use shared explicit public DTOs and every vocabulary tool is
   constructed through one traced budget wrapper/registry. Source-boundary tests
@@ -165,16 +201,13 @@ Independent final review found no P0/P1.
 
 ## Repository Verification
 
-- [x] Fresh focused backend suite: 219/219, including the concurrent tool-call
-  serialization/circuit, byte-compatible Unicode cursor, and linear-time
-  adversarial literal-policy regressions.
-- [x] Fresh focused UI/selection suite: 95/95 on the exact diff.
-- [x] Fresh full `npm test`: 598/598 on the exact diff, including production build.
-- [x] Fresh typecheck, Drizzle, dependency audit, tracked-secret, ignore, lifecycle,
-  and diff checks pass; full lint has zero errors and three existing warnings.
-- [x] Independent final review reports no P0/P1.
-- [x] Pushed backend commit `8f671288`: PR #32 CodeQL, Analyze, Sonar, and Workers checks are
-  green.
+- [x] Fresh focused resource-first backend suite: 134/134.
+- [x] Fresh full test/build suite on the exact resource-first diff: 633/633.
+- [x] Authenticated local real-model browser E2E at desktop and 390px mobile:
+  grouped three-add and mixed add/update/remove proposals, atomic confirmation,
+  live Stop, post-cancel continuation, composer/card/drawer overflow checks.
+- [x] Independent final backend/UI P0/P1 audits found no confirmed blocker.
+- [ ] Publish the exact diff to the PR preview only after the local gates pass.
 
 ## Preview Data Evidence
 
@@ -191,7 +224,7 @@ Independent final review found no P0/P1.
   `configured_model` columns are present and backfilled. The pending-chat index
   remains present and `PRAGMA foreign_key_check` remains clean.
 
-## Manual Authenticated Smoke
+## Historical Manual Evidence (Not Rerun for This Slice)
 
 - [x] Branch-preview New Chat creation visibly shows all available latest entries
   and saved translations without a provider call (two entries existed in the

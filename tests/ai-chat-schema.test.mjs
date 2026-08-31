@@ -197,6 +197,17 @@ test("AI messages enforce sequence ordering and request idempotency", () => {
   assert.ok(config.checks.some((entry) => entry.name === "ai_chat_messages_status_check"));
 });
 
+test("AI assistant attempts keep bounded terminal telemetry", () => {
+  const config = tableConfig("aiChatAssistantAttempts", "ai_chat_assistant_attempts");
+  const columns = columnMap(config);
+
+  assert.ok(columns.has("terminal_json"));
+  assert.equal(columns.get("terminal_json").notNull, false);
+  assert.ok(config.checks.some(
+    (entry) => entry.name === "ai_chat_assistant_attempts_terminal_json_check",
+  ));
+});
+
 test("AI vocabulary write proposals keep immutable owner-scoped approval inputs", () => {
   const config = tableConfig(
     "aiChatVocabularyWriteProposals",
@@ -225,10 +236,11 @@ test("AI vocabulary write proposals keep immutable owner-scoped approval inputs"
   for (const optional of ["result_json", "error_code", "receipt_id", "decided_at"]) {
     assert.equal(columns.get(optional).notNull, false, `${optional} must be nullable`);
   }
-  assert.deepEqual(indexes.get("idx_ai_chat_write_proposals_message_operation_target"), {
-    columns: ["user_message_id", "operation", "target_key"],
+  assert.deepEqual(indexes.get("idx_ai_chat_write_proposals_attempt_operation_target"), {
+    columns: ["origin_attempt_id", "operation", "target_key"],
     unique: true,
   });
+  assert.equal(indexes.has("idx_ai_chat_write_proposals_message_operation_target"), false);
   assert.deepEqual(indexes.get("idx_ai_chat_write_proposals_origin_call"), {
     columns: ["origin_tool_call_id"],
     unique: true,

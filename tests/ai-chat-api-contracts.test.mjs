@@ -112,6 +112,20 @@ test("proposal decisions accept only an exact confirm or cancel command", () => 
   }
 });
 
+test("turn cancellation accepts an empty command and no client-controlled state", () => {
+  assert.deepEqual(api.readCancelTurnPayload({}), { ok: true, value: {} });
+  for (const payload of [
+    { attemptId: "attempt-1" },
+    { errorCode: "generation_cancelled" },
+    { status: "failed" },
+  ]) {
+    assert.deepEqual(api.readCancelTurnPayload(payload), {
+      ok: false,
+      error: { code: "invalid_request", status: 400 },
+    });
+  }
+});
+
 test("public API errors expose only a stable code and disable caching", async () => {
   const response = api.aiChatErrorResponse({ code: "provider_failed", status: 502 });
 

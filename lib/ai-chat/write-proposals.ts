@@ -4,6 +4,7 @@ import type {
   ChangeVocabularyStateMutationInput,
   SetVocabularyCategoryMutationInput,
   UpdateVocabularyMeaningMutationArgs,
+  VocabularyChangeSetMutationArgs,
   createVocabularyMutationPlanner,
 } from "../vocabulary/mutations.ts";
 import { VOCABULARY_MUTATION_OPERATIONS } from "../vocabulary/mutations.ts";
@@ -19,11 +20,13 @@ export type AiChatWriteProposalOperation =
   | "add_vocabulary_meaning"
   | "update_vocabulary_meaning"
   | "change_vocabulary_state"
-  | "set_vocabulary_category";
+  | "set_vocabulary_category"
+  | "vocabulary_change_set";
 
 export type AiChatWriteProposalItem = {
   id: string;
   text: string;
+  actionType?: "add_entry" | "add_meaning" | "update_meaning" | "change_state";
   translation?: string;
   context?: string;
   previousTranslation?: string;
@@ -97,6 +100,14 @@ const PUBLIC_OPERATIONS = new Set<AiChatWriteProposalOperation>([
   "update_vocabulary_meaning",
   "change_vocabulary_state",
   "set_vocabulary_category",
+  "vocabulary_change_set",
+]);
+
+const PUBLIC_ACTION_TYPES = new Set<NonNullable<AiChatWriteProposalItem["actionType"]>>([
+  "add_entry",
+  "add_meaning",
+  "update_meaning",
+  "change_state",
 ]);
 
 function proposalError(code: AiChatWriteProposalErrorCode, message: string): never {
@@ -121,7 +132,7 @@ function readPublicPayload(value: string) {
     || !PUBLIC_OPERATIONS.has(record.operation as AiChatWriteProposalOperation)
     || !Array.isArray(record.items)
     || record.items.length < 1
-    || record.items.length > 10
+    || record.items.length > 30
   ) return null;
   const items: AiChatWriteProposalItem[] = [];
   for (const value of record.items) {
@@ -132,6 +143,10 @@ function readPublicPayload(value: string) {
       || !item.id
       || typeof item.text !== "string"
       || !item.text
+      || (item.actionType !== undefined && (
+        typeof item.actionType !== "string"
+        || !PUBLIC_ACTION_TYPES.has(item.actionType as NonNullable<AiChatWriteProposalItem["actionType"]>)
+      ))
     ) return null;
     const optionalKeys = [
       "translation",
@@ -146,6 +161,9 @@ function readPublicPayload(value: string) {
     items.push({
       id: item.id,
       text: item.text,
+      ...(typeof item.actionType === "string"
+        ? { actionType: item.actionType as NonNullable<AiChatWriteProposalItem["actionType"]> }
+        : {}),
       ...(typeof item.translation === "string" ? { translation: item.translation } : {}),
       ...(typeof item.context === "string" ? { context: item.context } : {}),
       ...(typeof item.previousTranslation === "string"
@@ -228,6 +246,8 @@ export function createAiChatWriteProposalRepository(
       JOIN ai_chats AS chats ON chats.id = proposals.chat_id
       JOIN ai_chat_messages AS assistant_messages
         ON assistant_messages.id = proposals.assistant_message_id
+      JOIN ai_chat_assistant_attempts AS origin_attempts
+        ON origin_attempts.id = proposals.origin_attempt_id
       JOIN ai_chat_tool_calls AS calls
         ON calls.id = proposals.origin_tool_call_id
       WHERE proposals.id = ?
@@ -236,6 +256,11 @@ export function createAiChatWriteProposalRepository(
         AND chats.user_id = ?
         AND assistant_messages.chat_id = ?
         AND assistant_messages.role = 'assistant'
+        AND origin_attempts.user_id = proposals.user_id
+        AND origin_attempts.chat_id = proposals.chat_id
+        AND origin_attempts.assistant_message_id = proposals.assistant_message_id
+        AND origin_attempts.status = 'complete'
+        AND calls.assistant_attempt_id = origin_attempts.id
       LIMIT 1
     `).bind(
       proposalId,
@@ -270,6 +295,8 @@ export function createAiChatWriteProposalRepository(
       JOIN ai_chats AS chats ON chats.id = proposals.chat_id
       JOIN ai_chat_messages AS assistant_messages
         ON assistant_messages.id = proposals.assistant_message_id
+      JOIN ai_chat_assistant_attempts AS origin_attempts
+        ON origin_attempts.id = proposals.origin_attempt_id
       JOIN ai_chat_tool_calls AS calls
         ON calls.id = proposals.origin_tool_call_id
       WHERE proposals.user_id = ?
@@ -278,6 +305,11 @@ export function createAiChatWriteProposalRepository(
         AND assistant_messages.chat_id = ?
         AND assistant_messages.role = 'assistant'
         AND assistant_messages.status = 'complete'
+        AND origin_attempts.user_id = proposals.user_id
+        AND origin_attempts.chat_id = proposals.chat_id
+        AND origin_attempts.assistant_message_id = proposals.assistant_message_id
+        AND origin_attempts.status = 'complete'
+        AND calls.assistant_attempt_id = origin_attempts.id
       ORDER BY proposals.created_at, proposals.id
     `).bind(userId, chatId, userId, chatId).all<ProposalRow>();
     return (rows.results || [])
@@ -316,6 +348,12 @@ export function createAiChatWriteProposalRepository(
         plan = await mutationPlanner.planSetCategory(
           userId,
           envelope.args as SetVocabularyCategoryMutationInput,
+        );
+        break;
+      case VOCABULARY_MUTATION_OPERATIONS.changeSet:
+        plan = await mutationPlanner.planChangeSet(
+          userId,
+          envelope.args as VocabularyChangeSetMutationArgs,
         );
         break;
       default:
@@ -425,6 +463,8 @@ export function createAiChatWriteProposalRepository(
             JOIN ai_chats AS chats ON chats.id = proposals.chat_id
             JOIN ai_chat_messages AS assistant_messages
               ON assistant_messages.id = proposals.assistant_message_id
+            JOIN ai_chat_assistant_attempts AS origin_attempts
+              ON origin_attempts.id = proposals.origin_attempt_id
             WHERE proposals.id = ?
               AND proposals.user_id = ?
               AND proposals.chat_id = ?
@@ -434,6 +474,10 @@ export function createAiChatWriteProposalRepository(
               AND assistant_messages.chat_id = ?
               AND assistant_messages.role = 'assistant'
               AND assistant_messages.status = 'complete'
+              AND origin_attempts.user_id = proposals.user_id
+              AND origin_attempts.chat_id = proposals.chat_id
+              AND origin_attempts.assistant_message_id = proposals.assistant_message_id
+              AND origin_attempts.status = 'complete'
           )
           AND (${plan.receiptGuard.sql})
         )

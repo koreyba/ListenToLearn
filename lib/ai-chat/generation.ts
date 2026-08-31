@@ -1,8 +1,6 @@
 import {
-  stepCountIs,
   streamText,
   toUIMessageStream,
-  wrapLanguageModel,
   type TextStreamPart,
   type ToolSet,
 } from "ai";
@@ -13,11 +11,7 @@ import {
   normalizeAiChatAssistantText,
   type AiChatRuntime,
 } from "./runtime.ts";
-import {
-  parseAiChatProposalFallback,
-  routeAiChatProposalIntent,
-} from "./proposal-intent.ts";
-import { createRequiredToolRetryMiddleware } from "./required-tool-retry.ts";
+import type { AiChatTerminalTelemetry } from "./terminal-telemetry.ts";
 
 export type AiChatPendingAssistantTurn = {
   id: string;
@@ -35,14 +29,8 @@ export type AiChatGenerationUsage = {
   upstreamInferenceCost: number | null;
 };
 
-export type AiChatGenerationTerminalTelemetry = {
+export type AiChatGenerationTerminalTelemetry = AiChatTerminalTelemetry & {
   elapsedMs: number;
-  finishReason?: string;
-  stepCount?: number;
-  toolCallCount?: number;
-  outputCharacters?: number;
-  requiredToolRetries?: number;
-  requiredToolFallbacks?: number;
 };
 
 export type AiChatGenerationRepository = {
@@ -73,7 +61,6 @@ export type AiChatGenerationInput = {
 type AiChatGenerationDependencies = {
   streamText: typeof streamText;
   toUIMessageStream: typeof toUIMessageStream;
-  wrapLanguageModel?: typeof wrapLanguageModel;
   now?: () => number;
 };
 
@@ -82,7 +69,39 @@ const defaultDependencies: AiChatGenerationDependencies = {
   toUIMessageStream,
 };
 
-type AiChatGenerationStep = { toolCalls?: readonly unknown[] };
+type AiChatGenerationToolPart = {
+  type?: unknown;
+  toolName?: unknown;
+  output?: unknown;
+  error?: unknown;
+};
+
+type AiChatGenerationStep = {
+  toolCalls?: readonly unknown[];
+  toolResults?: readonly AiChatGenerationToolPart[];
+  content?: readonly AiChatGenerationToolPart[];
+};
+
+const AI_CHAT_VALIDATION_TEXT = Object.freeze({
+  missing_target: "I couldn't find every requested saved word or enough recent entries. No changes were prepared.",
+  ambiguous_meaning: "I found more than one possible saved meaning. Name the current translation you want to change.",
+  conflicting_changes: "Some requested vocabulary changes conflict with each other. Clarify or split those items.",
+  change_limit_exceeded: "I can prepare up to 30 vocabulary changes at once. Shorten or split this request.",
+  unsupported_change: "That shared preset meaning can't be edited. Ask me to add a personal meaning instead.",
+  invalid_input: "I couldn't safely resolve every requested vocabulary change. Clarify the request and try again.",
+});
+
+type AiChatValidationError = keyof typeof AI_CHAT_VALIDATION_TEXT;
+type AiChatToolLoopOutcome =
+  | { kind: "none" }
+  | { kind: "proposal_ready" }
+  | { kind: "validation_error"; error: AiChatValidationError }
+  | { kind: "tool_timeout" }
+  | { kind: "tool_failed" };
+
+const AI_CHAT_MUTATION_TOOL = "propose_vocabulary_change_set";
+const AI_CHAT_READ_TOOLS = new Set(["list_vocabulary", "find_vocabulary"]);
+export const AI_CHAT_PROPOSAL_READY_TEXT = "Review the proposed changes below.";
 
 const PUBLIC_FINISH_REASONS = new Set([
   "stop",
@@ -105,6 +124,83 @@ function providerToolCallCount(steps: readonly AiChatGenerationStep[] | undefine
     (total, step) => total + (Array.isArray(step.toolCalls) ? step.toolCalls.length : 0),
     0,
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function toolParts(step: AiChatGenerationStep): AiChatGenerationToolPart[] {
+  const content = Array.isArray(step.content)
+    ? step.content.filter((part) => (
+        part?.type === "tool-result" || part?.type === "tool-error"
+      ))
+    : [];
+  return [
+    ...content,
+    ...(Array.isArray(step.toolResults) ? step.toolResults : []),
+  ];
+}
+
+function errorIsTimeout(error: unknown, depth = 0): boolean {
+  if (depth > 3 || !isRecord(error)) return false;
+  if (error.name === "TimeoutError") return true;
+  return errorIsTimeout(error.cause, depth + 1)
+    || errorIsTimeout(error.reason, depth + 1);
+}
+
+function toolLoopOutcome(steps: readonly AiChatGenerationStep[]): AiChatToolLoopOutcome {
+  let proposalReady = false;
+  let validationError: AiChatValidationError | null = null;
+  for (const step of steps) {
+    for (const part of toolParts(step)) {
+      if (part.type === "tool-error") {
+        return { kind: errorIsTimeout(part.error) ? "tool_timeout" : "tool_failed" };
+      }
+      if (part.type !== "tool-result" || !isRecord(part.output)) continue;
+      if (part.output.ok === false) {
+        if (
+          part.toolName === AI_CHAT_MUTATION_TOOL
+          && typeof part.output.error === "string"
+          && Object.hasOwn(AI_CHAT_VALIDATION_TEXT, part.output.error)
+        ) {
+          validationError = part.output.error as AiChatValidationError;
+          continue;
+        }
+        return { kind: "tool_failed" };
+      }
+      if (
+        part.toolName === AI_CHAT_MUTATION_TOOL
+        && part.output.ok === true
+        && part.output.proposed === true
+        && part.output.approvalRequired === true
+        && typeof part.output.proposalId === "string"
+        && part.output.proposalId.length > 0
+      ) {
+        proposalReady = true;
+      }
+    }
+  }
+  if (proposalReady && validationError) return { kind: "tool_failed" };
+  if (proposalReady) return { kind: "proposal_ready" };
+  if (validationError) return { kind: "validation_error", error: validationError };
+  return { kind: "none" };
+}
+
+function stepHasSuccessfulRead(step: AiChatGenerationStep) {
+  return toolParts(step).some((part) => (
+    part.type === "tool-result"
+    && typeof part.toolName === "string"
+    && AI_CHAT_READ_TOOLS.has(part.toolName)
+    && isRecord(part.output)
+    && part.output.ok === true
+  ));
+}
+
+function stopAiChatToolLoop({ steps }: { steps: AiChatGenerationStep[] }) {
+  if (toolLoopOutcome(steps).kind !== "none") return true;
+  const firstReadStep = steps.findIndex(stepHasSuccessfulRead);
+  return firstReadStep >= 0 && steps.length >= firstReadStep + 2;
 }
 
 function publicTokenCount(value: unknown): number | undefined {
@@ -233,33 +329,6 @@ export function startAiChatGeneration(
   input: AiChatGenerationInput,
   dependencies: AiChatGenerationDependencies = defaultDependencies,
 ) {
-  const currentUserMessage = [...input.prompt.messages]
-    .reverse()
-    .find((message) => message.role === "user")?.content || "";
-  const routedProposalTool = routeAiChatProposalIntent(currentUserMessage);
-  const proposalFallback = routedProposalTool
-    ? parseAiChatProposalFallback(currentUserMessage)
-    : null;
-  let requiredToolRetries = 0;
-  let requiredToolFallbacks = 0;
-  const model = routedProposalTool && typeof input.runtime.model !== "string"
-    ? (dependencies.wrapLanguageModel || wrapLanguageModel)({
-        model: input.runtime.model,
-        middleware: createRequiredToolRetryMiddleware({
-          onRetry: () => {
-            requiredToolRetries += 1;
-          },
-          fallbackToolCall: () => (
-            proposalFallback?.toolName === routedProposalTool
-              ? proposalFallback
-              : null
-          ),
-          onFallback: () => {
-            requiredToolFallbacks += 1;
-          },
-        }),
-      })
-    : input.runtime.model;
   const now = dependencies.now || Date.now;
   const startedAt = now();
   const terminalTelemetry = (options: {
@@ -282,8 +351,6 @@ export function startAiChatGeneration(
       : {
           outputCharacters: [...options.text.replace(/\r\n?/gu, "\n").trim()].length,
         }),
-    ...(requiredToolRetries > 0 ? { requiredToolRetries } : {}),
-    ...(requiredToolFallbacks > 0 ? { requiredToolFallbacks } : {}),
   });
   let terminalTransitionComplete = false;
   let activeTerminalTransition: Promise<void> | null = null;
@@ -322,7 +389,7 @@ export function startAiChatGeneration(
     }),
   );
   const result = dependencies.streamText({
-    model,
+    model: input.runtime.model,
     abortSignal: input.abortSignal,
     system: input.prompt.system,
     messages: input.prompt.messages,
@@ -330,7 +397,7 @@ export function startAiChatGeneration(
     timeout: input.runtime.timeout,
     maxRetries: 0,
     tools: input.tools,
-    stopWhen: stepCountIs(5),
+    stopWhen: stopAiChatToolLoop,
     prepareStep: ({ stepNumber, steps }) => {
       if (
         stepNumber >= 4
@@ -338,21 +405,35 @@ export function startAiChatGeneration(
       ) {
         return { activeTools: [], toolChoice: "none" };
       }
-      if (stepNumber === 0 && routedProposalTool) {
-        return {
-          activeTools: [routedProposalTool],
-          toolChoice: "required",
-        };
-      }
       return undefined;
     },
     onEnd: async ({ text, finishReason, usage, steps, finalStep }) => {
-      const terminal = terminalTelemetry({ finishReason, steps: steps || [], text });
-      if (terminal.finishReason !== "stop") {
+      const completedSteps = steps || [];
+      const outcome = toolLoopOutcome(completedSteps);
+      const completionText = outcome.kind === "proposal_ready"
+        ? AI_CHAT_PROPOSAL_READY_TEXT
+        : outcome.kind === "validation_error"
+          ? AI_CHAT_VALIDATION_TEXT[outcome.error]
+          : text;
+      const terminal = terminalTelemetry({
+        finishReason,
+        steps: completedSteps,
+        text: completionText,
+      });
+      if (outcome.kind === "tool_timeout" || outcome.kind === "tool_failed") {
+        await failPendingAssistant(
+          outcome.kind === "tool_timeout"
+            ? AI_CHAT_ERROR_CODES.toolTimeout
+            : AI_CHAT_ERROR_CODES.toolFailed,
+          terminal,
+        );
+        return;
+      }
+      if (outcome.kind === "none" && terminal.finishReason !== "stop") {
         await failPendingAssistant(AI_CHAT_ERROR_CODES.responseIncomplete, terminal);
         return;
       }
-      const normalizedText = normalizeAiChatAssistantText(text);
+      const normalizedText = normalizeAiChatAssistantText(completionText);
       if (!normalizedText.ok) {
         await failPendingAssistant(normalizedText.error.code, terminal);
         return;

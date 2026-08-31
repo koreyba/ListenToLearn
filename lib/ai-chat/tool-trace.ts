@@ -520,12 +520,13 @@ export function createAiChatToolTraceRepository(
       SELECT id, mutation_input_sha256
       FROM ai_chat_vocabulary_write_proposals
       WHERE user_id = ? AND chat_id = ? AND user_message_id = ?
-        AND operation = ? AND target_key = ?
+        AND origin_attempt_id = ? AND operation = ? AND target_key = ?
       LIMIT 1
     `).bind(
       context.userId,
       context.chatId,
       context.userMessageId,
+      context.attemptId,
       operation,
       targetKey,
     ).first<ProposalRow>();

@@ -2,6 +2,7 @@ import { AI_CHAT_LIMITS } from "../../contracts.ts";
 import {
   isVocabularyCategoryFilter,
   isVocabularyStateDestination,
+  normalizeVocabularyMeaning,
   normalizeVocabularyTarget,
   type VocabularyCategoryFilter,
 } from "../../../vocabulary/contracts.ts";
@@ -13,19 +14,25 @@ import type {
   SetVocabularyCategoryMutationResult,
   UpdateVocabularyMeaningMutationResult,
 } from "../../../vocabulary/mutations.ts";
-import { VOCABULARY_BULK_ENTRY_LIMIT } from "../../../vocabulary/mutations.ts";
+import {
+  VOCABULARY_BULK_ENTRY_LIMIT,
+  VocabularyMutationPlanError,
+} from "../../../vocabulary/mutations.ts";
 import { createVocabularySearchPattern } from "../../../vocabulary/repository.ts";
 import type { AiChatToolExecutionScope } from "../../tool-trace.ts";
 
 import {
   AI_VOCABULARY_MAX_TOOL_CALLS_PER_TURN,
   AI_VOCABULARY_MAX_TOOL_RESULTS,
+  AI_VOCABULARY_CHANGE_SET_LIMIT,
   type AddVocabularyEntryInput,
   type AddVocabularyMeaningInput,
   type AiVocabularyToolEntry,
   type FindVocabularyInput,
   type ListVocabularyInput,
   type ProposeVocabularyEntriesInput,
+  type ProposeVocabularyChange,
+  type ProposeVocabularyChangeSetInput,
   type ProposeVocabularyStateChangeInput,
   type SetVocabularyCategoryInput,
   type ToolPolicyError,
@@ -143,6 +150,207 @@ export function createAiVocabularyToolHandlers(input: {
           boundedLimit(limit, 10),
         )),
       };
+    },
+
+    async proposeVocabularyChangeSet(
+      input: ProposeVocabularyChangeSetInput,
+      scope: AiChatToolExecutionScope,
+    ) {
+      const budgetError = reserveToolCall();
+      if (budgetError) return budgetError;
+      if (
+        !input
+        || !Array.isArray(input.changes)
+        || input.changes.length < 1
+        || input.changes.length > AI_VOCABULARY_CHANGE_SET_LIMIT
+      ) {
+        return {
+          ok: false,
+          error: input?.changes?.length > AI_VOCABULARY_CHANGE_SET_LIMIT
+            ? "change_limit_exceeded"
+            : "invalid_input",
+        } as const;
+      }
+
+      const changes: ProposeVocabularyChange[] = [];
+      const changeSignatures = new Map<string, string>();
+      const changesByTarget = new Map<string, ProposeVocabularyChange[]>();
+      const appendChange = (change: ProposeVocabularyChange) => {
+        const target = "text" in change
+          ? normalizeVocabularyTarget(change.text)
+          : null;
+        const currentTranslation = change.action === "update_meaning"
+          && change.currentTranslation !== undefined
+          ? normalizeVocabularyTarget(change.currentTranslation)
+          : "";
+        const addedTranslation = change.action === "add_meaning"
+          ? normalizeVocabularyMeaning(change.translation)
+          : "";
+        const key = target === null
+          ? change.action
+          : `${change.action}\u0000${target}\u0000${currentTranslation}\u0000${addedTranslation}`;
+        const comparable = {
+          ...change,
+          ...(target === null ? {} : { text: target }),
+          ...(change.action === "update_meaning" && change.currentTranslation !== undefined
+            ? { currentTranslation }
+            : {}),
+        };
+        const signature = JSON.stringify(comparable);
+        const previousSignature = changeSignatures.get(key);
+        if (previousSignature !== undefined) return previousSignature === signature;
+
+        if (target !== null) {
+          const priorChanges = changesByTarget.get(target) || [];
+          const changeIsMeaning = change.action === "add_meaning"
+            || change.action === "update_meaning";
+          const changeRemoves = change.action === "change_state"
+            && change.destination === "removed";
+          const incompatible = priorChanges.some((prior) => {
+            if (prior.action === "add_entry" || change.action === "add_entry") return true;
+            const priorIsMeaning = prior.action === "add_meaning"
+              || prior.action === "update_meaning";
+            const priorRemoves = prior.action === "change_state"
+              && prior.destination === "removed";
+            return (priorRemoves && changeIsMeaning) || (changeRemoves && priorIsMeaning);
+          });
+          if (incompatible) return false;
+          priorChanges.push(change);
+          changesByTarget.set(target, priorChanges);
+        }
+
+        changeSignatures.set(key, signature);
+        changes.push(change);
+        return true;
+      };
+      let weightedChangeCount = 0;
+      for (const candidate of input.changes) {
+        if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+          return { ok: false, error: "invalid_input" } as const;
+        }
+        const allowedKeys = {
+          add_entry: ["action", "text", "translation", "context"],
+          add_meaning: ["action", "text", "translation", "context"],
+          update_meaning: [
+            "action",
+            "text",
+            "currentTranslation",
+            "translation",
+            "context",
+          ],
+          change_state: ["action", "text", "destination"],
+          change_recent_state: ["action", "count", "destination"],
+        }[candidate.action] as readonly string[] | undefined;
+        if (
+          !allowedKeys
+          || Object.keys(candidate).some((key) => !allowedKeys.includes(key))
+        ) {
+          return { ok: false, error: "invalid_input" } as const;
+        }
+        if (candidate.action === "change_recent_state") {
+          if (
+            !Number.isSafeInteger(candidate.count)
+            || candidate.count < 1
+            || candidate.count > AI_VOCABULARY_CHANGE_SET_LIMIT
+            || !isVocabularyStateDestination(candidate.destination)
+          ) {
+            return { ok: false, error: "invalid_input" } as const;
+          }
+          weightedChangeCount += candidate.count;
+          if (weightedChangeCount > AI_VOCABULARY_CHANGE_SET_LIMIT) {
+            return { ok: false, error: "change_limit_exceeded" } as const;
+          }
+          if (!appendChange({
+            action: candidate.action,
+            count: candidate.count,
+            destination: candidate.destination,
+          })) return { ok: false, error: "conflicting_changes" } as const;
+          continue;
+        }
+
+        weightedChangeCount += 1;
+        if (weightedChangeCount > AI_VOCABULARY_CHANGE_SET_LIMIT) {
+          return { ok: false, error: "change_limit_exceeded" } as const;
+        }
+
+        const text = cleanSingleLine(
+          candidate.text,
+          AI_CHAT_LIMITS.targetTextCharacters,
+        );
+        if (!text) return { ok: false, error: "invalid_input" } as const;
+        if (candidate.action === "change_state") {
+          if (!isVocabularyStateDestination(candidate.destination)) {
+            return { ok: false, error: "invalid_input" } as const;
+          }
+          if (!appendChange({
+            action: candidate.action,
+            text,
+            destination: candidate.destination,
+          })) return { ok: false, error: "conflicting_changes" } as const;
+          continue;
+        }
+
+        const translation = candidate.translation === undefined
+          ? undefined
+          : cleanSingleLine(candidate.translation, AI_CHAT_LIMITS.meaningCharacters);
+        const context = cleanOptionalContext(candidate.context);
+        if (translation === null || context === null) {
+          return { ok: false, error: "invalid_input" } as const;
+        }
+        if (candidate.action === "add_entry") {
+          if (!appendChange({
+            action: candidate.action,
+            text,
+            ...(translation === undefined ? {} : { translation }),
+            ...(context === undefined ? {} : { context }),
+          })) return { ok: false, error: "conflicting_changes" } as const;
+          continue;
+        }
+        if (candidate.action === "add_meaning") {
+          if (!translation) return { ok: false, error: "invalid_input" } as const;
+          if (!appendChange({
+            action: candidate.action,
+            text,
+            translation,
+            ...(context === undefined ? {} : { context }),
+          })) return { ok: false, error: "conflicting_changes" } as const;
+          continue;
+        }
+        if (candidate.action === "update_meaning") {
+          const currentTranslation = candidate.currentTranslation === undefined
+            ? undefined
+            : cleanSingleLine(
+              candidate.currentTranslation,
+              AI_CHAT_LIMITS.meaningCharacters,
+            );
+          if (!translation || currentTranslation === null) {
+            return { ok: false, error: "invalid_input" } as const;
+          }
+          if (!appendChange({
+            action: candidate.action,
+            text,
+            ...(currentTranslation === undefined ? {} : { currentTranslation }),
+            translation,
+            ...(context === undefined ? {} : { context }),
+          })) return { ok: false, error: "conflicting_changes" } as const;
+          continue;
+        }
+        return { ok: false, error: "invalid_input" } as const;
+      }
+
+      let plan;
+      try {
+        plan = await mutationPlanner.planChangeSet(userId, { changes });
+      } catch (error) {
+        if (error instanceof VocabularyMutationPlanError) {
+          return { ok: false, error: error.reason } as const;
+        }
+        throw error;
+      }
+      return scope.proposeMutation(plan, {
+        operation: "vocabulary_change_set",
+        items: plan.publicItems,
+      });
     },
 
     async proposeVocabularyEntries(

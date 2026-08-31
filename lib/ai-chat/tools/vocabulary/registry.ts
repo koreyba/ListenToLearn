@@ -10,15 +10,13 @@ import type {
 import {
   AI_VOCABULARY_MAX_TOOL_CALLS_PER_TURN,
   AI_VOCABULARY_MAX_TOOL_RESULTS,
+  AI_VOCABULARY_CHANGE_SET_LIMIT,
   AI_VOCABULARY_TOOL_NAMES,
-  type AddVocabularyMeaningInput,
   type AiChatToolExecutor,
   type FindVocabularyInput,
   type ListVocabularyInput,
-  type ProposeVocabularyEntriesInput,
-  type ProposeVocabularyStateChangeInput,
+  type ProposeVocabularyChangeSetInput,
   type ToolPolicyError,
-  type UpdateVocabularyMeaningInput,
 } from "./contracts.ts";
 import type { AiVocabularyToolHandlers } from "./handlers.ts";
 import { AI_VOCABULARY_LIST_CURSOR_MAX_CHARACTERS } from "./pagination.ts";
@@ -165,99 +163,91 @@ export function createAiVocabularyTools(
       }),
       run: (input) => handlers.findVocabulary(input),
     }),
-    propose_vocabulary_entries: defineTracedVocabularyTool({
-      name: "propose_vocabulary_entries",
+    propose_vocabulary_change_set: defineTracedVocabularyTool({
+      name: "propose_vocabulary_change_set",
       mutation: true,
-      description: "Prepare one reviewable proposal containing 1 to 10 exact words or phrases. This does not change vocabulary; the learner must confirm the inline proposal. Use one bulk proposal instead of repeated single-entry calls.",
-      inputSchema: jsonSchema<ProposeVocabularyEntriesInput>({
+      description: "Prepare one reviewable proposal containing vocabulary additions, meaning changes, and learning-state changes. Include 1 to 30 changes; a recent-state action counts once per affected entry. Nothing changes until the learner confirms the inline proposal.",
+      inputSchema: jsonSchema<ProposeVocabularyChangeSetInput>({
         type: "object",
         properties: {
-          entries: {
+          changes: {
             type: "array",
             minItems: 1,
-            maxItems: 10,
+            maxItems: AI_VOCABULARY_CHANGE_SET_LIMIT,
             items: {
-              type: "object",
-              properties: {
-                text: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.targetTextCharacters },
-                translation: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.meaningCharacters },
-                context: { type: "string", maxLength: AI_CHAT_LIMITS.contextCharacters },
-              },
-              required: ["text"],
-              additionalProperties: false,
-            },
-          },
-        },
-        required: ["entries"],
-        additionalProperties: false,
-      }),
-      run: (input, scope) => handlers.proposeVocabularyEntries(input, scope),
-    }),
-    propose_vocabulary_meaning: defineTracedVocabularyTool({
-      name: "propose_vocabulary_meaning",
-      mutation: true,
-      description: "Prepare an inline proposal to add a personal meaning to an existing vocabulary entry. This does not write until the learner confirms it.",
-      inputSchema: jsonSchema<AddVocabularyMeaningInput>({
-        type: "object",
-        properties: {
-          phraseId: { type: "string", minLength: 1, maxLength: 120 },
-          translation: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.meaningCharacters },
-          context: { type: "string", maxLength: AI_CHAT_LIMITS.contextCharacters },
-        },
-        required: ["phraseId", "translation"],
-        additionalProperties: false,
-      }),
-      run: (input, scope) => handlers.proposeVocabularyMeaning(input, scope),
-    }),
-    propose_vocabulary_meaning_update: defineTracedVocabularyTool({
-      name: "propose_vocabulary_meaning_update",
-      mutation: true,
-      description: "Prepare an inline proposal to update one learner-owned meaning. Shared preset meanings stay immutable. This does not write until the learner confirms it.",
-      inputSchema: jsonSchema<UpdateVocabularyMeaningInput>({
-        type: "object",
-        properties: {
-          meaningId: { type: "string", minLength: 1, maxLength: 140 },
-          translation: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.meaningCharacters },
-          context: { type: "string", maxLength: AI_CHAT_LIMITS.contextCharacters },
-        },
-        required: ["meaningId", "translation"],
-        additionalProperties: false,
-      }),
-      run: (input, scope) => handlers.proposeVocabularyMeaningUpdate(input, scope),
-    }),
-    propose_vocabulary_state_change: defineTracedVocabularyTool({
-      name: "propose_vocabulary_state_change",
-      mutation: true,
-      description: "Prepare one inline proposal to move or remove 1 to 10 exact existing vocabulary entries. Exact texts resolve owner-scoped in one batch. Removal deletes only learner-owned custom entries; shared Library entries remain catalog data. Never infer mastery. Nothing changes until the learner confirms.",
-      inputSchema: jsonSchema<ProposeVocabularyStateChangeInput>({
-        type: "object",
-        properties: {
-          entries: {
-            type: "array",
-            minItems: 1,
-            maxItems: 10,
-            items: {
-              type: "object",
-              properties: {
-                text: {
-                  type: "string",
-                  minLength: 1,
-                  maxLength: AI_CHAT_LIMITS.targetTextCharacters,
+              oneOf: [
+                {
+                  type: "object",
+                  properties: {
+                    action: { const: "add_entry" },
+                    text: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.targetTextCharacters },
+                    translation: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.meaningCharacters },
+                    context: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.contextCharacters },
+                  },
+                  required: ["action", "text"],
+                  additionalProperties: false,
                 },
-              },
-              required: ["text"],
-              additionalProperties: false,
+                {
+                  type: "object",
+                  properties: {
+                    action: { const: "add_meaning" },
+                    text: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.targetTextCharacters },
+                    translation: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.meaningCharacters },
+                    context: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.contextCharacters },
+                  },
+                  required: ["action", "text", "translation"],
+                  additionalProperties: false,
+                },
+                {
+                  type: "object",
+                  properties: {
+                    action: { const: "update_meaning" },
+                    text: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.targetTextCharacters },
+                    currentTranslation: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.meaningCharacters },
+                    translation: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.meaningCharacters },
+                    context: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.contextCharacters },
+                  },
+                  required: ["action", "text", "translation"],
+                  additionalProperties: false,
+                },
+                {
+                  type: "object",
+                  properties: {
+                    action: { const: "change_state" },
+                    text: { type: "string", minLength: 1, maxLength: AI_CHAT_LIMITS.targetTextCharacters },
+                    destination: {
+                      type: "string",
+                      enum: ["to_learn", "learning", "learned", "removed"],
+                    },
+                  },
+                  required: ["action", "text", "destination"],
+                  additionalProperties: false,
+                },
+                {
+                  type: "object",
+                  properties: {
+                    action: { const: "change_recent_state" },
+                    count: {
+                      type: "integer",
+                      minimum: 1,
+                      maximum: AI_VOCABULARY_CHANGE_SET_LIMIT,
+                    },
+                    destination: {
+                      type: "string",
+                      enum: ["to_learn", "learning", "learned", "removed"],
+                    },
+                  },
+                  required: ["action", "count", "destination"],
+                  additionalProperties: false,
+                },
+              ],
             },
           },
-          destination: {
-            type: "string",
-            enum: ["to_learn", "learning", "learned", "removed"],
-          },
         },
-        required: ["entries", "destination"],
+        required: ["changes"],
         additionalProperties: false,
       }),
-      run: (input, scope) => handlers.proposeVocabularyStateChange(input, scope),
+      run: (input, scope) => handlers.proposeVocabularyChangeSet(input, scope),
     }),
   };
 }

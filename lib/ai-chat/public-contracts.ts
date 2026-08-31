@@ -33,6 +33,13 @@ export type AiChatPublicMessage = {
   updatedAt: string;
 };
 
+export type AiChatPublicTurnTerminal = {
+  clientMessageId: string;
+  assistantMessageId: string;
+  status: "complete" | "pending" | "failed";
+  errorCode: string | null;
+};
+
 export type AiChatPublicSummary = {
   id: string;
   title: string;

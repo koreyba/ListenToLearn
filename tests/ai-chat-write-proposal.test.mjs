@@ -73,6 +73,153 @@ const items = [
   { id: "break-even", text: "break even", translation: "cover the costs" },
 ];
 
+const changeSetItems = [
+  {
+    id: "add-serendipity",
+    actionType: "add_entry",
+    text: "serendipity",
+    translation: "удачная случайность",
+  },
+  {
+    id: "add-get-by",
+    actionType: "add_entry",
+    text: "get by",
+    translation: "справляться",
+  },
+  {
+    id: "meaning-bank",
+    actionType: "add_meaning",
+    text: "bank",
+    translation: "берег",
+  },
+  {
+    id: "update-pitch",
+    actionType: "update_meaning",
+    text: "pitch",
+    previousTranslation: "бросок",
+    translation: "высота звука",
+  },
+  {
+    id: "move-uncanny",
+    actionType: "change_state",
+    text: "uncanny",
+    fromCategory: "learning",
+    toCategory: "learned",
+  },
+  {
+    id: "remove-obsolete",
+    actionType: "change_state",
+    text: "obsolete",
+    fromCategory: "to_learn",
+    toCategory: "removed",
+  },
+];
+
+test("a mixed vocabulary change set is one grouped inline confirmation", async () => {
+  const actions = [];
+
+  await renderProposal({
+    proposalId: "proposal-change-set",
+    operation: "vocabulary_change_set",
+    items: changeSetItems,
+    collapsedItemCount: 30,
+    status: "pending",
+    onConfirm: (proposalId) => actions.push(["confirm", proposalId]),
+    onCancel: (proposalId) => actions.push(["cancel", proposalId]),
+  }, async ({ host }) => {
+    const card = host.querySelector("section.ai-chat-write-proposal");
+    assert.equal(card?.querySelector("h3")?.textContent, "Review vocabulary changes");
+    assert.equal(card?.querySelector(".ai-chat-write-proposal-count")?.textContent, "6 changes");
+
+    const groups = [...card.querySelectorAll(".ai-chat-write-proposal-group")];
+    assert.deepEqual(
+      groups.map((group) => ({
+        action: group.getAttribute("data-action-group"),
+        heading: group.querySelector("h4")?.textContent,
+        items: [...group.querySelectorAll("li")].map((item) => item.textContent),
+      })),
+      [
+        {
+          action: "add_entry",
+          heading: "Add2 changes",
+          items: [
+            "serendipityудачная случайность",
+            "get byсправляться",
+          ],
+        },
+        {
+          action: "add_meaning",
+          heading: "Add meaning1 change",
+          items: ["bankберег"],
+        },
+        {
+          action: "update_meaning",
+          heading: "Update meaning1 change",
+          items: ["pitchбросок → высота звука"],
+        },
+        {
+          action: "change_state",
+          heading: "Move / remove2 changes",
+          items: [
+            "uncannyLearning → Learned",
+            "obsoleteTo Learn → Removed from Practice",
+          ],
+        },
+      ],
+    );
+    assert.equal(
+      card.querySelector('[role="status"]')?.textContent,
+      "Review 6 vocabulary changes before applying them.",
+    );
+
+    const buttons = [...card.querySelectorAll(".ai-chat-write-proposal-actions button")];
+    assert.deepEqual(buttons.map((button) => button.textContent), ["Cancel", "Confirm changes"]);
+    await act(async () => buttons[1].click());
+    await act(async () => buttons[0].click());
+  });
+
+  assert.deepEqual(actions, [
+    ["confirm", "proposal-change-set"],
+    ["cancel", "proposal-change-set"],
+  ]);
+});
+
+test("a collapsed change set previews every action group before expanding to 30 changes", async () => {
+  const thirtyItems = [
+    ...changeSetItems,
+    ...Array.from({ length: 24 }, (_, index) => ({
+      id: `extra-${index + 1}`,
+      actionType: "add_entry",
+      text: `extra phrase ${index + 1}`,
+      translation: `translation ${index + 1}`,
+    })),
+  ];
+
+  await renderProposal({
+    proposalId: "proposal-thirty-changes",
+    operation: "vocabulary_change_set",
+    items: thirtyItems,
+    status: "pending",
+  }, async ({ host }) => {
+    const list = host.querySelector(".ai-chat-write-proposal-groups");
+    const toggle = host.querySelector(".ai-chat-write-proposal-toggle");
+    const groups = [...list.querySelectorAll(".ai-chat-write-proposal-group")];
+
+    assert.equal(groups.length, 4);
+    assert.equal(list.querySelectorAll("li").length, 4);
+    assert.deepEqual(
+      groups.map((group) => group.querySelector("h4")?.textContent),
+      ["Add26 changes", "Add meaning1 change", "Update meaning1 change", "Move / remove2 changes"],
+    );
+    assert.equal(toggle?.textContent, "Show 26 more");
+    assert.equal(toggle?.getAttribute("aria-controls"), list?.id);
+
+    await act(async () => toggle.click());
+    assert.equal(list.querySelectorAll("li").length, 30);
+    assert.equal(toggle?.textContent, "Show fewer");
+  });
+});
+
 test("a pending write proposal is an accessible inline confirmation", async () => {
   const actions = [];
 

@@ -14,18 +14,17 @@ import type {
   VocabularyStateTarget,
 } from "../../../vocabulary/repository.ts";
 import type { createAiChatToolExecutor } from "../../tool-trace.ts";
+import type { AiChatToolMutationPlan } from "../../tool-trace.ts";
 
 export const AI_VOCABULARY_MAX_TOOL_RESULTS = 10;
 export const AI_VOCABULARY_MAX_TOOL_CALLS_PER_TURN = 2;
 export const AI_VOCABULARY_MAX_TOOL_RESULT_JSON_CHARACTERS = 7_800;
+export const AI_VOCABULARY_CHANGE_SET_LIMIT = 30;
 
 export const AI_VOCABULARY_TOOL_NAMES = Object.freeze([
   "list_vocabulary",
   "find_vocabulary",
-  "propose_vocabulary_entries",
-  "propose_vocabulary_meaning",
-  "propose_vocabulary_meaning_update",
-  "propose_vocabulary_state_change",
+  "propose_vocabulary_change_set",
 ] as const);
 
 export type VocabularyToolName = (typeof AI_VOCABULARY_TOOL_NAMES)[number];
@@ -60,7 +59,14 @@ export type VocabularyMutationPlanner = Pick<
   | "planChangeState"
   | "planSetCategory"
   | "planUpdateMeaning"
->;
+> & {
+  planChangeSet(
+    userId: string,
+    input: ProposeVocabularyChangeSetInput,
+  ): Promise<AiChatToolMutationPlan<unknown> & {
+    publicItems: ProposeVocabularyChangeSetPublicItem[];
+  }>;
+};
 
 export type AiChatToolExecutor = ReturnType<typeof createAiChatToolExecutor>;
 
@@ -70,6 +76,11 @@ export type ToolPolicyError = {
     | "explicit_user_command_required"
     | "explicit_values_required"
     | "invalid_input"
+    | "missing_target"
+    | "ambiguous_meaning"
+    | "conflicting_changes"
+    | "change_limit_exceeded"
+    | "unsupported_change"
     | "mutation_conflict"
     | "tool_budget_exceeded";
 };
@@ -114,6 +125,52 @@ export type SetVocabularyCategoryInput = {
 export type ProposeVocabularyStateChangeInput = {
   entries: Array<{ text: string }>;
   destination: VocabularyStateDestination;
+};
+
+export type ProposeVocabularyChange =
+  | {
+      action: "add_entry";
+      text: string;
+      translation?: string;
+      context?: string;
+    }
+  | {
+      action: "add_meaning";
+      text: string;
+      translation: string;
+      context?: string;
+    }
+  | {
+      action: "update_meaning";
+      text: string;
+      currentTranslation?: string;
+      translation: string;
+      context?: string;
+    }
+  | {
+      action: "change_state";
+      text: string;
+      destination: VocabularyStateDestination;
+    }
+  | {
+      action: "change_recent_state";
+      count: number;
+      destination: VocabularyStateDestination;
+    };
+
+export type ProposeVocabularyChangeSetInput = {
+  changes: ProposeVocabularyChange[];
+};
+
+export type ProposeVocabularyChangeSetPublicItem = {
+  id: string;
+  actionType: ProposeVocabularyChange["action"];
+  text?: string;
+  translation?: string;
+  currentTranslation?: string;
+  context?: string;
+  count?: number;
+  destination?: VocabularyStateDestination;
 };
 
 export type AiVocabularyToolEntry = Pick<

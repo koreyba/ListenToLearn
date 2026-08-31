@@ -31,6 +31,60 @@ test("retryable terminal failures explain incomplete and stopped responses", asy
     source,
     /case "generation_cancelled": return "The response was stopped\. Retry it if needed\.";/,
   );
+  assert.match(
+    source,
+    /case "generation_interrupted": return "The response was interrupted\. You can continue or retry\.";/,
+  );
+  assert.match(
+    source,
+    /case "tool_timeout": return "The chat action timed out\. Nothing was changed\. You can continue or retry\.";/,
+  );
+  assert.match(
+    source,
+    /case "tool_failed": return "The chat action failed\. Nothing was changed\. You can continue or retry\.";/,
+  );
+});
+
+test("stop and transport errors terminally cancel only the active server turn", async () => {
+  const source = await readFile(componentUrl, "utf8");
+
+  assert.match(
+    source,
+    /const activeClientMessageId = useRef<string \| null>\(canonicalPendingClientMessageId\)/,
+  );
+  assert.match(source, /const cancelPendingTurn = useCallback\(\(\) =>/);
+  assert.match(
+    source,
+    /\/api\/ai\/chats\/\$\{encodeURIComponent\(chat\.id\)\}\/messages\/\$\{encodeURIComponent\(clientMessageId\)\}\/cancel/,
+  );
+  assert.match(source, /body: JSON\.stringify\(\{\}\)/);
+  assert.match(source, /function stopPendingTurn\(\)/);
+  assert.match(source, /stop\(\);\s*void cancelPendingTurn\(\);/s);
+  assert.match(source, /onError: \(\) => void cancelPendingTurn\(\)/);
+  assert.match(source, /shouldCancelAiChatFinishedStream\(\{/);
+  assert.match(source, /withAiChatCancelDeadline\(async \(signal\) =>/);
+  assert.match(source, /signal,/);
+  assert.match(source, /onClick=\{stopPendingTurn\}/);
+});
+
+test("stopping blocks a second send and rejected outbound text remains recoverable", async () => {
+  const [source, styles] = await Promise.all([
+    readFile(componentUrl, "utf8"),
+    readFile(stylesUrl, "utf8"),
+  ]);
+
+  assert.match(source, /const \[cancelling, setCancelling\] = useState\(false\)/);
+  assert.match(source, /isAiChatTurnBlocked\(\{/);
+  assert.match(source, /cancelling,/);
+  assert.match(source, /aria-label=\{cancelling \? "Stopping response" : "Stop response"\}/);
+  assert.match(source, /disabled=\{cancelling\}/);
+  assert.match(source, /reconcileAiChatOutboundTurn\(\{/);
+  assert.match(source, /preserveUnverifiedAiChatOutboundTurn\(\{/);
+  assert.match(source, /Retry message/);
+  assert.match(source, /Promise<AiChatClientDetail \| null>/);
+  assert.match(styles, /\.ai-chat-outbound-recovery \{[^}]*display:\s*flex;/s);
+  assert.match(styles, /\.ai-chat-outbound-recovery button \{[^}]*min-height:\s*44px;/s);
+  assert.match(styles, /@media \(max-width: 760px\) \{[\s\S]*?\.ai-chat-outbound-recovery \{[^}]*flex-direction:\s*column;/s);
 });
 
 test("chat UI exposes separate list/dialog panes and contextual selection actions", async () => {
@@ -129,7 +183,7 @@ test("chat feedback and transient surfaces expose truthful, interruptible states
 
   assert.match(selectionSource, /const \[saveError, setSaveError\] = useState\(""\)/);
   assert.match(selectionSource, /saveError && <p className="ai-chat-selection-error" role="alert">/);
-  assert.match(chatSource, /disabled=\{!draft\.trim\(\) \|\| busy \|\| !generationConfigured\}/);
+  assert.match(chatSource, /disabled=\{!draft\.trim\(\) \|\| turnBusy \|\| !generationConfigured\}/);
   assert.match(chatSource, /function closeSidebarOnEscape\(event: KeyboardEvent\)/);
   assert.match(chatSource, /event\.key !== "Escape"/);
   assert.match(chatSource, /setSidebarOpen\(false\)/);

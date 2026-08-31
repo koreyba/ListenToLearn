@@ -610,3 +610,80 @@ test("public listing exposes only complete-assistant display state", async () =>
   `).run();
   assert.deepEqual(await fixture.repository.listForChat("user-a", "chat-a"), []);
 });
+
+test("proposals from a failed origin attempt stay hidden and unconfirmable", async () => {
+  const fixture = createFixture();
+  await insertProposal(fixture);
+  fixture.sqlite.prepare(`
+    UPDATE ai_chat_assistant_attempts
+    SET status = 'failed', error_code = 'response_incomplete',
+        completed_at = '2026-08-30T10:00:02Z'
+    WHERE id = 'attempt-1'
+  `).run();
+
+  assert.deepEqual(await fixture.repository.listForChat("user-a", "chat-a"), []);
+  await assert.rejects(
+    fixture.repository.decide("user-a", "chat-a", "proposal-1", "confirm"),
+    (error) => error?.code === "not_found",
+  );
+  assert.equal(fixture.sqlite.prepare(`
+    SELECT status FROM ai_chat_vocabulary_write_proposals WHERE id = 'proposal-1'
+  `).get().status, "pending");
+});
+
+test("one mixed change-set proposal is listed, confirmed atomically, and replayed", async () => {
+  const fixture = createFixture();
+  fixture.sqlite.exec(`
+    INSERT INTO phrases (
+      id, text, pattern, source_type, owner_id, status, created_at, updated_at
+    ) VALUES ('phrase-existing', 'existing', 'existing', 'custom', 'user-a', 'pick',
+      '2026-08-30T09:00:00Z', '2026-08-30T09:00:00Z');
+    INSERT INTO phrase_progress (user_id, phrase_id, status, created_at, updated_at)
+    VALUES ('user-a', 'phrase-existing', 'to_learn',
+      '2026-08-30T09:00:00Z', '2026-08-30T09:00:00Z');
+  `);
+  const plan = await fixture.planner.planChangeSet("user-a", {
+    changes: [
+      { action: "add_entry", text: "new word", translation: "новое слово" },
+      { action: "change_state", text: "existing", destination: "learned" },
+    ],
+  });
+  await insertProposal(fixture, {
+    operation: plan.operation,
+    targetKey: plan.targetKey,
+    args: plan.canonicalArgs,
+    result: plan.canonicalResult,
+    publicPayload: {
+      operation: "vocabulary_change_set",
+      items: plan.publicItems,
+    },
+  });
+
+  const listed = await fixture.repository.listForChat("user-a", "chat-a");
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].operation, "vocabulary_change_set");
+  assert.deepEqual(
+    listed[0].items.map((item) => item.actionType),
+    ["add_entry", "change_state"],
+  );
+
+  const confirmed = await fixture.repository.decide(
+    "user-a", "chat-a", "proposal-1", "confirm",
+  );
+  const replay = await fixture.repository.decide(
+    "user-a", "chat-a", "proposal-1", "confirm",
+  );
+  assert.equal(confirmed.status, "confirmed");
+  assert.deepEqual(replay, confirmed);
+  assert.equal(fixture.sqlite.prepare(`
+    SELECT count(*) AS count
+    FROM phrases JOIN phrase_progress AS progress ON progress.phrase_id = phrases.id
+    WHERE phrases.text = 'new word' AND progress.user_id = 'user-a'
+      AND progress.status = 'to_learn'
+  `).get().count, 1);
+  assert.equal(fixture.sqlite.prepare(`
+    SELECT status FROM phrase_progress
+    WHERE user_id = 'user-a' AND phrase_id = 'phrase-existing'
+  `).get().status, "learnt");
+  fixture.sqlite.close();
+});

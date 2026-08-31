@@ -122,13 +122,13 @@ export function isAiChatTurnBlocked(input: {
 export function shouldSettleAiChatStreamFromCanonical(input: {
   streamBusy: boolean;
   activeClientMessageId: string | null;
-  canonicalMessages: readonly AiChatClientMessage[];
+  canonicalMessages: readonly AiChatUiMessage[];
 }) {
   if (!input.streamBusy || !input.activeClientMessageId) return false;
   return input.canonicalMessages.some((message) => (
     message.role === "assistant"
-    && message.clientMessageId === input.activeClientMessageId
-    && message.status !== "pending"
+    && message.metadata?.clientMessageId === input.activeClientMessageId
+    && message.metadata.status !== "pending"
   ));
 }
 

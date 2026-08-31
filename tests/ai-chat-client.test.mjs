@@ -87,10 +87,13 @@ test("a canonical terminal assistant releases a stale local stream without cance
   const message = (status) => ({
     id: "assistant-row",
     role: "assistant",
-    content: "",
-    status,
-    clientMessageId: "client-turn",
-    errorCode: status === "failed" ? "provider_timeout" : null,
+    parts: [],
+    metadata: {
+      status,
+      clientMessageId: "client-turn",
+      errorCode: status === "failed" ? "provider_timeout" : null,
+      terminal: null,
+    },
   });
 
   assert.equal(clientModule.shouldSettleAiChatStreamFromCanonical({

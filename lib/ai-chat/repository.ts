@@ -1435,21 +1435,25 @@ export function createAiChatRepository(
   ) {
     const existing = await findTurn(userId, chatId, clientMessageId);
     if (!existing) repositoryError("not_found", "Turn not found.");
+    const attempt = existing.attempt;
     const interrupted = existing.assistant.status === "failed"
       && existing.assistant.errorCode === "generation_interrupted"
-      && existing.attempt?.status === "failed"
-      && existing.attempt.errorCode === "generation_interrupted";
+      && attempt?.status === "failed"
+      && attempt.errorCode === "generation_interrupted";
     if (
-      !interrupted
-      && (
-        existing.assistant.status !== "pending"
-        || existing.attempt?.status !== "pending"
+      !attempt
+      || (
+        !interrupted
+        && (
+          existing.assistant.status !== "pending"
+          || attempt.status !== "pending"
+        )
       )
     ) {
       return { state: "existing", ...existing } satisfies AiChatTurn;
     }
     const timestamp = now();
-    const attemptId = existing.attempt.id;
+    const attemptId = attempt.id;
     let results: D1Result<unknown>[];
     try {
       results = await db.batch([
@@ -1557,7 +1561,7 @@ export function createAiChatRepository(
         updatedAt: timestamp,
       },
       attempt: {
-        ...existing.attempt,
+        ...attempt,
         status: "failed",
         errorCode: "generation_cancelled",
         terminal: null,

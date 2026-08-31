@@ -32,6 +32,7 @@ import {
   type AiChatClientDetail,
   type AiChatOutboundTurn,
   type AiChatClientSummary,
+  type AiChatUiMetadata,
   type AiChatUiMessage,
 } from "@/lib/ai-chat/client";
 import { observeCanonicalMessages } from "@/lib/ai-chat/canonical-sync";
@@ -48,7 +49,7 @@ type ApiError = { error?: string | { code?: string } };
 type HistoryMode = "none" | "push" | "replace";
 type RefreshOptions = { quiet?: boolean };
 
-function responseIncompleteMessage(terminal: AiChatUiMessage["metadata"]["terminal"]) {
+function responseIncompleteMessage(terminal: AiChatUiMetadata["terminal"]) {
   switch (terminal?.finishReason) {
     case "length": return "The model reached its response limit before finishing. Retry with a shorter request.";
     case "content-filter": return "The provider stopped this response because of its safety filter. Try rephrasing the request.";
@@ -61,7 +62,7 @@ function responseIncompleteMessage(terminal: AiChatUiMessage["metadata"]["termin
 function apiError(
   payload: ApiError,
   fallback: string,
-  terminal: AiChatUiMessage["metadata"]["terminal"] = null,
+  terminal: AiChatUiMetadata["terminal"] = null,
 ) {
   if (typeof payload.error === "string") return payload.error;
   switch (payload.error?.code) {
@@ -81,7 +82,7 @@ function apiError(
   }
 }
 
-function generationFailureMessage(metadata: AiChatUiMessage["metadata"] | undefined) {
+function generationFailureMessage(metadata: AiChatUiMetadata | undefined) {
   return apiError(
     { error: { code: metadata?.errorCode || undefined } },
     "The response failed.",

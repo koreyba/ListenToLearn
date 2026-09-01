@@ -40,8 +40,14 @@ test("prompt keeps vocabulary practice learner-led and explains in Russian", () 
   const result = build();
 
   assert.equal(result.id, "unmumble.vocabulary-practice");
-  assert.equal(result.version, "6");
+  assert.equal(result.version, "7");
   assert.match(result.system, /focused English vocabulary practice partner/);
+  assert.match(result.system, /clear English-learning purpose/);
+  assert.match(result.system, /Vocabulary operations in Unmumble are always in scope/);
+  assert.match(result.system, /General subject matter is in scope only when the learner explicitly connects it to English practice/);
+  assert.match(result.system, /do not answer the subject-matter request and do not call any tool/);
+  assert.match(result.system, /briefly explain in the configured explanation language that you are an English tutor/);
+  assert.match(result.system, /If the English-learning purpose is ambiguous, ask how the learner wants to use the topic for English practice/);
   assert.match(result.system, /The learner leads every interaction/);
   assert.match(result.system, /Do not start or impose a curriculum/);
   assert.match(result.system, /read the signed-in learner's vocabulary through the available read tools/);

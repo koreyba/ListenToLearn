@@ -40,8 +40,9 @@ description: Implemented chat-only tools, attempts, ledger, and mutation receipt
 - `lib/ai-chat/chat-creation.ts` and
   `lib/ai-chat/prompts/vocabulary-practice.ts`: server-built latest-five opening,
   escaped `UNTRUSTED_VOCABULARY_OPENING`, learner-led system contract, list
-  continuation, fresh-read rules, and prompt ID `unmumble.vocabulary-practice`
-  version `5`.
+  continuation, fresh-read rules, English-learning scope gate with an explicit
+  vocabulary-operation exception, and prompt ID `unmumble.vocabulary-practice`
+  version `7`.
 - `lib/vocabulary/contracts.ts`, `repository.ts`, `mutations.ts`,
   `practice-reader.ts`: reusable bounded vocabulary reads, a read-only saved-target/
   practice projection boundary, and composable mutation plans. `mutations.ts`
@@ -271,9 +272,12 @@ optional legacy meaning; `meaningCount` preserves the full visible count and
 
 Existing chat limits remain 16,384 request bytes, 4,000 message characters, and
 40/32,000 canonical history messages/characters. Output is capped at 2,400 tokens;
-generation deadlines are 45 seconds total, 25 seconds per step, 20 seconds to the
-first chunk, 20 seconds between chunks, and 5 seconds for tool execution. The
-attempt lease is 55 seconds. A non-`stop` finish reason is retryable
+generation inactivity deadlines are 20 seconds to the first semantic chunk,
+20 seconds between semantic chunks, and 5 seconds for tool execution. Active
+semantic output has no absolute total or per-step deadline. The generation adapter's
+first-activity watchdog begins before provider connection and is cleared by the first
+semantic `onChunk`; the SDK then resets its inter-chunk deadline on later activity.
+The independent attempt recovery lease is five minutes. A non-`stop` finish reason is retryable
 `response_incomplete`; explicit cancellation is `generation_cancelled`; tool
 deadline/failure use `tool_timeout`/`tool_failed`. Provider failure and empty output
 also fail truthfully. Each terminal attempt stores only a bounded <=2,048-byte

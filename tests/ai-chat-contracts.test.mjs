@@ -5,8 +5,6 @@ const contracts = await import("../lib/ai-chat/contracts.ts").catch(() => ({}));
 
 test("AI chat exposes conservative paid-request safety limits", () => {
   assert.deepEqual(contracts.AI_CHAT_GENERATION_TIMEOUT, {
-    totalMs: 45_000,
-    stepMs: 25_000,
     firstChunkMs: 20_000,
     chunkMs: 20_000,
     toolMs: 5_000,
@@ -25,7 +23,6 @@ test("AI chat exposes conservative paid-request safety limits", () => {
     historyMessages: 40,
     historyCharacters: 32_000,
     outputTokens: 2_400,
-    upstreamTimeoutMs: 45_000,
   });
 });
 

@@ -1,6 +1,4 @@
 export const AI_CHAT_GENERATION_TIMEOUT = Object.freeze({
-  totalMs: 45_000,
-  stepMs: 25_000,
   firstChunkMs: 20_000,
   chunkMs: 20_000,
   toolMs: 5_000,
@@ -20,7 +18,6 @@ export const AI_CHAT_LIMITS = Object.freeze({
   historyMessages: 40,
   historyCharacters: 32_000,
   outputTokens: 2_400,
-  upstreamTimeoutMs: AI_CHAT_GENERATION_TIMEOUT.totalMs,
 });
 
 export const AI_CHAT_MEANING_MODES = ["all_saved", "selected", "explore"] as const;

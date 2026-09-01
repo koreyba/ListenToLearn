@@ -26,8 +26,6 @@ function createHarness() {
       model,
       provenance: { provider: "openrouter", model: "configured/model" },
       timeout: {
-        totalMs: 45_000,
-        stepMs: 25_000,
         firstChunkMs: 20_000,
         chunkMs: 20_000,
         toolMs: 5_000,
@@ -65,6 +63,21 @@ function createHarness() {
   };
   const dependencies = {
     now: () => calls.now ?? 1_000,
+    scheduleTimeout(callback, milliseconds) {
+      const timer = {
+        milliseconds,
+        cleared: false,
+        fire() {
+          if (!timer.cleared) callback();
+        },
+      };
+      calls.timers ||= [];
+      calls.timers.push(timer);
+      return timer;
+    },
+    clearScheduledTimeout(timer) {
+      timer.cleared = true;
+    },
     wrapLanguageModel(options) {
       calls.wrapLanguageModel = options;
       calls.wrappedModel = { provider: "wrapped", modelId: "wrapped/model" };
@@ -100,6 +113,7 @@ test("generation streams only canonical server prompt with a stable assistant id
       "messages",
       "model",
       "onAbort",
+      "onChunk",
       "onEnd",
       "onError",
       "prepareStep",
@@ -117,7 +131,6 @@ test("generation streams only canonical server prompt with a stable assistant id
       maxOutputTokens: harness.calls.streamText.maxOutputTokens,
       timeout: harness.calls.streamText.timeout,
       maxRetries: harness.calls.streamText.maxRetries,
-      abortSignal: harness.calls.streamText.abortSignal,
       tools: harness.calls.streamText.tools,
     },
     {
@@ -126,17 +139,16 @@ test("generation streams only canonical server prompt with a stable assistant id
       messages: harness.input.prompt.messages,
       maxOutputTokens: 2_400,
       timeout: {
-        totalMs: 45_000,
-        stepMs: 25_000,
         firstChunkMs: 20_000,
         chunkMs: 20_000,
         toolMs: 5_000,
       },
       maxRetries: 0,
-      abortSignal: harness.input.abortSignal,
       tools: harness.input.tools,
     },
   );
+  assert.notEqual(harness.calls.streamText.abortSignal, harness.input.abortSignal);
+  assert.equal(harness.calls.streamText.abortSignal.aborted, false);
   assert.equal(typeof harness.calls.streamText.stopWhen, "function");
   assert.deepEqual(harness.calls.streamText.prepareStep({
     stepNumber: 2,
@@ -175,6 +187,26 @@ test("generation streams only canonical server prompt with a stable assistant id
   );
   assert.equal(harness.calls.toUIMessageStream.sendReasoning, false);
   assert.equal(harness.calls.toUIMessageStream.sendSources, false);
+});
+
+test("initial provider silence times out, while the first semantic chunk disarms that deadline", async () => {
+  const silentHarness = createHarness();
+  generationModule.startAiChatGeneration(silentHarness.input, silentHarness.dependencies);
+
+  assert.equal(silentHarness.calls.timers.length, 1);
+  assert.equal(silentHarness.calls.timers[0].milliseconds, 20_000);
+  silentHarness.calls.timers[0].fire();
+  assert.equal(silentHarness.calls.streamText.abortSignal.aborted, true);
+  assert.equal(silentHarness.calls.streamText.abortSignal.reason.name, "TimeoutError");
+
+  const activeHarness = createHarness();
+  generationModule.startAiChatGeneration(activeHarness.input, activeHarness.dependencies);
+  await activeHarness.calls.streamText.onChunk({
+    chunk: { type: "text-delta", id: "provider-text", text: "active" },
+  });
+  assert.equal(activeHarness.calls.timers[0].cleared, true);
+  activeHarness.calls.timers[0].fire();
+  assert.equal(activeHarness.calls.streamText.abortSignal.aborted, false);
 });
 
 test("the model chooses tools without regex routing, forced tool choice, or retry middleware", () => {
@@ -466,6 +498,8 @@ test("browser stream exposes only assistant text and stable public failures", as
     },
   ];
   const dependencies = {
+    scheduleTimeout: harness.dependencies.scheduleTimeout,
+    clearScheduledTimeout: harness.dependencies.clearScheduledTimeout,
     streamText(options) {
       harness.calls.streamText = options;
       return {

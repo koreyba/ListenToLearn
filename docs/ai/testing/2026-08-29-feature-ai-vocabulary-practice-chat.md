@@ -183,9 +183,13 @@ cannot place a textarea caret at a deterministic character offset.
   cover auto-grow, full-screen dialog, focus trap/restoration, Escape, shared draft,
   and desktop/mobile layouts.
 - [x] Prompt tests import `lib/ai-chat/prompts/vocabulary-practice.ts`, assert ID
-  `unmumble.vocabulary-practice`/version `5`, learner-led/category/removal rules,
-  same-turn fresh reads for current/latest claims, bounded continuation, and prompt
-  ID/version on allowlisted lifecycle events.
+  `unmumble.vocabulary-practice`/version `7`, learner-led/category/removal rules,
+  English-learning scope with vocabulary-operation exceptions, same-turn fresh reads
+  for current/latest claims, bounded continuation, and prompt ID/version on allowlisted
+  lifecycle events.
+- [x] Runtime/generation contract tests prove that active semantic chunks are not
+  subject to an absolute total or per-step deadline while first-chunk, inter-chunk,
+  and tool inactivity deadlines remain bounded.
 - [x] Compatibility targets accept bounded saved/ad-hoc entries and all three
   meaning modes through atomic whole-array `PATCH` only. The unused standalone AI
   translation route/module are absent, preventing a second untraced provider path.

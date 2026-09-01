@@ -62,11 +62,15 @@ type AiChatGenerationDependencies = {
   streamText: typeof streamText;
   toUIMessageStream: typeof toUIMessageStream;
   now?: () => number;
+  scheduleTimeout?: typeof setTimeout;
+  clearScheduledTimeout?: typeof clearTimeout;
 };
 
 const defaultDependencies: AiChatGenerationDependencies = {
   streamText,
   toUIMessageStream,
+  scheduleTimeout: setTimeout,
+  clearScheduledTimeout: clearTimeout,
 };
 
 type AiChatGenerationToolPart = {
@@ -399,9 +403,27 @@ export function startAiChatGeneration(
       terminal,
     }),
   );
+  const initialActivityController = new AbortController();
+  const generationAbortSignal = input.abortSignal
+    ? AbortSignal.any([input.abortSignal, initialActivityController.signal])
+    : initialActivityController.signal;
+  const scheduleTimeout = dependencies.scheduleTimeout || setTimeout;
+  const clearScheduledTimeout = dependencies.clearScheduledTimeout || clearTimeout;
+  let initialActivityTimer: ReturnType<typeof setTimeout> | null = generationAbortSignal.aborted
+    ? null
+    : scheduleTimeout(() => {
+        initialActivityController.abort(
+          new DOMException("The provider did not start responding in time.", "TimeoutError"),
+        );
+      }, input.runtime.timeout.firstChunkMs);
+  const clearInitialActivityTimeout = () => {
+    if (initialActivityTimer === null) return;
+    clearScheduledTimeout(initialActivityTimer);
+    initialActivityTimer = null;
+  };
   const result = dependencies.streamText({
     model: input.runtime.model,
-    abortSignal: input.abortSignal,
+    abortSignal: generationAbortSignal,
     system: input.prompt.system,
     messages: input.prompt.messages,
     maxOutputTokens: input.runtime.maxOutputTokens,
@@ -418,7 +440,11 @@ export function startAiChatGeneration(
       }
       return undefined;
     },
+    onChunk: () => {
+      clearInitialActivityTimeout();
+    },
     onEnd: async ({ text, finishReason, usage, steps, finalStep }) => {
+      clearInitialActivityTimeout();
       const completedSteps = steps || [];
       const outcome = toolLoopOutcome(completedSteps);
       const completionText = outcome.kind === "proposal_ready"
@@ -477,12 +503,14 @@ export function startAiChatGeneration(
       );
     },
     onError: async ({ error }) => {
+      clearInitialActivityTimeout();
       await failPendingAssistant(
         input.runtime.mapFailure(error).code,
         terminalTelemetry(),
       );
     },
     onAbort: async ({ steps }) => {
+      clearInitialActivityTimeout();
       await failPendingAssistant(
         input.abortSignal?.aborted || consumerCancellationStarted
           ? AI_CHAT_ERROR_CODES.generationInterrupted
@@ -508,6 +536,7 @@ export function startAiChatGeneration(
     uiStream,
     () => {
       consumerCancellationStarted = true;
+      clearInitialActivityTimeout();
     },
     () => failPendingAssistant(
       AI_CHAT_ERROR_CODES.generationInterrupted,

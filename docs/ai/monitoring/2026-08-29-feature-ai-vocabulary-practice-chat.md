@@ -52,7 +52,7 @@ and sanitized routed-provider telemetry.
   `require_parameters: true`. The preset response cache is intentionally absent;
   DeepSeek prompt-prefix caching is automatic and has no application toggle.
 - Group generation outcomes by allowlisted prompt ID/version
-  (`unmumble.vocabulary-practice`/`4`) and alert on `unknown`; never log prompt text.
+  (`unmumble.vocabulary-practice`/`7`) and alert on `unknown`; never log prompt text.
 - Cloudflare generation-limit outcomes for 10 requests per account/minute and 100
   aggregate requests per Cloudflare location/minute, including account/edge denial
   and missing/erroring binding. The limiter fails closed before D1 turn creation/
@@ -60,7 +60,7 @@ and sanitized routed-provider telemetry.
   abuse guard rather than a globally atomic quota or billing ledger.
 - Attempt outcomes (`complete`, `failed`, `expired`), lease age, retries per
   assistant message, `turn_in_progress`, more than one pending attempt per chat, any
-  pending attempt surviving the 55-second lease, and terminal assistant/tool/receipt
+  pending attempt surviving the five-minute lease, and terminal assistant/tool/receipt
   writes rejected because the lease expired. Distinguish ordinary failure writes
   returned directly from owner-scoped `findTurn` plus the successful batch from
   `finishTurn`/`failTurn` ambiguity or postcondition races recovered by exact

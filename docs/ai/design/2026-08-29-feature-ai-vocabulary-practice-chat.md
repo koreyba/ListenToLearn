@@ -198,13 +198,17 @@ full traversal possible across turns while preserving the two-call per-turn budg
 ## Versioned Prompt Contract
 
 The prompt is isolated at `lib/ai-chat/prompts/vocabulary-practice.ts` with stable
-ID `unmumble.vocabulary-practice` and version `5`. Its contract is learner-led,
-plain-text, treats openings/targets/tool results as untrusted data, forbids inferred
-writes or autonomous category changes, and carries only a validated list cursor for
-continuation. Natural user references may resolve against bounded canonical history,
-but a mutation tool creates a proposal only. The prompt must never claim a domain
-write succeeded while the proposal is pending. The service passes prompt ID/version
-into privacy-safe lifecycle events; prompt text itself is never logged.
+ID `unmumble.vocabulary-practice` and version `7`. Its contract is learner-led,
+uses CommonMark without raw HTML, treats openings/targets/tool results as untrusted
+data, forbids inferred writes or autonomous category changes, and carries only a
+validated list cursor for continuation. A scope gate allows English learning and
+Unmumble vocabulary operations; a general subject is allowed only when the learner
+explicitly makes it English practice. Other requests receive a brief redirect in the
+configured explanation language and no tool call. Natural user references may resolve
+against bounded canonical history, but a mutation tool creates a proposal only. The
+prompt must never claim a domain write succeeded while the proposal is pending. The
+service passes prompt ID/version into privacy-safe lifecycle events; prompt text itself
+is never logged.
 
 ## Mixed Proposal Tool and Confirmation Authorization
 
@@ -277,7 +281,7 @@ history. Migration 0019 repairs historical duplicate pending attempts and adds a
 partial unique index on `chat_id`, allowing only one `pending` attempt across a
 chat. Migration 0020 stores the configured provider/model on the attempt before
 generation, independently from terminal provider/model and sanitized routed-provider
-telemetry. The 55-second lease expires abandoned work; a fresh second turn returns
+telemetry. The five-minute lease expires abandoned work; a fresh second turn returns
 `turn_in_progress`. Finish/fail/tool SQL is fenced by the exact current attempt with
 both `status = pending` and an unexpired
 `lease_expires_at`. The same lease predicate protects assistant terminal writes,
@@ -378,9 +382,13 @@ ambiguous after commit, readback accepts only those exact fresh user/assistant a
 attempt IDs as the operation's own result (`created`/`retrying`), allowing the
 service to continue generation rather than return a false conflict.
 
-Generation uses a 45-second total deadline, 25 seconds per model step, 20 seconds
-to the first chunk, 20 seconds between chunks, and 5 seconds per tool execution;
-the pending lease is a 55-second emergency fence. Complete or
+Generation uses inactivity deadlines of 20 seconds to the first semantic chunk,
+20 seconds between semantic chunks, and 5 seconds per tool execution. It has no
+absolute total or per-step model deadline while semantic output continues. The
+generation adapter starts its own first-activity watchdog before the provider call
+and clears it from the first semantic `onChunk`, covering a connection that stalls
+before the SDK receives a response stream; the SDK owns later inter-chunk resets. The
+independent pending lease is a five-minute emergency recovery fence. Complete or
 fresh-pending duplicate client turns return conflict/existing state rather than
 starting another paid request; reuse with different user content is rejected. A
 fresh pending attempt for any other turn in the same chat is also rejected.

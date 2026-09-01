@@ -122,8 +122,9 @@ of this follow-up. PR-preview deployment is authorized; production is not.
   atomic idempotent legacy-owner transfer runs only on login/session bootstrap.
 - [x] **P10 · Versioned prompt and SRP tools** — prompt path
   `lib/ai-chat/prompts/vocabulary-practice.ts` exposes ID
-  `unmumble.vocabulary-practice`/version `5` and reports that identity in safe
-  events. Three vocabulary tools are split into contracts/results/handlers/registry/
+  `unmumble.vocabulary-practice`/version `7`, keeps off-topic requests out while
+  allowing English practice and vocabulary operations, and reports that identity in
+  safe events. Three vocabulary tools are split into contracts/results/handlers/registry/
   pagination; `vocabulary-tools.ts` is a thin facade and every active tool shares
   one traced budget wrapper.
 - [x] **P10a · Explicit change-set pipeline** — retain

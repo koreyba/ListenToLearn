@@ -197,7 +197,7 @@ Trying to edit shared preset legacy meaning returns the closed typed
 - `POST /api/ai/chats/:chatId/messages/:clientMessageId/cancel` accepts only an
   authenticated same-origin empty command. It terminalizes the exact latest pending
   assistant attempt as `generation_cancelled` even when its lease has just elapsed,
-  so Stop or a browser-observed stream interruption does not wait for the 55-second
+  so Stop or a browser-observed stream interruption does not wait for the five-minute
   recovery lease. Complete/failed turns replay their existing terminal state,
   foreign or missing turns return 404, and late generation callbacks stay fenced.
 - Retrying an older turn uses only canonical messages before that user turn, not
@@ -224,9 +224,12 @@ Trying to edit shared preset legacy meaning returns the closed typed
   read and leaves the model to call a read tool when the claim is needed.
 - The prompt contract lives at
   `lib/ai-chat/prompts/vocabulary-practice.ts`, has ID
-  `unmumble.vocabulary-practice` and version `5`, and returns that identity with the
-  system/messages payload. Safe generation events include prompt ID/version so a
-  response can be traced to the exact prompt contract without logging prompt text.
+  `unmumble.vocabulary-practice` and version `7`, and returns that identity with the
+  system/messages payload. The prompt accepts English-learning requests and Unmumble
+  vocabulary operations, accepts general topics only when explicitly used for English
+  practice, and otherwise gives a brief scope redirect without calling tools. Safe
+  generation events include prompt ID/version so a response can be traced to the exact
+  prompt contract without logging prompt text.
 
 ### Interactive message selection
 
@@ -328,9 +331,10 @@ Trying to edit shared preset legacy meaning returns the closed typed
 - Practice target snapshot/prompt data: at most 12 targets and 48,000 JSON
   characters.
 - Canonical history: latest 40 complete messages within 32,000 characters.
-- Model output: 2,400 tokens. Generation deadlines are 45 seconds total, 25 seconds
-  per model step, 20 seconds to the first chunk, 20 seconds between chunks, and
-  5 seconds for a tool execution. The stale-attempt lease is 55 seconds.
+- Model output: 2,400 tokens. Generation inactivity deadlines are 20 seconds to the
+  first semantic chunk, 20 seconds between semantic chunks, and 5 seconds for a tool
+  execution. There is no absolute total or per-step model deadline while semantic
+  output continues. The independent stale-attempt recovery lease is five minutes.
 - At most 2 tool calls per user turn. A mixed mutation request normally needs one
   `propose_vocabulary_change_set` call; a grounded lookup followed by that proposal
   may use both. The pre-trace fence preserves headroom under D1 Free's

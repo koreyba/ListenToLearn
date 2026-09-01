@@ -21,7 +21,9 @@ import {
 } from "./terminal-telemetry.ts";
 
 export const AI_CHAT_LEGACY_MEANING_ID = VOCABULARY_LEGACY_MEANING_ID;
-export const AI_CHAT_PENDING_LEASE_MS = AI_CHAT_LIMITS.upstreamTimeoutMs + 10_000;
+// Crash recovery is independent from provider inactivity timeouts. Keep this
+// lease generous relative to bounded output so ordinary active streams are not fenced.
+export const AI_CHAT_PENDING_LEASE_MS = 5 * 60_000;
 export const AI_CHAT_ACCOUNT_LIMIT = 100;
 export const AI_CHAT_LIST_LIMIT = 100;
 export const AI_CHAT_MESSAGE_LIST_LIMIT = 200;

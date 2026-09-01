@@ -125,8 +125,6 @@ test("configured runtime exposes the bounded generation settings", () => {
     },
     {
       timeout: {
-        totalMs: 45_000,
-        stepMs: 25_000,
         firstChunkMs: 20_000,
         chunkMs: 20_000,
         toolMs: 5_000,

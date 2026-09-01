@@ -172,3 +172,47 @@ test("Stop terminalizes a saved pending turn and leaves the composer usable", as
   await composer.fill("Continue with a shorter example.");
   await expect(page.getByRole("button", { name: "Send message" })).toBeEnabled();
 });
+
+test("assistant Markdown keeps loose lists compact", async ({ page }) => {
+  const content = [
+    "Спасибо! Главное — сначала проверь предложение.",
+    "",
+    "Если захочешь продолжить, могу:",
+    "",
+    "- потренировать твои слова упражнениями;",
+    "",
+    "- добавить или переместить ещё слова;",
+    "",
+    "- просто разобрать что-нибудь по-английски.",
+    "",
+    "Что дальше?",
+  ].join("\n");
+  const currentDetail = chatDetail([
+    chatMessage({
+      id: "assistant-message-1",
+      role: "assistant",
+      sequence: 1,
+      content,
+      status: "complete",
+      clientMessageId: "opening:chat-1",
+    }),
+  ]);
+  await mockAuthenticatedChat(page, () => currentDetail);
+
+  await page.goto("/chat?chat=chat-1");
+
+  const message = page.locator('[data-chat-message-id="assistant-message-1"]');
+  const markdown = message.locator(".interactive-english-text");
+  const list = message.locator("ul");
+  const items = message.locator("li");
+  await expect(markdown).toHaveCSS("white-space", "normal");
+  await expect(list).toHaveCSS("list-style-type", "disc");
+  await expect(items).toHaveCount(3);
+
+  const itemGaps = await items.evaluateAll((elements) => elements.slice(1).map((element, index) => {
+    const previous = elements[index].getBoundingClientRect();
+    const current = element.getBoundingClientRect();
+    return current.top - previous.bottom;
+  }));
+  expect(Math.max(...itemGaps)).toBeLessThanOrEqual(8);
+});

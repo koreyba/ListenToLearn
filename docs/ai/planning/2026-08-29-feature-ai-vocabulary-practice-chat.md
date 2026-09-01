@@ -13,7 +13,7 @@ The resource-first backend and its first architecture cleanup shipped in merged 
 per-probe recovery, a separated client recovery module, real Workers-runtime D1
 coverage, and deterministic browser network-failure journeys. Fresh evidence passes
 the production build, `node --test tests/*.test.mjs` at 654/654, Workers Vitest at
-1/1, Playwright at 4/4 desktop/mobile journeys, TypeScript, lint, and diff check. The
+1/1, Playwright at 6/6 desktop/mobile journeys, TypeScript, lint, and diff check. The
 new PR and its authenticated preview smoke remain pending.
 
 The approved resource-first follow-up is active in the current diff. The provider

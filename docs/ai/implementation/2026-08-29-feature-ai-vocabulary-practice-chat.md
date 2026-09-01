@@ -353,7 +353,7 @@ browser stream.
 
 Fresh 2026-09-01 evidence on `feature-ai-chat-reliability-audit` passes the
 production build plus `node --test tests/*.test.mjs` at 654/654, the Workers-runtime
-D1 test at 1/1, and Playwright at 4/4 desktop/mobile journeys. TypeScript, ESLint
+D1 test at 1/1, and Playwright at 6/6 desktop/mobile journeys. TypeScript, ESLint
 with zero errors, lifecycle lint, and `git diff --check` also pass. This retains
 coverage for typed preset rejection, real compact IDs at
 the 30-change boundary, cross-action collision rejection, retry isolation, the hard

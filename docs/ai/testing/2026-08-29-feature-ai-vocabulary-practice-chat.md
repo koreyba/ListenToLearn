@@ -32,7 +32,7 @@ failure matrix.
 ## Fresh Automated Evidence
 
 Fresh post-merge reliability evidence passes the Vite 8.2.2 production build,
-654/654 Node tests, 1/1 Workers-runtime D1 test, and 4/4 Playwright journeys across
+654/654 Node tests, 1/1 Workers-runtime D1 test, and 6/6 Playwright journeys across
 desktop and mobile Chromium. TypeScript passes; ESLint reports zero errors and the
 same three generated/existing warnings. Production dependencies report zero known
 audit vulnerabilities. The remaining full-tree audit findings are confined to

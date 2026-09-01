@@ -712,12 +712,16 @@ button { cursor: pointer; }
 .ai-chat-message-role { color: var(--app-label); font-size: 11px; font-weight: 850; letter-spacing: .1em; text-transform: uppercase; }
 .ai-chat-message-text,
 .interactive-english-text { white-space: pre-wrap; user-select: text; }
+.ai-chat-message.assistant .interactive-english-text { white-space: normal; }
 .ai-chat-message-text ::selection { background: var(--color-interactive-solid); color: var(--color-text-inverse); }
 .ai-chat-message-text .interactive-english-text > :first-child { margin-top: 0; }
 .ai-chat-message-text .interactive-english-text > :last-child { margin-bottom: 0; }
 .ai-chat-message-text p { margin: .45em 0; }
 .ai-chat-message-text ul,
 .ai-chat-message-text ol { margin: .55em 0; padding-inline-start: 1.35em; }
+.ai-chat-message-text ul { list-style-type: disc; }
+.ai-chat-message-text ol { list-style-type: decimal; }
+.ai-chat-message-text li > p { margin: 0; }
 .ai-chat-message-text li + li { margin-top: .22em; }
 .ai-chat-message-text strong { font-weight: 850; }
 .ai-chat-message-text code { padding: .12em .38em; border: 1px solid var(--line); border-radius: 6px; background: var(--color-overlay-soft); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }

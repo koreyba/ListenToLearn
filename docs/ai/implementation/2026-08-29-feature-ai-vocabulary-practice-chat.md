@@ -294,14 +294,16 @@ misclassifying an interrupted Worker as a proven provider timeout. A user messag
 enters canonical model history only when its paired assistant response is complete,
 so failed and still-pending turns do not contaminate later prompts. A retry of an
 older turn loads only messages before that turn and can replay committed receipts.
-Browser Stop/stream-interruption recovery can also call the dedicated cancellation
-route with only the stable client message ID. It atomically changes the exact pending
+Explicit browser Stop calls the dedicated cancellation route with only the stable
+client message ID. It atomically changes the exact pending
 assistant/attempt to `generation_cancelled`, even just after lease expiry; repeated
 calls return the existing terminal state and late generation callbacks cannot
-overwrite it. Client cancellation and canonical reconciliation share an eight-second
-deadline, after which the draft remains safely retryable instead of freezing the
-composer. A stream that ends without a real terminal finish is treated as an
-interruption and enters the same cancellation/reconciliation path.
+overwrite it. Client cancellation has an eight-second deadline. Passive stream
+interruption uses canonical detail reconciliation instead of cancellation: each read
+has its own eight-second deadline, fast probes back off to bounded polling, and a
+chat change or unmount aborts the loop. After an unverified result the original
+outbound identity and draft remain safely retryable instead of freezing the
+composer.
 
 There is no application regex router, forced tool choice, generated fallback call,
 or provider retry middleware. The versioned prompt asks the model to resolve natural
@@ -349,11 +351,11 @@ browser stream.
 
 ## Validation Evidence
 
-Fresh 2026-09-01 evidence for the architecture split passes the production build,
-651/651 tests, TypeScript, ESLint with zero errors, lifecycle lint, and
-`git diff --check`. Focused evidence includes 50/50 current recovery/Markdown tests,
-the earlier 74/74 client/UI architecture suite, and 97/97 vocabulary planner, tool,
-proposal-lifecycle, and exact D1-budget tests. It retains coverage for typed preset rejection, real compact IDs at
+Fresh 2026-09-01 evidence on `feature-ai-chat-reliability-audit` passes the
+production build plus `node --test tests/*.test.mjs` at 654/654, the Workers-runtime
+D1 test at 1/1, and Playwright at 4/4 desktop/mobile journeys. TypeScript, ESLint
+with zero errors, lifecycle lint, and `git diff --check` also pass. This retains
+coverage for typed preset rejection, real compact IDs at
 the 30-change boundary, cross-action collision rejection, retry isolation, the hard
 client cancellation deadline, quiet-stream recovery, and exact confirmation costs.
 

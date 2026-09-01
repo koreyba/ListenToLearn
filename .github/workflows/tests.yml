@@ -38,3 +38,9 @@ jobs:
       - run: npm run build
       - name: Run tests and publish summary
         run: npm run test:ci
+      - name: Run Workers runtime tests
+        run: npm run test:worker
+      - name: Install browser for chat journeys
+        run: ./node_modules/.bin/playwright install --with-deps chromium
+      - name: Run chat browser journeys
+        run: npm run test:e2e

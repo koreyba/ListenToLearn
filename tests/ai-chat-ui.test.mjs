@@ -89,7 +89,7 @@ test("only explicit Stop cancels the server turn while transport errors reconcil
   assert.match(source, /refresh\(signal, \{ quiet: true, detailOnly: true \}\)/);
   assert.match(source, /options\?\.detailOnly\s*\?\s*Promise\.resolve\(null\)/);
   assert.match(source, /withAiChatCancelDeadline\(async \(signal\) =>/);
-  assert.match(source, /signal,/);
+  assert.match(source, /recoverAiChatCanonicalTurn\(\{[\s\S]*?signal:\s*recoveryController\.signal,/);
   assert.match(source, /onStop=\{stopPendingTurn\}/);
   assert.match(source, /onClick=\{onStop\}/);
 });

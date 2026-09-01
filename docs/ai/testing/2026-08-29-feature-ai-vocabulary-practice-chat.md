@@ -6,16 +6,40 @@ description: Verified agent-tool contracts and remaining end-to-end gates
 
 # AI Vocabulary Practice Chat Testing
 
+## 2026-09-01 Reliability Audit Addendum
+
+The post-merge reliability branch adds the missing behavioral layers identified in
+the audit:
+
+- a Cloudflare Workers Vitest test applies every D1 migration inside `workerd` and
+  proves idempotent logical-turn reuse, the one-pending-attempt invariant, terminal
+  completion, and subsequent-chat usability against real D1 semantics;
+- a client regression test proves that a canonical-detail request which never
+  settles is aborted at its own deadline and cannot freeze later recovery probes;
+- Playwright intercepts the actual browser network boundary and proves interrupted
+  Retry convergence plus explicit Stop on both desktop Chromium and a mobile coarse-
+  pointer viewport. Stop leaves Retry available and the composer unlocked;
+- PR CI installs Chromium, retains screenshots on failure, and records a trace on the
+  first retry.
+
+These tests complement rather than replace the existing Node suites: source-boundary
+assertions remain architecture tripwires, Node tests own exhaustive deterministic
+failure injection, Workers Vitest owns runtime/storage parity, and Playwright owns
+browser transport and interaction behavior. See the dedicated
+`2026-09-01-feature-ai-chat-reliability-audit` design document for the invariant and
+failure matrix.
+
 ## Fresh Automated Evidence
 
-Fresh 2026-09-01 focused evidence passes 50/50 current recovery/Markdown tests, the
-earlier 74/74 client/UI architecture suite, and 97/97 vocabulary planner, tool,
-proposal-lifecycle, and exact D1-budget tests after separating the frontend lifecycle
-and backend change-set pipeline. The production build, 651/651 full tests, TypeScript,
-ESLint with zero errors, lifecycle lint, `git diff --check`,
-and authenticated local browser E2E also pass. Architecture commit `7bcfe9a` is
-published to PR #32 with green Tests, CodeQL, SonarCloud, Qodana, and Cloudflare
-branch-preview checks; extended authenticated preview smoke remains open.
+Fresh post-merge reliability evidence passes the Vite 8.2.2 production build,
+654/654 Node tests, 1/1 Workers-runtime D1 test, and 4/4 Playwright journeys across
+desktop and mobile Chromium. TypeScript passes; ESLint reports zero errors and the
+same three generated/existing warnings. Production dependencies report zero known
+audit vulnerabilities. The remaining full-tree audit findings are confined to
+development transitive dependencies in pinned `vinext`/`drizzle-kit`; their offered
+fixes require breaking toolchain changes and are not force-applied in this reliability
+PR. PR #32's earlier preview evidence remains historical; the new reliability branch
+still requires its own PR checks and preview smoke.
 
 The current browser run at 319px and desktop master-detail breakpoints verified
 Markdown, Stop, Retry, a successful post-cancellation follow-up, one three-addition

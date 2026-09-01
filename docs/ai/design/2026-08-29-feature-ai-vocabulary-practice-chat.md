@@ -348,7 +348,7 @@ proposal pending and returns a retryable safe error.
 2. The service rebuilds bounded canonical history only before this user sequence,
    restores at most one validated continuation from the latest earlier completed
    `list_vocabulary` ledger result, builds prompt ID/version
-   `unmumble.vocabulary-practice`/`5`, creates the tool executor with
+   `unmumble.vocabulary-practice`/`7`, creates the tool executor with
    user/chat/message/attempt IDs, and starts one bounded provider generation with
    exactly two read tools plus the mixed proposal tool.
 3. Each tool call is registered and fenced before execution. The hard per-turn
@@ -370,11 +370,14 @@ proposal pending and returns a retryable safe error.
    user row is admitted to canonical provider history only together with its
    complete assistant row; failed, pending, cancelled, and interrupted pairs are
    excluded.
-   Separately, browser Stop or stream interruption calls the cancellation endpoint;
-   one owner-scoped turn lookup plus a three-statement terminal batch immediately
-   marks the exact pending attempt `generation_cancelled`, including an elapsed
-   lease. The separate cancellation invocation adds no statement to a normal
-   successful turn, and its terminal state fences late finish/fail callbacks.
+   Separately, explicit browser Stop calls the cancellation endpoint; one
+   owner-scoped turn lookup plus a three-statement terminal batch immediately marks
+   the exact pending attempt `generation_cancelled`, including an elapsed lease.
+   A passive stream interruption does not pretend the learner pressed Stop: the
+   browser polls canonical chat detail until that attempt becomes terminal or the
+   bounded recovery window ends. The separate Stop invocation adds no statement to
+   a normal successful turn, and its terminal state fences late finish/fail
+   callbacks.
 5. Retry retains the same user, practice snapshot, and assistant message, expires
    any stale pending attempt, inserts the next attempt number, and replays matching
    durable receipts. Later target changes cannot rewrite an older turn's context.

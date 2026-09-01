@@ -568,7 +568,7 @@ test("trainer uses one unbroken toolbar and one stateful play pause control", as
   assert.match(trainer, /const wantsPlayback = playerState !== 1;[\s\S]*?requestedYouglishPlayback = wantsPlayback;[\s\S]*?callWidget\(wantsPlayback \? "play" : "pause"\)/);
   assert.match(
     trainer,
-    /playerState = nextState;\s*if \(nextState === 2 && repeatResolvePending\?\.phase === "pausing"\) \{\s*fetchRepeatResolution\(\);\s*\}\s*if \(nextState === 1\) beginCurrentYouglishRestoreAnchorClock\(\);\s*renderPlaybackControl\(\);/,
+    /playerState = nextState;\s*if \(nextState === 1\) beginCurrentYouglishRestoreAnchorClock\(\);\s*renderPlaybackControl\(\);/,
   );
   assert.match(trainer, /Recording ready — press Play\./);
   assert.doesNotMatch(trainer, /Recording ready — press Listen\./);
@@ -787,6 +787,7 @@ test("YouGlish repeat keeps one stable widget instance", async () => {
   assert.doesNotMatch(trainer, /widget\.close\(\)/);
   assert.doesNotMatch(trainer, /host\.replaceChildren\(mount\)/);
   assert.doesNotMatch(trainer, /recreateYouglishWidget/);
+  assert.doesNotMatch(trainer, /repeatResolvePending|fetchRepeatResolution/, "Repeat must not re-fetch the caption through the widget");
   assert.doesNotMatch(trainer, /components: 0/);
   assert.doesNotMatch(trainer, /components: 68/);
 });

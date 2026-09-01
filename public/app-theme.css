@@ -64,7 +64,7 @@
   --color-card-title: #e5ebf1;
   --color-control-background: #1c232c;
   --color-control-background-hover: #252f3a;
-  --color-control-border: #475463;
+  --color-control-border: #657587;
   --color-focus: #aee8ff;
   --color-brand: #b7c9aa;
   --color-brand-secondary: #dd9876;
@@ -156,7 +156,7 @@
   --color-card-title: #27313a;
   --color-control-background: #ffffff;
   --color-control-background-hover: #edf1f4;
-  --color-control-border: #b7c0c7;
+  --color-control-border: #7f8b93;
   --color-focus: #185d78;
   --color-brand: #405a38;
   --color-brand-secondary: #985137;
@@ -173,7 +173,7 @@
   --color-link: #174f66;
   --color-interactive: #185d78;
   --color-interactive-solid: #246d8a;
-  --color-interactive-surface: linear-gradient(135deg, #246d8a, #3285a5);
+  --color-interactive-surface: linear-gradient(135deg, #185d78, #246d8a);
   --color-on-interactive: #f7fcff;
   --color-interactive-soft: rgba(36, 109, 138, .1);
   --color-interactive-soft-hover: rgba(36, 109, 138, .16);

@@ -22,6 +22,7 @@ const PREVIEW_WORKER_ACCESS_AUD =
   "85d7b3fcc999788239cf6f922a2bcf6b63be99dd2e05df2af5e66e7645bea1a4";
 const LOGIN_ACCESS_AUD =
   "9b29b79b8bca8308e4933c030f464d5a1da798497182652fe75a1fd304975a29";
+const AI_CHAT_MODEL = "deepseek/deepseek-v4-flash-0731";
 
 test("Unmumble environments have explicit Worker and D1 names", () => {
   assert.equal(sourceConfig.name, "unmumble-prod");
@@ -158,6 +159,60 @@ test("preview accepts its Access application without widening production", () =>
   assert.deepEqual(sourceProductionAudiences, [LOGIN_ACCESS_AUD]);
   assert.ok(!previewAudiences.includes(LOGIN_ACCESS_AUD));
   assert.ok(!productionAudiences.includes(PREVIEW_WORKER_ACCESS_AUD));
+});
+
+test("AI generation has account and per-location aggregate edge rate limits", () => {
+  const expectedLimits = [
+    {
+      name: "AI_CHAT_USER_RATE_LIMITER",
+      namespace_id: "310001",
+      simple: { limit: 10, period: 60 },
+    },
+    {
+      name: "AI_CHAT_EDGE_AGGREGATE_RATE_LIMITER",
+      namespace_id: "310002",
+      simple: { limit: 100, period: 60 },
+    },
+  ];
+  const expectedPreviewLimits = expectedLimits.map((binding, index) => ({
+    ...binding,
+    namespace_id: String(311001 + index),
+  }));
+
+  assert.deepEqual(sourceConfig.ratelimits, expectedLimits);
+  assert.deepEqual(productionConfig.ratelimits, expectedLimits);
+  assert.deepEqual(sourceConfig.env.preview.ratelimits, expectedPreviewLimits);
+  assert.deepEqual(previewConfig.ratelimits, expectedPreviewLimits);
+  assert.equal(new Set([
+    ...expectedLimits,
+    ...expectedPreviewLimits,
+  ].map((binding) => binding.namespace_id)).size, 4);
+});
+
+test("AI generation uses the code-owned concrete OpenRouter model in every environment", () => {
+  assert.equal(sourceConfig.vars.OPENROUTER_MODEL, AI_CHAT_MODEL);
+  assert.equal(sourceConfig.env.preview.vars.OPENROUTER_MODEL, AI_CHAT_MODEL);
+  assert.equal(previewConfig.vars.OPENROUTER_MODEL, AI_CHAT_MODEL);
+  assert.equal(productionConfig.vars.OPENROUTER_MODEL, AI_CHAT_MODEL);
+  assert.equal(AI_CHAT_MODEL.startsWith("@preset/"), false);
+});
+
+test("preview and production persist sampled Worker logs and traces", () => {
+  const productionObservability = {
+    enabled: true,
+    logs: { enabled: true, head_sampling_rate: 1 },
+    traces: { enabled: true, head_sampling_rate: 0.1 },
+  };
+  const previewObservability = {
+    enabled: true,
+    logs: { enabled: true, head_sampling_rate: 1 },
+    traces: { enabled: true, head_sampling_rate: 1 },
+  };
+
+  assert.deepEqual(sourceConfig.observability, productionObservability);
+  assert.deepEqual(productionConfig.observability, productionObservability);
+  assert.deepEqual(sourceConfig.env.preview.observability, previewObservability);
+  assert.deepEqual(previewConfig.observability, previewObservability);
 });
 
 test("production deploy is opt-in", () => {

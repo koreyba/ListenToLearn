@@ -19,6 +19,8 @@ test("guest allowlist exposes only UI, static assets and read-only Tatoeba", () 
     "/trainer.html",
     "/practice",
     "/practice/",
+    "/chat",
+    "/chat/",
     "/videos",
     "/videos/",
     "/settings",
@@ -49,6 +51,7 @@ test("guest allowlist rejects account APIs, integrations, login and unknown path
     "/api/videos",
     "/api/translate",
     "/api/integrations",
+    "/api/ai/chats",
     "/not-a-public-route",
   ]) {
     assert.equal(isPublicGuestRequest(request(path)), false, path);
@@ -80,6 +83,10 @@ test("login redirect returns to an approved public page and rejects unsafe targe
   assert.equal(
     guestLoginRedirect(request("/login?returnTo=%2Fsettings")).toString(),
     "https://listen-to-learn.example/settings?signedIn=1",
+  );
+  assert.equal(
+    guestLoginRedirect(request("/login?returnTo=%2Fchat")).toString(),
+    "https://listen-to-learn.example/chat?signedIn=1",
   );
   for (const target of [
     "//evil.example",

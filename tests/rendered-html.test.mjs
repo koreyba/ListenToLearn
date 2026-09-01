@@ -31,6 +31,7 @@ test("unified site navigation exposes every primary section", async () => {
   for (const [href, label] of [
     ["/library", "Library"],
     ["/practice", "Practice"],
+    ["/chat", "AI Chat"],
     ["/videos", "Videos"],
     ["/settings", "Settings"],
   ]) {
@@ -50,6 +51,25 @@ test("unified site navigation exposes every primary section", async () => {
   assert.match(videos, /<SiteNavigation\s+active="videos"/);
   assert.match(integrations, /<SiteNavigation\s+active="settings"/);
   assert.match(trainer, /href="\/practice" aria-current="page">Practice<\/a>/);
+});
+
+test("AI Chat has a public shell with an explicit account boundary", async () => {
+  const [page, chat, styles] = await Promise.all([
+    readFile(new URL("../app/chat/page.tsx", import.meta.url), "utf8").catch(() => ""),
+    readFile(new URL("../app/components/ai-practice-chat.tsx", import.meta.url), "utf8").catch(() => ""),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(page, /<AiPracticeChat\s*\/>/);
+  assert.match(chat, /<SiteNavigation active="chat"/);
+  assert.match(chat, /accountSession\(\)/);
+  assert.match(chat, /setReturnTo\(`\$\{window\.location\.pathname\}\$\{window\.location\.search\}`\)/);
+  assert.match(chat, /signInHref\(returnTo\)/);
+  assert.match(chat, /Turn words into conversation/);
+  assert.match(chat, /select any useful phrase to translate or add to learning/i);
+  assert.match(chat, /Sign in with Google to start and keep your practice chats/);
+  assert.match(styles, /\.ai-chat-shell \{/);
+  assert.match(styles, /@media \(max-width: 760px\)[\s\S]*?\.ai-chat-shell \{/);
 });
 
 test("every navigation keeps Beta with the brand and places a GitHub icon in the right controls", async () => {
@@ -94,7 +114,7 @@ test("unified navigation stays on top for desktop and moves to the bottom on mob
   assert.match(styles, /\.site-navigation \{[\s\S]*?position: sticky;[\s\S]*?top: 0;/);
   assert.match(styles, /@media \(max-width: 760px\)[\s\S]*?\.site-primary-links \{[\s\S]*?position: fixed;[\s\S]*?bottom: 0;/);
   assert.match(styles, /@media \(max-width: 760px\)[\s\S]*?\.site-navigation \{[\s\S]*?backdrop-filter: none;/);
-  assert.match(styles, /grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/);
+  assert.match(styles, /grid-template-columns: repeat\(5, minmax\(0, 1fr\)\)/);
   assert.match(styles, /env\(safe-area-inset-bottom\)/);
   assert.match(styles, /\.site-primary-link \{[\s\S]*?min-height: 50px;/);
   assert.match(trainer, /top: var\(--site-navigation-offset, 0\)/);
@@ -128,6 +148,7 @@ test("Library catalogs new phrases while Practice owns the learning queues", asy
   assert.match(styles, /\.phrase-summary \{[^}]*cursor: default;/);
   assert.match(worker, /PUBLIC_DOCUMENT_PATHS[^;]*"\/practice"/);
   assert.match(worker, /PUBLIC_DOCUMENT_PATHS[^;]*"\/library"/);
+  assert.match(worker, /PUBLIC_DOCUMENT_PATHS[^;]*"\/chat"/);
   assert.match(trainer, /if \(!fullVideoMode && !initialViewerParams\.get\("phrase"\)\?\.trim\(\)\) \{[\s\S]*?window\.location\.replace\("\/practice"\);/);
   assert.doesNotMatch(trainer, /viewerParams\.get\("phrase"\)\?\.trim\(\) \|\| BASE_PHRASES\[0\]\.q/);
 });
@@ -416,11 +437,17 @@ test("learning phrases persist and render their translation", async () => {
     new URL("../app/api/phrases/route.ts", import.meta.url),
     "utf8",
   );
+  const repository = await readFile(
+    new URL("../lib/vocabulary/repository.ts", import.meta.url),
+    "utf8",
+  );
   const page = await readFile(
     new URL("../app/components/phrase-workspace.tsx", import.meta.url),
     "utf8",
   );
-  assert.match(route, /translation = CASE WHEN translation = '' THEN/);
+  assert.match(route, /createVocabularyRepository\(db\)\.addEntry/);
+  assert.match(repository, /createVocabularyMutationPlanner/);
+  assert.match(repository, /await db\.batch\(plan\.statements\)/);
   assert.match(route, /translateEnglishToRussian/);
   assert.match(route, /optionalTranslationForPhrase/);
   assert.match(route, /translationPending/);
@@ -451,7 +478,8 @@ test("MVP UX persists phrase context and exposes global library sorting", async 
   assert.doesNotMatch(route, /CREATE TABLE IF NOT EXISTS|ALTER TABLE.*context/);
   assert.match(route, /payload\.context/);
   assert.match(route, /payload\.translation/);
-  assert.match(route, /p\.id, p\.text, p\.pattern, p\.ipa, p\.translation, p\.context/);
+  assert.match(route, /COALESCE\(NULLIF\(p\.translation, ''\), fallback_meaning\.translation, ''\) AS translation/);
+  assert.match(route, /candidate\.user_id = \? AND candidate\.phrase_id = p\.id/);
   assert.match(schema, /context: text\("context"\)/);
   assert.match(migration, /ALTER TABLE [`]phrases[`] ADD [`]context[`]/);
   assert.match(page, /phrase-sort/);

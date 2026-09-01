@@ -242,7 +242,7 @@
     left: 0;
     z-index: 2100;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 2px;
     padding: 6px max(6px, env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left));
     border: 0;
@@ -260,25 +260,32 @@
   }
 
   .site-account {
-    gap: 8px;
+    gap: 7px;
     margin-left: auto;
   }
 
+  .site-github-link { display: none; }
+
   .site-account-name {
-    max-width: min(42vw, 150px);
+    max-width: min(30vw, 120px);
     font-size: 11px;
   }
 
   .theme-toggle {
-    width: 42px;
-    height: 42px;
-    min-height: 42px;
-    flex-basis: 42px;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    flex-basis: 44px;
   }
 }
 
 @media (max-width: 480px) {
-  .site-account-name { max-width: min(24vw, 90px); }
+  .site-navigation-inner { gap: 8px; padding-inline: 10px; }
+  .site-brand-logo { width: 92px; }
+  .site-beta-badge { display: none; }
+  .site-account { gap: 5px; }
+  .site-account-name { max-width: min(18vw, 72px); }
+  .site-account-link { font-size: 11px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

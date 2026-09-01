@@ -84,11 +84,36 @@ test("only explicit Stop cancels the server turn while transport errors reconcil
   assert.match(source, /shouldSettleAiChatStreamFromCanonical\(\{/);
   assert.match(source, /setLocallyTerminalClientMessageId\(clientMessageId\);\s*updateActiveClientMessageId\(null\);\s*clearError\(\);\s*stop\(\);/s);
   assert.match(source, /recoverAiChatCanonicalTurn\(\{/);
-  assert.match(source, /refresh\(signal, \{ quiet: true \}\)/);
+  assert.match(source, /recoveryWindowMs:\s*AI_CHAT_CANONICAL_RECOVERY_WINDOW_MS/);
+  assert.doesNotMatch(source, /response is still running/);
+  assert.match(source, /refresh\(signal, \{ quiet: true, detailOnly: true \}\)/);
+  assert.match(source, /options\?\.detailOnly\s*\?\s*Promise\.resolve\(null\)/);
   assert.match(source, /withAiChatCancelDeadline\(async \(signal\) =>/);
   assert.match(source, /signal,/);
   assert.match(source, /onStop=\{stopPendingTurn\}/);
   assert.match(source, /onClick=\{onStop\}/);
+});
+
+test("each interactive message owns its selection context without a raw-Markdown override", async () => {
+  const source = await readFile(
+    new URL("../app/components/ai-chat-conversation.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(source, /selectionchange/);
+  assert.doesNotMatch(source, /messageTexts/);
+  assert.doesNotMatch(source, /interactiveEnglishContext/);
+  assert.match(source, /onPhraseSelect=\{\(phrase, context, details\) => chooseText\(/);
+});
+
+test("jumping to the latest message respects reduced-motion preferences", async () => {
+  const source = await readFile(
+    new URL("../app/components/ai-chat-conversation.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /prefers-reduced-motion: reduce/);
+  assert.match(source, /behavior:\s*reduceMotion \? "auto" : "smooth"/);
 });
 
 test("stopping blocks a second send and rejected outbound text remains recoverable", async () => {

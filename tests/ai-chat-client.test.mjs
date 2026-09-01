@@ -270,6 +270,76 @@ test("stream recovery reports a still-running canonical turn without cancelling 
   assert.equal(result.detail, pending);
 });
 
+test("stream recovery keeps polling after the fast probes until the canonical turn is terminal", async () => {
+  const pending = {
+    id: "chat-1",
+    messages: [{ role: "assistant", status: "pending", clientMessageId: "turn-1" }],
+  };
+  const terminal = {
+    id: "chat-1",
+    messages: [{
+      role: "assistant",
+      status: "complete",
+      clientMessageId: "turn-1",
+      content: "Recovered after the transport returned",
+    }],
+  };
+  const snapshots = [pending, pending, terminal];
+  let reads = 0;
+  let elapsed = 0;
+  const waits = [];
+
+  const result = await clientModule.recoverAiChatCanonicalTurn({
+    clientMessageId: "turn-1",
+    delaysMs: [0],
+    recoveryWindowMs: 10,
+    pollIntervalMs: 2,
+    maxPollIntervalMs: 4,
+    now: () => elapsed,
+    refresh: async () => snapshots[reads++],
+    wait: async (delayMs) => {
+      waits.push(delayMs);
+      elapsed += delayMs;
+    },
+  });
+
+  assert.equal(reads, 3);
+  assert.deepEqual(waits, [0, 2, 4]);
+  assert.equal(result.state, "terminal");
+  assert.equal(result.detail.messages[0].content, "Recovered after the transport returned");
+});
+
+test("stream recovery also survives temporary canonical-read failures", async () => {
+  const terminal = {
+    id: "chat-1",
+    messages: [{
+      role: "assistant",
+      status: "failed",
+      clientMessageId: "turn-1",
+      errorCode: "generation_interrupted",
+    }],
+  };
+  const snapshots = [null, null, terminal];
+  let reads = 0;
+  let elapsed = 0;
+
+  const result = await clientModule.recoverAiChatCanonicalTurn({
+    clientMessageId: "turn-1",
+    delaysMs: [0],
+    recoveryWindowMs: 10,
+    pollIntervalMs: 2,
+    now: () => elapsed,
+    refresh: async () => snapshots[reads++],
+    wait: async (delayMs) => {
+      elapsed += delayMs;
+    },
+  });
+
+  assert.equal(reads, 3);
+  assert.equal(result.state, "terminal");
+  assert.equal(result.detail, terminal);
+});
+
 test("retry recovery ignores the terminal snapshot that predates the new attempt", async () => {
   const stale = {
     id: "chat-1",

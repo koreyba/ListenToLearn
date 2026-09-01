@@ -8,10 +8,11 @@ description: Verified agent-tool contracts and remaining end-to-end gates
 
 ## Fresh Automated Evidence
 
-Fresh 2026-09-01 focused evidence passes 74/74 client/UI tests and 97/97 vocabulary
-planner, tool, proposal-lifecycle, and exact D1-budget tests after separating the
-frontend lifecycle and backend change-set pipeline. The production build, 645/645
-full tests, TypeScript, ESLint with zero errors, lifecycle lint, `git diff --check`,
+Fresh 2026-09-01 focused evidence passes 50/50 current recovery/Markdown tests, the
+earlier 74/74 client/UI architecture suite, and 97/97 vocabulary planner, tool,
+proposal-lifecycle, and exact D1-budget tests after separating the frontend lifecycle
+and backend change-set pipeline. The production build, 651/651 full tests, TypeScript,
+ESLint with zero errors, lifecycle lint, `git diff --check`,
 and authenticated local browser E2E also pass. Architecture commit `7bcfe9a` is
 published to PR #32 with green Tests, CodeQL, SonarCloud, Qodana, and Cloudflare
 branch-preview checks; extended authenticated preview smoke remains open.
@@ -22,6 +23,12 @@ inline proposal cancelled without vocabulary writes, full-screen composer focus/
 lock, and zero document/drawer/sidebar/conversation horizontal overflow. Exact
 middle-caret transfer remains covered programmatically because the browser driver
 cannot place a textarea caret at a deterministic character offset.
+
+The recovery follow-up also repeated Retry -> live Stop -> Ready, then received a
+normal Markdown response in the same authenticated chat. Bold output rendered as
+`strong`, a new word selection cleared the previous translation state, the browser
+console had no errors, and document/composer widths remained overflow-free at 390px.
+Local DeepL was not configured, so provider translation itself was not claimed.
 
 ### Covered in the current test tree
 
@@ -163,7 +170,10 @@ cannot place a textarea caret at a deterministic character offset.
   with a meaningful retry for the unsent text, and clears recovery only after the
   canonical detail acknowledges the same `clientMessageId`. Cancellation plus
   reconciliation has an eight-second hard deadline, and a quiet EOF/undefined finish
-  enters the same recovery path rather than being mistaken for success.
+  enters the same recovery path rather than being mistaken for success. Interrupted
+  recovery continues past the fast probes with bounded exponential polling through
+  the server lease, uses detail-only refreshes, survives temporary detail-read
+  failures, and aborts with the conversation lifecycle.
 - [x] The registry exposes exactly two read tools plus one mixed proposal tool. The
   model uses automatic tool choice; there is no regex intent router, required-tool
   middleware, provider resubmission, or application-generated fallback call.
@@ -174,6 +184,10 @@ cannot place a textarea caret at a deterministic character offset.
   arrows/Home/End and Enter/Space work, while a >=450ms mobile long press or completed
   range selection suppresses the synthetic single-word click. Separate desktop and
   mobile regressions prove a later short tap/click replaces a still-live old range.
+- [x] The interactive message surface is the only selection owner. A Markdown phrase
+  selected after earlier emphasis syntax uses rendered-text offsets and returns the
+  correct visible sentence context; no conversation-level raw-source listener can
+  overwrite it.
 - [x] Consecutive selections reset translation/save UI. Component integration proves
   `first` then `second` sends two distinct `/api/translate` bodies and that Add sends
   only `second` with its matching translation/context; stale identity results cannot

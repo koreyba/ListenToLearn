@@ -99,9 +99,11 @@ remounts a conversation merely because `updatedAt` changed.
 `InteractiveEnglishText` preserves the exact message while segmenting Latin-script
 word tokens into a subtle dotted-underline interaction layer. A tap/click opens the
 word action. Only one word per message is in the tab order; arrows/Home/End move the
-roving tab stop and Enter/Space activate it. A conversation-level `selectionchange`
-listener still accepts ranges only inside one message and derives bounded sentence
-context plus a viewport anchor.
+roving tab stop and Enter/Space activate it. Each `InteractiveEnglishText` surface
+is the sole owner of its mouse, touch, and keyboard range selection. It accepts
+ranges only inside that message and derives bounded sentence context plus a viewport
+anchor from rendered plain-text offsets; the conversation never remaps those offsets
+against raw Markdown source.
 
 On coarse pointers, a >=450ms hold suppresses its following synthetic click for a
 bounded interval. Finishing any non-collapsed range also suppresses word activation.
@@ -443,8 +445,9 @@ excluded.
 
 Existing chat ceilings remain: 16,384 request bytes; 4,000 message characters;
 100 chats per account/list response; latest 200 messages per detail; 40 complete
-model-history messages/32,000 characters; 2,400 output tokens; structured
-45/25/20/20/5-second total/step/first-chunk/chunk/tool deadlines. Vocabulary
+model-history messages/32,000 characters; 2,400 output tokens; 20-second first-
+semantic-chunk and inter-chunk inactivity deadlines plus a 5-second tool deadline,
+with no absolute total or per-step deadline while semantic output continues. Vocabulary
 page/search limits are 10 entries per result, 240 entry
 characters, 1,000 meaning/context characters, and six bounded provider meanings per
 entry. A list has no overall entry cap and advances by a <=512-character opaque

@@ -4,6 +4,7 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AI_CHAT_CANONICAL_RECOVERY_WINDOW_MS,
   aiChatUiMessageText,
   isAiChatTurnBlocked,
   preserveUnverifiedAiChatOutboundTurn,
@@ -21,7 +22,7 @@ import {
 import { observeCanonicalMessages } from "@/lib/ai-chat/canonical-sync";
 import { requestAiChatJson } from "@/lib/ai-chat/client-http";
 
-export type AiChatRefreshOptions = { quiet?: boolean };
+export type AiChatRefreshOptions = { quiet?: boolean; detailOnly?: boolean };
 
 type TurnControllerOptions = {
   chat: AiChatClientDetail;
@@ -77,6 +78,11 @@ export function useAiChatTurnController({
   } | null>(null);
   const activeCancellation = useRef<Promise<void> | null>(null);
   const activeRecovery = useRef<Promise<void> | null>(null);
+  const activeRecoveryController = useRef<AbortController | null>(null);
+
+  useEffect(() => () => {
+    activeRecoveryController.current?.abort();
+  }, [chat.id]);
 
   const transport = useMemo(() => new DefaultChatTransport<AiChatUiMessage>({
     api: `/api/ai/chats/${chat.id}/messages`,
@@ -239,13 +245,17 @@ export function useAiChatTurnController({
 
     setTurnControlError("");
     setTurnRecoveryNotice("The live connection was interrupted. Checking the saved response…");
+    const recoveryController = new AbortController();
+    activeRecoveryController.current = recoveryController;
     const terminalBaselineUpdatedAt = retryTerminalBaseline.current?.clientMessageId === clientMessageId
       ? retryTerminalBaseline.current.updatedAt
       : null;
     const recovery = recoverAiChatCanonicalTurn({
       clientMessageId,
       terminalBaselineUpdatedAt,
-      refresh: (signal) => refresh(signal, { quiet: true }),
+      recoveryWindowMs: AI_CHAT_CANONICAL_RECOVERY_WINDOW_MS,
+      refresh: (signal) => refresh(signal, { quiet: true, detailOnly: true }),
+      signal: recoveryController.signal,
     }).then((result) => {
       clearError();
       if (result.detail) reconcileCanonicalDetail(result.detail);
@@ -255,15 +265,35 @@ export function useAiChatTurnController({
       } else if (result.state === "pending") {
         retryTerminalBaseline.current = null;
         setTurnRecoveryNotice(
-          "The live connection was lost, but the response is still running. You can wait or stop it.",
+          "We couldn't confirm a final response before recovery timed out. You can stop this turn or reopen the chat after the connection returns.",
         );
       } else {
+        const outbound = outboundTurn.current;
+        if (outbound) {
+          const preserved = preserveUnverifiedAiChatOutboundTurn({
+            outbound,
+            currentDraft: draftRef.current,
+          });
+          outboundTurn.current = null;
+          setRecoverableOutbound(preserved.recoverable);
+          if (preserved.draft !== draftRef.current) updateDraft(preserved.draft);
+        }
+        setLocallyTerminalClientMessageId(clientMessageId);
+        updateActiveClientMessageId(null);
         setTurnRecoveryNotice(
-          "We couldn't verify the saved response yet. Your message is safe to retry when the connection is back.",
+          "We couldn't verify the saved response. Your message is available to retry safely when the connection is back.",
         );
       }
+    }).catch((recoveryError) => {
+      if (recoveryController.signal.aborted) return;
+      setTurnControlError(recoveryError instanceof Error
+        ? recoveryError.message
+        : "The saved response could not be checked. Try again when the connection is back.");
     }).finally(() => {
       activeRecovery.current = null;
+      if (activeRecoveryController.current === recoveryController) {
+        activeRecoveryController.current = null;
+      }
     });
     activeRecovery.current = recovery;
     return recovery;

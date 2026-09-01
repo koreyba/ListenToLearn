@@ -65,18 +65,31 @@ export function shouldRecoverAiChatFinishedStream(input: {
 }
 
 export const AI_CHAT_CANONICAL_RECOVERY_DELAYS_MS = [0, 250, 500, 1_000, 2_000, 4_000] as const;
+export const AI_CHAT_CANONICAL_RECOVERY_POLL_MS = 5_000;
+export const AI_CHAT_CANONICAL_RECOVERY_MAX_POLL_MS = 15_000;
+export const AI_CHAT_CANONICAL_RECOVERY_WINDOW_MS = 5 * 60_000 + 10_000;
 
 function waitForAiChatRecovery(delayMs: number, signal?: AbortSignal) {
   if (signal?.aborted) return Promise.reject(signal.reason);
   if (delayMs <= 0) return Promise.resolve();
   return new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(resolve, delayMs);
-    signal?.addEventListener("abort", () => {
+    const settle = () => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    };
+    const abort = () => {
       clearTimeout(timeout);
-      reject(signal.reason);
-    }, { once: true });
+      reject(signal?.reason);
+    };
+    const timeout = setTimeout(settle, delayMs);
+    signal?.addEventListener("abort", abort, { once: true });
   });
 }
+
+export type AiChatCanonicalRecoveryResult =
+  | { state: "terminal"; detail: AiChatClientDetail }
+  | { state: "pending"; detail: AiChatClientDetail }
+  | { state: "unavailable"; detail: AiChatClientDetail | null };
 
 export async function recoverAiChatCanonicalTurn(input: {
   clientMessageId: string;
@@ -84,29 +97,62 @@ export async function recoverAiChatCanonicalTurn(input: {
   refresh: (signal?: AbortSignal) => Promise<AiChatClientDetail | null>;
   signal?: AbortSignal;
   delaysMs?: readonly number[];
+  recoveryWindowMs?: number;
+  pollIntervalMs?: number;
+  maxPollIntervalMs?: number;
+  now?: () => number;
   wait?: (delayMs: number, signal?: AbortSignal) => Promise<void>;
-}) {
+}): Promise<AiChatCanonicalRecoveryResult> {
   let lastDetail: AiChatClientDetail | null = null;
   let pendingDetail: AiChatClientDetail | null = null;
   const wait = input.wait || waitForAiChatRecovery;
-  for (const delayMs of input.delaysMs || AI_CHAT_CANONICAL_RECOVERY_DELAYS_MS) {
-    await wait(delayMs, input.signal);
-    const detail = await input.refresh(input.signal).catch(() => null);
-    if (!detail) continue;
+  const now = input.now || Date.now;
+  const recoveryStartedAt = now();
+
+  async function refreshCanonicalTurn() {
+    let detail: AiChatClientDetail | null;
+    try {
+      detail = await input.refresh(input.signal);
+    } catch (error) {
+      if (input.signal?.aborted) throw error;
+      return null;
+    }
+    if (!detail) return null;
     lastDetail = detail;
     const assistant = detail.messages.find((message) => (
       message.role === "assistant"
       && message.clientMessageId === input.clientMessageId
     ));
-    if (!assistant) continue;
-    if (assistant.status !== "pending") {
-      if (
-        input.terminalBaselineUpdatedAt
-        && assistant.updatedAt === input.terminalBaselineUpdatedAt
-      ) continue;
-      return { state: "terminal" as const, detail };
+    if (!assistant) return null;
+    if (assistant.status === "pending") {
+      pendingDetail = detail;
+      return null;
     }
-    pendingDetail = detail;
+    if (
+      input.terminalBaselineUpdatedAt
+      && assistant.updatedAt === input.terminalBaselineUpdatedAt
+    ) return null;
+    return { state: "terminal" as const, detail };
+  }
+
+  for (const delayMs of input.delaysMs || AI_CHAT_CANONICAL_RECOVERY_DELAYS_MS) {
+    await wait(delayMs, input.signal);
+    const terminal = await refreshCanonicalTurn();
+    if (terminal) return terminal;
+  }
+
+  const recoveryWindowMs = Math.max(0, input.recoveryWindowMs || 0);
+  let pollIntervalMs = Math.max(1, input.pollIntervalMs || AI_CHAT_CANONICAL_RECOVERY_POLL_MS);
+  const maxPollIntervalMs = Math.max(
+    pollIntervalMs,
+    input.maxPollIntervalMs || AI_CHAT_CANONICAL_RECOVERY_MAX_POLL_MS,
+  );
+  while (now() - recoveryStartedAt < recoveryWindowMs) {
+    const remainingMs = recoveryWindowMs - (now() - recoveryStartedAt);
+    await wait(Math.min(pollIntervalMs, remainingMs), input.signal);
+    const terminal = await refreshCanonicalTurn();
+    if (terminal) return terminal;
+    pollIntervalMs = Math.min(maxPollIntervalMs, pollIntervalMs * 2);
   }
   if (pendingDetail) return { state: "pending" as const, detail: pendingDetail };
   return { state: "unavailable" as const, detail: lastDetail };

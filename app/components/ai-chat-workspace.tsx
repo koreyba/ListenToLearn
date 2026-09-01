@@ -189,15 +189,24 @@ export function ChatWorkspace() {
     try {
       const [detail, list] = await Promise.all([
         requestAiChatJson<{ chat: AiChatClientDetail }>(`/api/ai/chats/${chatId}`, { signal }),
-        requestAiChatJson<{ chats: AiChatClientSummary[]; generationConfigured: boolean }>(
-          "/api/ai/chats",
-          { signal },
-        ),
+        options?.detailOnly
+          ? Promise.resolve(null)
+          : requestAiChatJson<{ chats: AiChatClientSummary[]; generationConfigured: boolean }>(
+              "/api/ai/chats",
+              { signal },
+            ),
       ]);
       if (requestGuard !== openRequestId.current) return null;
       setChat((current) => current?.id === chatId ? detail.chat : current);
-      setChats(list.chats);
-      setGenerationConfigured(list.generationConfigured);
+      if (list) {
+        setChats(list.chats);
+        setGenerationConfigured(list.generationConfigured);
+      } else {
+        setChats((current) => [
+          asSummary(detail.chat),
+          ...current.filter((item) => item.id !== detail.chat.id),
+        ]);
+      }
       setError("");
       return detail.chat;
     } catch (reason) {

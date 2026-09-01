@@ -102,6 +102,42 @@ test("interactive words inside Markdown use clean visible text for actions", asy
   }]);
 });
 
+test("a phrase selected after Markdown syntax uses visible-text offsets and context", async () => {
+  const actions = [];
+
+  await renderInteractiveText({
+    text: "Intro **bold lead**. Choose **target phrase** now. Later note.",
+    markdown: true,
+    onPhraseSelect: (phrase, context, details) => actions.push({ phrase, context, details }),
+    onWordActivate: () => {},
+  }, async ({ dom, host }) => {
+    const surface = host.firstElementChild;
+    const words = [...surface.querySelectorAll("[data-interactive-english-word]")];
+    const target = words.find((word) => word.textContent === "target");
+    const phrase = words.find((word) => word.textContent === "phrase");
+    const selection = dom.window.getSelection();
+    const range = dom.window.document.createRange();
+    range.setStart(target.firstChild, 0);
+    range.setEnd(phrase.firstChild, phrase.textContent.length);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    await act(async () => {
+      surface.dispatchEvent(new dom.window.MouseEvent("mouseup", { bubbles: true }));
+    });
+  });
+
+  assert.deepEqual(actions, [{
+    phrase: "target phrase",
+    context: "Choose target phrase now.",
+    details: {
+      start: "Intro bold lead. Choose ".length,
+      end: "Intro bold lead. Choose target phrase".length,
+      anchor: { left: 0, top: 0, right: 0, bottom: 0 },
+    },
+  }]);
+});
+
 test("selection-only rendering preserves mixed-script text without per-word tab stops", async () => {
   const text = "Please get away — пожалуйста, уйди.";
 

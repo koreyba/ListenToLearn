@@ -22,7 +22,6 @@ import {
 } from "@/lib/ai-chat/client";
 import { aiChatApiError, requestAiChatJson } from "@/lib/ai-chat/client-http";
 import { isSameChatSelection, type ChatTextSelection } from "@/lib/ai-chat/selection";
-import { interactiveEnglishContext, readInteractiveSelection } from "@/lib/interactive-english-text";
 
 function generationFailureMessage(metadata: AiChatUiMetadata | undefined) {
   return aiChatApiError(
@@ -30,11 +29,6 @@ function generationFailureMessage(metadata: AiChatUiMetadata | undefined) {
     "The response failed.",
     metadata?.terminal || null,
   );
-}
-
-function closestMessageSurface(node: Node | null) {
-  const element = node instanceof Element ? node : node?.parentElement;
-  return element?.closest<HTMLElement>("[data-chat-message-id]") || null;
 }
 
 export function ChatConversation({
@@ -62,7 +56,6 @@ export function ChatConversation({
   } | null>(null);
   const [proposalErrors, setProposalErrors] = useState<Record<string, string>>({});
   const messageEnd = useRef<HTMLDivElement | null>(null);
-  const messageTexts = useRef(new Map<string, string>());
   const followLatest = useCallback(() => setFollowing(true), []);
   const {
     cancelling,
@@ -90,50 +83,8 @@ export function ChatConversation({
   });
 
   useEffect(() => {
-    messageTexts.current = new Map(
-      messages.map((message) => [message.id, aiChatUiMessageText(message)]),
-    );
-  }, [messages]);
-
-  useEffect(() => {
     if (following) messageEnd.current?.scrollIntoView({ block: "end" });
   }, [following, messages, status]);
-
-  useEffect(() => {
-    let frame = 0;
-    function captureBrowserSelection() {
-      window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(() => {
-        const nativeSelection = window.getSelection();
-        if (!nativeSelection || nativeSelection.isCollapsed || nativeSelection.rangeCount !== 1) return;
-        const range = nativeSelection.getRangeAt(0);
-        const startSurface = closestMessageSurface(range.startContainer);
-        const endSurface = closestMessageSurface(range.endContainer);
-        if (!startSurface || startSurface !== endSurface) return;
-        const messageId = startSurface.dataset.chatMessageId || "";
-        const source = messageTexts.current.get(messageId) || "";
-        const text = readInteractiveSelection(startSurface, nativeSelection, 500);
-        if (!messageId || !source || !text) return;
-        const prefix = range.cloneRange();
-        prefix.selectNodeContents(startSurface);
-        prefix.setEnd(range.startContainer, range.startOffset);
-        const start = prefix.toString().length;
-        const rect = range.getBoundingClientRect();
-        const next: ChatTextSelection = {
-          messageId,
-          text,
-          context: interactiveEnglishContext(source, start, start + range.toString().length),
-          anchor: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
-        };
-        setSelection((current) => isSameChatSelection(current, next) ? current : next);
-      });
-    }
-    document.addEventListener("selectionchange", captureBrowserSelection);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener("selectionchange", captureBrowserSelection);
-    };
-  }, [chat.id]);
 
   useEffect(() => {
     const dismiss = () => setSelection(null);
@@ -299,7 +250,11 @@ export function ChatConversation({
           className="ai-chat-jump-latest"
           onClick={() => {
             setFollowing(true);
-            messageEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+            const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+            messageEnd.current?.scrollIntoView({
+              behavior: reduceMotion ? "auto" : "smooth",
+              block: "end",
+            });
           }}
           type="button"
         >↓ Jump to latest</button>

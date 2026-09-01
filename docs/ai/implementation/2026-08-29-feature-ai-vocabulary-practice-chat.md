@@ -16,7 +16,11 @@ description: Implemented chat-only tools, attempts, ledger, and mutation receipt
 - `app/components/use-ai-chat-turn-controller.ts` and `lib/ai-chat/client-http.ts`:
   one client turn controller owns transport, optimistic `clientMessageId`
   reconciliation, send/retry/stop, cancellation, interrupted-stream recovery, and
-  stable public HTTP errors. Stop has an explicit cancelling phase that blocks a
+  stable public HTTP errors. After fast probes, interrupted-stream recovery polls
+  canonical state with 5-to-15-second bounded backoff through the five-minute lease,
+  using detail-only refreshes instead of reloading the chat list on every probe,
+  aborting on chat change/unmount, and preserving unverifiable outbound text for the
+  same idempotent retry. Stop has an explicit cancelling phase that blocks a
   racing send until the server decision returns; a pre-accept failure restores only
   its outbound text and never overwrites a newer draft.
 - `app/components/ai-chat-composer.tsx`: compact and full-screen composition share
@@ -26,7 +30,8 @@ description: Implemented chat-only tools, attempts, ledger, and mutation receipt
   `app/components/interactive-english-text.ts`, and `lib/ai-chat/selection.ts`:
   exact-text rendering with subtly clickable English words, one roving word tab stop
   per message, long-press click suppression and stale-range gesture replacement,
-  desktop anchored toolbar/mobile bottom sheet, identity-keyed DeepL state, exact
+  rendered-plain-text Markdown selection offsets owned solely by the interactive
+  message surface, desktop anchored toolbar/mobile bottom sheet, identity-keyed DeepL state, exact
   phrase saving, mixed-script preservation,
   and distinct 500-character translation/240-character vocabulary limits.
 - The chat composer auto-grows without resize/scrollbar chrome, uses only the rounded
@@ -289,14 +294,16 @@ misclassifying an interrupted Worker as a proven provider timeout. A user messag
 enters canonical model history only when its paired assistant response is complete,
 so failed and still-pending turns do not contaminate later prompts. A retry of an
 older turn loads only messages before that turn and can replay committed receipts.
-Browser Stop/stream-interruption recovery can also call the dedicated cancellation
-route with only the stable client message ID. It atomically changes the exact pending
+Explicit browser Stop calls the dedicated cancellation route with only the stable
+client message ID. It atomically changes the exact pending
 assistant/attempt to `generation_cancelled`, even just after lease expiry; repeated
 calls return the existing terminal state and late generation callbacks cannot
-overwrite it. Client cancellation and canonical reconciliation share an eight-second
-deadline, after which the draft remains safely retryable instead of freezing the
-composer. A stream that ends without a real terminal finish is treated as an
-interruption and enters the same cancellation/reconciliation path.
+overwrite it. Client cancellation has an eight-second deadline. Passive stream
+interruption uses canonical detail reconciliation instead of cancellation: each read
+has its own eight-second deadline, fast probes back off to bounded polling, and a
+chat change or unmount aborts the loop. After an unverified result the original
+outbound identity and draft remain safely retryable instead of freezing the
+composer.
 
 There is no application regex router, forced tool choice, generated fallback call,
 or provider retry middleware. The versioned prompt asks the model to resolve natural
@@ -344,11 +351,11 @@ browser stream.
 
 ## Validation Evidence
 
-Fresh 2026-09-01 evidence for the architecture split passes the production build,
-645/645 tests, TypeScript, ESLint with zero errors (three unrelated existing
-warnings), lifecycle lint, and `git diff --check`. Focused evidence includes 74/74
-client/UI tests and 97/97 vocabulary planner, tool, proposal-lifecycle, and exact
-D1-budget tests. It retains coverage for typed preset rejection, real compact IDs at
+Fresh 2026-09-01 evidence on `feature-ai-chat-reliability-audit` passes the
+production build plus `node --test tests/*.test.mjs` at 654/654, the Workers-runtime
+D1 test at 1/1, and Playwright at 6/6 desktop/mobile journeys. TypeScript, ESLint
+with zero errors, lifecycle lint, and `git diff --check` also pass. This retains
+coverage for typed preset rejection, real compact IDs at
 the 30-change boundary, cross-action collision rejection, retry isolation, the hard
 client cancellation deadline, quiet-stream recovery, and exact confirmation costs.
 
@@ -360,6 +367,13 @@ and conversation widths had no horizontal overflow; the full-screen editor retai
 the shared draft/focus boundary and body-scroll lock. Exact middle-caret transfer is
 covered by the focused client test because the browser driver cannot position a
 textarea caret deterministically.
+
+The current recovery follow-up repeated Retry -> live Stop -> Ready and then sent a
+successful Markdown response in the same authenticated local chat. Bold output was
+rendered semantically, a later interactive word replaced the prior selection state,
+and a 390px viewport kept document and composer widths overflow-free. Local DeepL
+was intentionally unconfigured and returned its stable setup message without
+breaking the selection UI.
 
 Earlier authenticated local browser E2E used the real model and D1 at desktop and 390px
 mobile breakpoints. Three additions produced one grouped proposal; a later mixed

@@ -177,6 +177,8 @@ progress, sessions, and encrypted integration credentials are stored in D1.
 - `npm run dev` — start the local development server.
 - `npm run build` — create a verified production build.
 - `npm test` — build the application and run the complete test suite.
+- `npm run test:worker` — run D1 lifecycle tests inside the Cloudflare Workers runtime.
+- `npm run test:e2e` — run desktop and mobile chat recovery journeys in Chromium.
 - `npm run lint` — run ESLint.
 - `npm run db:generate` — generate a Drizzle migration from schema changes.
 

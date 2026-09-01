@@ -35,7 +35,7 @@ preview only; current-revision preview checks and authenticated smoke remain a g
   caching is no longer configured; DeepSeek prompt caching remains automatic and
   requires no application setting.
 - Prompt contract: `lib/ai-chat/prompts/vocabulary-practice.ts`, ID
-  `unmumble.vocabulary-practice`, version `4`; ID/version are allowlisted operational
+  `unmumble.vocabulary-practice`, version `7`; ID/version are allowlisted operational
   metadata, while prompt text remains private.
 - `AI_CHAT_USER_RATE_LIMITER`: 10 authenticated generation requests/minute per
   SHA-256 account key; `AI_CHAT_EDGE_AGGREGATE_RATE_LIMITER`: approximate aggregate

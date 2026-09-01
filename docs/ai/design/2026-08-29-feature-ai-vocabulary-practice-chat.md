@@ -99,9 +99,11 @@ remounts a conversation merely because `updatedAt` changed.
 `InteractiveEnglishText` preserves the exact message while segmenting Latin-script
 word tokens into a subtle dotted-underline interaction layer. A tap/click opens the
 word action. Only one word per message is in the tab order; arrows/Home/End move the
-roving tab stop and Enter/Space activate it. A conversation-level `selectionchange`
-listener still accepts ranges only inside one message and derives bounded sentence
-context plus a viewport anchor.
+roving tab stop and Enter/Space activate it. Each `InteractiveEnglishText` surface
+is the sole owner of its mouse, touch, and keyboard range selection. It accepts
+ranges only inside that message and derives bounded sentence context plus a viewport
+anchor from rendered plain-text offsets; the conversation never remaps those offsets
+against raw Markdown source.
 
 On coarse pointers, a >=450ms hold suppresses its following synthetic click for a
 bounded interval. Finishing any non-collapsed range also suppresses word activation.
@@ -346,7 +348,7 @@ proposal pending and returns a retryable safe error.
 2. The service rebuilds bounded canonical history only before this user sequence,
    restores at most one validated continuation from the latest earlier completed
    `list_vocabulary` ledger result, builds prompt ID/version
-   `unmumble.vocabulary-practice`/`5`, creates the tool executor with
+   `unmumble.vocabulary-practice`/`7`, creates the tool executor with
    user/chat/message/attempt IDs, and starts one bounded provider generation with
    exactly two read tools plus the mixed proposal tool.
 3. Each tool call is registered and fenced before execution. The hard per-turn
@@ -368,11 +370,14 @@ proposal pending and returns a retryable safe error.
    user row is admitted to canonical provider history only together with its
    complete assistant row; failed, pending, cancelled, and interrupted pairs are
    excluded.
-   Separately, browser Stop or stream interruption calls the cancellation endpoint;
-   one owner-scoped turn lookup plus a three-statement terminal batch immediately
-   marks the exact pending attempt `generation_cancelled`, including an elapsed
-   lease. The separate cancellation invocation adds no statement to a normal
-   successful turn, and its terminal state fences late finish/fail callbacks.
+   Separately, explicit browser Stop calls the cancellation endpoint; one
+   owner-scoped turn lookup plus a three-statement terminal batch immediately marks
+   the exact pending attempt `generation_cancelled`, including an elapsed lease.
+   A passive stream interruption does not pretend the learner pressed Stop: the
+   browser polls canonical chat detail until that attempt becomes terminal or the
+   bounded recovery window ends. The separate Stop invocation adds no statement to
+   a normal successful turn, and its terminal state fences late finish/fail
+   callbacks.
 5. Retry retains the same user, practice snapshot, and assistant message, expires
    any stale pending attempt, inserts the next attempt number, and replays matching
    durable receipts. Later target changes cannot rewrite an older turn's context.
@@ -443,8 +448,9 @@ excluded.
 
 Existing chat ceilings remain: 16,384 request bytes; 4,000 message characters;
 100 chats per account/list response; latest 200 messages per detail; 40 complete
-model-history messages/32,000 characters; 2,400 output tokens; structured
-45/25/20/20/5-second total/step/first-chunk/chunk/tool deadlines. Vocabulary
+model-history messages/32,000 characters; 2,400 output tokens; 20-second first-
+semantic-chunk and inter-chunk inactivity deadlines plus a 5-second tool deadline,
+with no absolute total or per-step deadline while semantic output continues. Vocabulary
 page/search limits are 10 entries per result, 240 entry
 characters, 1,000 meaning/context characters, and six bounded provider meanings per
 entry. A list has no overall entry cap and advances by a <=512-character opaque

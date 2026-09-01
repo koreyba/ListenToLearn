@@ -8,13 +8,13 @@ description: Delivery status for the chat-only vocabulary-agent revision
 
 ## Current Status
 
-The resource-first backend follow-up and its architecture cleanup are implemented in
-the current local diff. Focused 2026-09-01 evidence passes 74/74 client/UI tests and
-97/97 vocabulary planner, tool, proposal-lifecycle, and exact D1-budget tests. The
-production build, 645/645 full tests, TypeScript, lint, diff check, and authenticated
-local browser E2E also pass. Architecture commit `7bcfe9a` is published to PR #32;
-all remote checks and the Cloudflare branch-preview build are green. Extended
-authenticated preview smoke remains open.
+The resource-first backend and its first architecture cleanup shipped in merged PR
+#32. The post-merge `feature-ai-chat-reliability-audit` branch now adds bounded
+per-probe recovery, a separated client recovery module, real Workers-runtime D1
+coverage, and deterministic browser network-failure journeys. Fresh evidence passes
+the production build, `node --test tests/*.test.mjs` at 654/654, Workers Vitest at
+1/1, Playwright at 6/6 desktop/mobile journeys, TypeScript, lint, and diff check. The
+new PR and its authenticated preview smoke remain pending.
 
 The approved resource-first follow-up is active in the current diff. The provider
 surface is being reduced to two reads plus one mixed proposal tool; one atomic
@@ -145,7 +145,8 @@ of this follow-up. PR-preview deployment is authorized; production is not.
   `writeProposals` to an empty list.
 
 - [x] **P15a · Stable generation and Practice removal** — raise complete-response
-  capacity to 2,400 tokens, enforce structured 45/25/20/20/5-second deadlines,
+  capacity to 2,400 tokens, enforce 20-second first-chunk/inter-chunk inactivity and
+  5-second tool deadlines without an active-output total deadline,
   classify non-stop output as retryable `response_incomplete`, classify cancellation
   truthfully, add atomic owner-safe removal, require same-turn reads for
   current/latest claims, and refresh recency only when reactivating from `pick`.
@@ -209,7 +210,8 @@ of this follow-up. PR-preview deployment is authorized; production is not.
   phrase. Cross-action additions/updates that would converge on one saved meaning
   reject the whole proposal as `conflicting_changes` before any write.
 - Guest AI, fallback models, model-allowlist governance, spend ownership, retention,
-  observability thresholds, and resumable/background streams remain deferred.
+  observability thresholds, and provider-resumable/background streams remain
+  deferred. Bounded client polling of canonical persisted turn state is implemented.
 
 ## Key Risks
 

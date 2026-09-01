@@ -270,6 +270,148 @@ test("stream recovery reports a still-running canonical turn without cancelling 
   assert.equal(result.detail, pending);
 });
 
+test("stream recovery keeps polling after the fast probes until the canonical turn is terminal", async () => {
+  const pending = {
+    id: "chat-1",
+    messages: [{ role: "assistant", status: "pending", clientMessageId: "turn-1" }],
+  };
+  const terminal = {
+    id: "chat-1",
+    messages: [{
+      role: "assistant",
+      status: "complete",
+      clientMessageId: "turn-1",
+      content: "Recovered after the transport returned",
+    }],
+  };
+  const snapshots = [pending, pending, terminal];
+  let reads = 0;
+  let elapsed = 0;
+  const waits = [];
+
+  const result = await clientModule.recoverAiChatCanonicalTurn({
+    clientMessageId: "turn-1",
+    delaysMs: [0],
+    recoveryWindowMs: 10,
+    pollIntervalMs: 2,
+    maxPollIntervalMs: 4,
+    now: () => elapsed,
+    refresh: async () => snapshots[reads++],
+    wait: async (delayMs) => {
+      waits.push(delayMs);
+      elapsed += delayMs;
+    },
+  });
+
+  assert.equal(reads, 3);
+  assert.deepEqual(waits, [0, 2, 4]);
+  assert.equal(result.state, "terminal");
+  assert.equal(result.detail.messages[0].content, "Recovered after the transport returned");
+});
+
+test("stream recovery also survives temporary canonical-read failures", async () => {
+  const terminal = {
+    id: "chat-1",
+    messages: [{
+      role: "assistant",
+      status: "failed",
+      clientMessageId: "turn-1",
+      errorCode: "generation_interrupted",
+    }],
+  };
+  let reads = 0;
+  let elapsed = 0;
+
+  const result = await clientModule.recoverAiChatCanonicalTurn({
+    clientMessageId: "turn-1",
+    delaysMs: [0],
+    recoveryWindowMs: 10,
+    pollIntervalMs: 2,
+    now: () => elapsed,
+    refresh: async () => {
+      reads += 1;
+      if (reads < 3) throw new Error("Temporary canonical read failure.");
+      return terminal;
+    },
+    wait: async (delayMs) => {
+      elapsed += delayMs;
+    },
+  });
+
+  assert.equal(reads, 3);
+  assert.equal(result.state, "terminal");
+  assert.equal(result.detail, terminal);
+});
+
+test("stream recovery abandons a hung canonical read and continues with a fresh probe", async () => {
+  const terminal = {
+    id: "chat-1",
+    messages: [{
+      role: "assistant",
+      status: "complete",
+      clientMessageId: "turn-1",
+      content: "Recovered after a hung read",
+    }],
+  };
+  const observedSignals = [];
+  let reads = 0;
+
+  const recovery = clientModule.recoverAiChatCanonicalTurn({
+    clientMessageId: "turn-1",
+    delaysMs: [0, 0],
+    probeTimeoutMs: 5,
+    refresh: async (signal) => {
+      observedSignals.push(signal);
+      reads += 1;
+      if (reads === 1) return new Promise(() => {});
+      return terminal;
+    },
+    wait: async () => {},
+  });
+
+  const result = await Promise.race([
+    recovery,
+    new Promise((_, reject) => setTimeout(
+      () => reject(new Error("recovery remained stuck on the first canonical read")),
+      100,
+    )),
+  ]);
+
+  assert.equal(reads, 2);
+  assert.equal(observedSignals[0].aborted, true);
+  assert.notEqual(observedSignals[0], observedSignals[1]);
+  assert.equal(result.state, "terminal");
+  assert.equal(result.detail, terminal);
+});
+
+test("stream recovery propagates chat-change cancellation into the active probe", async () => {
+  const controller = new AbortController();
+  let observedSignal;
+  let markStarted;
+  const started = new Promise((resolve) => {
+    markStarted = resolve;
+  });
+  const recovery = clientModule.recoverAiChatCanonicalTurn({
+    clientMessageId: "turn-1",
+    delaysMs: [0],
+    probeTimeoutMs: 1_000,
+    signal: controller.signal,
+    refresh: async (signal) => {
+      observedSignal = signal;
+      markStarted();
+      return new Promise(() => {});
+    },
+    wait: async () => {},
+  });
+  const reason = new DOMException("Chat changed", "AbortError");
+  await started;
+  controller.abort(reason);
+
+  await assert.rejects(recovery, (error) => error === reason);
+  assert.equal(observedSignal.aborted, true);
+  assert.equal(observedSignal.reason, reason);
+});
+
 test("retry recovery ignores the terminal snapshot that predates the new attempt", async () => {
   const stale = {
     id: "chat-1",

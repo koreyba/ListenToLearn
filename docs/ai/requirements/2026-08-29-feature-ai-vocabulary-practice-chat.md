@@ -197,8 +197,11 @@ Trying to edit shared preset legacy meaning returns the closed typed
 - `POST /api/ai/chats/:chatId/messages/:clientMessageId/cancel` accepts only an
   authenticated same-origin empty command. It terminalizes the exact latest pending
   assistant attempt as `generation_cancelled` even when its lease has just elapsed,
-  so Stop or a browser-observed stream interruption does not wait for the five-minute
-  recovery lease. Complete/failed turns replay their existing terminal state,
+  so an explicit Stop does not wait for the five-minute recovery lease. A browser-
+  observed stream interruption does not claim cancellation: it polls the canonical
+  chat through the lease with bounded backoff, reconciles the terminal result, and
+  preserves an unverifiable outbound message for idempotent retry. Complete/failed
+  turns replay their existing terminal state,
   foreign or missing turns return 404, and late generation callbacks stay fenced.
 - Retrying an older turn uses only canonical messages before that user turn, not
   later conversation.

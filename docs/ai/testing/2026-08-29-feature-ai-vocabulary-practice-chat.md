@@ -6,15 +6,40 @@ description: Verified agent-tool contracts and remaining end-to-end gates
 
 # AI Vocabulary Practice Chat Testing
 
+## 2026-09-01 Reliability Audit Addendum
+
+The post-merge reliability branch adds the missing behavioral layers identified in
+the audit:
+
+- a Cloudflare Workers Vitest test applies every D1 migration inside `workerd` and
+  proves idempotent logical-turn reuse, the one-pending-attempt invariant, terminal
+  completion, and subsequent-chat usability against real D1 semantics;
+- a client regression test proves that a canonical-detail request which never
+  settles is aborted at its own deadline and cannot freeze later recovery probes;
+- Playwright intercepts the actual browser network boundary and proves interrupted
+  Retry convergence plus explicit Stop on both desktop Chromium and a mobile coarse-
+  pointer viewport. Stop leaves Retry available and the composer unlocked;
+- PR CI installs Chromium, retains screenshots on failure, and records a trace on the
+  first retry.
+
+These tests complement rather than replace the existing Node suites: source-boundary
+assertions remain architecture tripwires, Node tests own exhaustive deterministic
+failure injection, Workers Vitest owns runtime/storage parity, and Playwright owns
+browser transport and interaction behavior. See the dedicated
+`2026-09-01-feature-ai-chat-reliability-audit` design document for the invariant and
+failure matrix.
+
 ## Fresh Automated Evidence
 
-Fresh 2026-09-01 focused evidence passes 74/74 client/UI tests and 97/97 vocabulary
-planner, tool, proposal-lifecycle, and exact D1-budget tests after separating the
-frontend lifecycle and backend change-set pipeline. The production build, 645/645
-full tests, TypeScript, ESLint with zero errors, lifecycle lint, `git diff --check`,
-and authenticated local browser E2E also pass. Architecture commit `7bcfe9a` is
-published to PR #32 with green Tests, CodeQL, SonarCloud, Qodana, and Cloudflare
-branch-preview checks; extended authenticated preview smoke remains open.
+Fresh post-merge reliability evidence passes the Vite 8.2.2 production build,
+654/654 Node tests, 1/1 Workers-runtime D1 test, and 6/6 Playwright journeys across
+desktop and mobile Chromium. TypeScript passes; ESLint reports zero errors and the
+same three generated/existing warnings. Production dependencies report zero known
+audit vulnerabilities. The remaining full-tree audit findings are confined to
+development transitive dependencies in pinned `vinext`/`drizzle-kit`; their offered
+fixes require breaking toolchain changes and are not force-applied in this reliability
+PR. PR #32's earlier preview evidence remains historical; the new reliability branch
+still requires its own PR checks and preview smoke.
 
 The current browser run at 319px and desktop master-detail breakpoints verified
 Markdown, Stop, Retry, a successful post-cancellation follow-up, one three-addition
@@ -22,6 +47,12 @@ inline proposal cancelled without vocabulary writes, full-screen composer focus/
 lock, and zero document/drawer/sidebar/conversation horizontal overflow. Exact
 middle-caret transfer remains covered programmatically because the browser driver
 cannot place a textarea caret at a deterministic character offset.
+
+The recovery follow-up also repeated Retry -> live Stop -> Ready, then received a
+normal Markdown response in the same authenticated chat. Bold output rendered as
+`strong`, a new word selection cleared the previous translation state, the browser
+console had no errors, and document/composer widths remained overflow-free at 390px.
+Local DeepL was not configured, so provider translation itself was not claimed.
 
 ### Covered in the current test tree
 
@@ -163,7 +194,10 @@ cannot place a textarea caret at a deterministic character offset.
   with a meaningful retry for the unsent text, and clears recovery only after the
   canonical detail acknowledges the same `clientMessageId`. Cancellation plus
   reconciliation has an eight-second hard deadline, and a quiet EOF/undefined finish
-  enters the same recovery path rather than being mistaken for success.
+  enters the same recovery path rather than being mistaken for success. Interrupted
+  recovery continues past the fast probes with bounded exponential polling through
+  the server lease, uses detail-only refreshes, survives temporary detail-read
+  failures, and aborts with the conversation lifecycle.
 - [x] The registry exposes exactly two read tools plus one mixed proposal tool. The
   model uses automatic tool choice; there is no regex intent router, required-tool
   middleware, provider resubmission, or application-generated fallback call.
@@ -174,6 +208,10 @@ cannot place a textarea caret at a deterministic character offset.
   arrows/Home/End and Enter/Space work, while a >=450ms mobile long press or completed
   range selection suppresses the synthetic single-word click. Separate desktop and
   mobile regressions prove a later short tap/click replaces a still-live old range.
+- [x] The interactive message surface is the only selection owner. A Markdown phrase
+  selected after earlier emphasis syntax uses rendered-text offsets and returns the
+  correct visible sentence context; no conversation-level raw-source listener can
+  overwrite it.
 - [x] Consecutive selections reset translation/save UI. Component integration proves
   `first` then `second` sends two distinct `/api/translate` bodies and that Add sends
   only `second` with its matching translation/context; stale identity results cannot

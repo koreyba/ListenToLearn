@@ -193,3 +193,29 @@ test("integrations route reports default vs custom source and handles deletion",
   delete globalThis.__mockAuthUser;
   delete globalThis.__mockUserSecrets;
 });
+
+test("POST /api/translate allows guest request and uses default key", async () => {
+  const route = await compileEntry("app/api/translate/route.ts");
+  globalThis.__mockWorkerEnv = { DEEPL_DEFAULT_API_KEY: "default-guest-key:fx" };
+  delete globalThis.__mockAuthUser;
+  delete globalThis.__mockUserSecrets;
+
+  try {
+    await withMockDeeplFetch("Гость", async (getAuth) => {
+      const res = await route.POST(new Request("https://unmumble.online/api/translate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://unmumble.online",
+        },
+        body: JSON.stringify({ text: "Guest", context: "Guest user" }),
+      }));
+      assert.equal(res.status, 200);
+      const data = await res.json();
+      assert.equal(data.translation, "Гость");
+      assert.equal(getAuth(), "DeepL-Auth-Key default-guest-key:fx");
+    });
+  } finally {
+    delete globalThis.__mockWorkerEnv;
+  }
+});

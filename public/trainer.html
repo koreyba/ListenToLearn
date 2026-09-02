@@ -3794,11 +3794,6 @@
       }
 
       lastTranslation = { source, context: normalizedContext, translation: "" };
-      if (!isAuthenticated) {
-        showTranslation(sourceLabel, "Sign in with Google to translate with your personal DeepL key.", "error");
-        return;
-      }
-
       const cached = translationCache.get(translationKey);
       if (cached) {
         lastTranslation.translation = cached;

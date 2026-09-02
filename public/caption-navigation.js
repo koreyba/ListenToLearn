@@ -136,6 +136,18 @@
     return -(elapsed || knownDuration || 0.5);
   }
 
+  // Backward move that returns from an absolute playback position to the
+  // start of the looped caption, minus a small lead-in so the first syllable
+  // survives seek latency. The lead-in never targets a negative video time.
+  function repeatReturnDelta(targetStartTime, playbackTime, leadInSeconds = 0) {
+    const start = finiteTime(targetStartTime);
+    const playback = finiteTime(playbackTime);
+    if (start === null || playback === null) return null;
+    const lead = Number(leadInSeconds);
+    const returnTarget = Math.max(0, start - (Number.isFinite(lead) && lead > 0 ? lead : 0));
+    return returnTarget - playback;
+  }
+
   global.UnmumbleCaptionNavigation = Object.freeze({
     finiteTime,
     isReplayTarget,
@@ -146,6 +158,7 @@
     adjacent,
     neighbors,
     relativeSeekDelta,
-    repeatSeekDelta
+    repeatSeekDelta,
+    repeatReturnDelta
   });
 })(window);

@@ -139,6 +139,92 @@ export function createVocabularyPracticeReader(
     };
   }
 
+  async function resolveSavedTargets(
+    userId: string,
+    inputs: readonly VocabularySavedPracticeTarget[],
+  ): Promise<VocabularyPracticeTargetDraft[]> {
+    if (inputs.length === 0) return [];
+    if (inputs.length === 1) {
+      return [await resolveSavedTarget(userId, inputs[0])];
+    }
+
+    const uniquePhraseIds = [...new Set(inputs.map((i) => i.phraseId))];
+    const phrasePlaceholders = uniquePhraseIds.map(() => "?").join(", ");
+    const phraseResults = await db.prepare(`
+      SELECT id, text, translation, context
+      FROM phrases
+      WHERE id IN (${phrasePlaceholders}) AND (source_type = 'preset' OR owner_id = ?)
+    `).bind(...uniquePhraseIds, userId).all<PhraseRow>();
+
+    const phrasesById = new Map<string, PhraseRow>();
+    for (const phrase of phraseResults.results) {
+      phrasesById.set(phrase.id, phrase);
+    }
+
+    for (const input of inputs) {
+      if (!phrasesById.has(input.phraseId)) {
+        invalidTarget("Saved target is not visible.");
+      }
+    }
+
+    const selectedMeaningInputs = inputs.filter(
+      (i) => i.meaningMode === "selected" && i.selectedMeaningId && i.selectedMeaningId !== VOCABULARY_LEGACY_MEANING_ID,
+    );
+
+    const meaningsById = new Map<string, MeaningRow>();
+    if (selectedMeaningInputs.length > 0) {
+      const uniqueMeaningIds = [...new Set(selectedMeaningInputs.map((i) => i.selectedMeaningId!))];
+      const meaningPlaceholders = uniqueMeaningIds.map(() => "?").join(", ");
+      const meaningResults = await db.prepare(`
+        SELECT id, phrase_id, translation, context
+        FROM phrase_meanings
+        WHERE id IN (${meaningPlaceholders}) AND user_id = ?
+      `).bind(...uniqueMeaningIds, userId).all<MeaningRow & { phrase_id: string }>();
+
+      for (const meaning of meaningResults.results) {
+        meaningsById.set(`${meaning.phrase_id}:${meaning.id}`, meaning);
+      }
+    }
+
+    return inputs.map((input) => {
+      const phrase = phrasesById.get(input.phraseId)!;
+      if (input.meaningMode !== "selected") {
+        return {
+          phraseId: phrase.id,
+          text: phrase.text,
+          meaningMode: input.meaningMode,
+          selectedMeaningId: null,
+          selectedMeaningSnapshot: "",
+        };
+      }
+
+      if (input.selectedMeaningId === VOCABULARY_LEGACY_MEANING_ID) {
+        if (!phrase.translation.trim()) {
+          invalidTarget("This target has no legacy meaning to select.");
+        }
+        return {
+          phraseId: phrase.id,
+          text: phrase.text,
+          meaningMode: "selected",
+          selectedMeaningId: null,
+          selectedMeaningSnapshot: phrase.translation,
+        };
+      }
+
+      const selectedMeaning = meaningsById.get(`${phrase.id}:${input.selectedMeaningId || ""}`);
+      if (!selectedMeaning) {
+        invalidTarget("Selected meaning is not owned for this target.");
+      }
+      return {
+        phraseId: phrase.id,
+        text: phrase.text,
+        meaningMode: "selected",
+        selectedMeaningId: selectedMeaning.id,
+        selectedMeaningSnapshot: selectedMeaning.translation,
+      };
+    });
+  }
+
   async function readCurrentItems(
     userId: string,
     chatId: string,
@@ -266,5 +352,5 @@ export function createVocabularyPracticeReader(
     return targets;
   }
 
-  return { resolveSavedTarget, readCurrentItems };
+  return { resolveSavedTarget, resolveSavedTargets, readCurrentItems };
 }

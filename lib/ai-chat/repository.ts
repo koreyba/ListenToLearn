@@ -7,6 +7,7 @@ import {
 import {
   VOCABULARY_LEGACY_MEANING_ID,
   type VocabularyMeaning,
+  type VocabularyMeaningMode,
 } from "../vocabulary/contracts.ts";
 import {
   createVocabularyPracticeReader,
@@ -371,9 +372,57 @@ export function createAiChatRepository(
     if (targets.length > AI_CHAT_LIMITS.targetCount) {
       repositoryError("target_limit", "Too many practice targets.");
     }
-    const resolved: TargetDraft[] = [];
-    for (const target of targets) resolved.push(await resolveTarget(userId, target));
-    return resolved;
+    if (targets.length === 0) return [];
+    if (targets.length === 1) {
+      return [await resolveTarget(userId, targets[0])];
+    }
+
+    const allResolved: TargetDraft[] = new Array(targets.length);
+    const savedTargets: Array<{ index: number; target: AiChatTargetInput }> = [];
+
+    for (let i = 0; i < targets.length; i++) {
+      const target = targets[i];
+      if (target.source === "ad_hoc") {
+        allResolved[i] = await resolveTarget(userId, target);
+      } else {
+        const meaningMode: unknown = target.meaningMode;
+        if (!isMeaningMode(meaningMode)) {
+          repositoryError("invalid_target", "Unsupported meaning mode.");
+        }
+        savedTargets.push({ index: i, target });
+      }
+    }
+
+    if (savedTargets.length > 0) {
+      let resolvedSaved: TargetDraft[];
+      try {
+        if ("resolveSavedTargets" in practiceReader && typeof practiceReader.resolveSavedTargets === "function") {
+          resolvedSaved = await practiceReader.resolveSavedTargets(
+            userId,
+            savedTargets.map((s) => ({
+              phraseId: s.target.phraseId,
+              meaningMode: s.target.meaningMode as VocabularyMeaningMode,
+              selectedMeaningId: s.target.selectedMeaningId,
+            })),
+          );
+        } else {
+          resolvedSaved = [];
+          for (const s of savedTargets) {
+            resolvedSaved.push(await resolveTarget(userId, s.target));
+          }
+        }
+      } catch (error) {
+        if (error instanceof VocabularyPracticeReaderError) {
+          repositoryError(error.code, error.message);
+        }
+        throw error;
+      }
+      for (let j = 0; j < savedTargets.length; j++) {
+        allResolved[savedTargets[j].index] = resolvedSaved[j];
+      }
+    }
+
+    return allResolved;
   }
 
   function targetInsert(chatId: string, target: TargetDraft, timestamp: string) {

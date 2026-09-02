@@ -72,6 +72,8 @@ export const phraseProgress = sqliteTable("phrase_progress", {
 }, (table) => [
   primaryKey({ columns: [table.userId, table.phraseId] }),
   index("idx_phrase_progress_phrase_user").on(table.phraseId, table.userId),
+  index("idx_phrase_progress_user_status_created")
+    .on(table.userId, table.status, sql`${table.createdAt} DESC`, sql`${table.phraseId} DESC`),
 ]);
 
 export const phraseExamples = sqliteTable("phrase_examples", {
@@ -114,6 +116,8 @@ export const savedVideos = sqliteTable("saved_videos", {
     .on(table.userId, table.youtubeVideoId),
   index("idx_saved_videos_user_updated")
     .on(table.userId, table.updatedAt),
+  index("idx_saved_videos_user_updated_id")
+    .on(table.userId, sql`${table.updatedAt} DESC`, sql`${table.id} ASC`),
 ]);
 
 export const integrationSecrets = sqliteTable("integration_secrets", {
@@ -144,6 +148,8 @@ export const phraseMeanings = sqliteTable("phrase_meanings", {
     .on(table.userId, table.phraseId, table.updatedAt),
   uniqueIndex("idx_phrase_meanings_user_phrase_normalized")
     .on(table.userId, table.phraseId, table.normalizedTranslation),
+  index("idx_phrase_meanings_user_phrase_created")
+    .on(table.userId, table.phraseId, table.createdAt, table.id),
 ]);
 
 export const aiChats = sqliteTable("ai_chats", {
@@ -155,6 +161,8 @@ export const aiChats = sqliteTable("ai_chats", {
   updatedAt: text("updated_at").notNull(),
 }, (table) => [
   index("idx_ai_chats_user_updated").on(table.userId, table.updatedAt),
+  index("idx_ai_chats_user_updated_id")
+    .on(table.userId, sql`${table.updatedAt} DESC`, sql`${table.id} DESC`),
 ]);
 
 export const aiChatPracticeItems = sqliteTable("ai_chat_practice_items", {

@@ -799,7 +799,7 @@ test("ambiguous max-target chat creation recovers within D1 Free's statement lim
 
   assert.equal(chat.targets.length, 12);
   assert.equal(chat.messages.length, 1);
-  assert.equal(fixture.database.statementCount, 49);
+  assert.equal(fixture.database.statementCount, 27);
   assert.ok(fixture.database.statementCount <= 50);
   assert.equal(fixture.sqlite.prepare(
     "SELECT COUNT(*) AS count FROM ai_chats WHERE user_id = 'user-a'",

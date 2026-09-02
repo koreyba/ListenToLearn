@@ -5,6 +5,7 @@ import {
   type IntegrationProvider,
 } from "@/lib/integration-secrets";
 import { getCurrentUser, unauthorizedResponse } from "@/lib/auth";
+import { getDefaultDeeplApiKey } from "@/lib/deepl";
 
 export const dynamic = "force-dynamic";
 
@@ -35,13 +36,16 @@ export async function GET(request: Request) {
   if (!user) return unauthorizedResponse();
 
   try {
-    const configured = await getIntegrationStatus(user.subject, provider);
+    const userConfigured = await getIntegrationStatus(user.subject, provider);
+    const hasDefault = Boolean(getDefaultDeeplApiKey());
+    const configured = userConfigured || hasDefault;
+    const source = userConfigured ? "integrations" : (hasDefault ? "default" : null);
     return response({
       integrations: [{
         provider,
         label: "DeepL",
         configured,
-        source: configured ? "integrations" : null,
+        source,
       }],
     });
   } catch (error) {
@@ -64,7 +68,18 @@ export async function POST(request: Request) {
     const key = clean(payload.key, 500);
     if (!key) return response({ error: "Enter an API key." }, 400);
     await storeIntegrationSecret(user.subject, provider, key);
-    return response({ ok: true, provider, configured: true });
+    return response({
+      ok: true,
+      provider,
+      configured: true,
+      source: "integrations",
+      integrations: [{
+        provider,
+        label: "DeepL",
+        configured: true,
+        source: "integrations",
+      }],
+    });
   } catch (error) {
     console.error("Integrations POST failed:", error);
     return response({ error: "Could not save the API key." }, 500);
@@ -82,7 +97,21 @@ export async function DELETE(request: Request) {
       return response({ error: "This integration is not supported yet." }, 400);
     }
     await deleteIntegrationSecret(user.subject, provider);
-    return response({ ok: true, provider, configured: false });
+    const hasDefault = Boolean(getDefaultDeeplApiKey());
+    const configured = hasDefault;
+    const source = hasDefault ? "default" : null;
+    return response({
+      ok: true,
+      provider,
+      configured,
+      source,
+      integrations: [{
+        provider,
+        label: "DeepL",
+        configured,
+        source,
+      }],
+    });
   } catch (error) {
     console.error("Integrations DELETE failed:", error);
     return response({ error: "Could not delete the API key." }, 500);

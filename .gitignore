@@ -45,3 +45,6 @@ next-env.d.ts
 /outputs/
 /work/
 /.worktrees/
+/.qodana/results/
+/.qodana/report/
+/.qodana/cache/

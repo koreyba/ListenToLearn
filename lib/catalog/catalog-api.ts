@@ -24,8 +24,9 @@ export type CatalogProjectionRow = {
   analysis_ipa: string | null;
   analysis_search_query: string | null;
   analysis_alternate_query: string | null;
-  mechanism: ConnectedSpeechMechanism | null;
-  mechanism_order: number | null;
+  mechanism?: ConnectedSpeechMechanism | null;
+  mechanism_order?: number | null;
+  mechanisms_json?: string | null;
 };
 
 export type CatalogJoinedRow = CatalogProjectionRow & {
@@ -44,6 +45,17 @@ type MechanismEntry = {
   mechanism: ConnectedSpeechMechanism;
   order: number;
 };
+
+function parseMechanismsJson(json: string | null | undefined): MechanismEntry[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json) as Array<[ConnectedSpeechMechanism, number]>;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(([mechanism, order]) => ({ mechanism, order }));
+  } catch {
+    return [];
+  }
+}
 
 function analysisFromRow(row: CatalogProjectionRow, mechanisms: MechanismEntry[]): CatalogAnalysis | null {
   if (
@@ -77,6 +89,13 @@ function groupRows<Row extends CatalogProjectionRow>(rows: Row[]) {
 }
 
 export function mapCatalogRows(rows: CatalogProjectionRow[]) {
+  if (rows.length > 0 && "mechanisms_json" in rows[0]) {
+    return rows.flatMap((row) => {
+      const mechanisms = parseMechanismsJson(row.mechanisms_json);
+      const analysis = analysisFromRow(row, mechanisms);
+      return analysis ? [{ id: row.id, text: row.text, sourceType: "catalog" as const, analysis }] : [];
+    });
+  }
   return groupRows(rows).flatMap(({ row, mechanisms }) => {
     const analysis = analysisFromRow(
       row,
@@ -86,7 +105,34 @@ export function mapCatalogRows(rows: CatalogProjectionRow[]) {
   });
 }
 
+function determineSourceType(hasAnalysis: boolean, sourceType: string | null): "catalog" | "custom" | "legacy" {
+  if (hasAnalysis) return "catalog";
+  if (sourceType === "custom") return "custom";
+  return "legacy";
+}
+
 export function mapPhraseRows(rows: CatalogJoinedRow[]) {
+  if (rows.length > 0 && "mechanisms_json" in rows[0]) {
+    return rows.map((row) => {
+      const mechanisms = parseMechanismsJson(row.mechanisms_json);
+      const analysis = analysisFromRow(row, mechanisms);
+      return {
+        id: row.id,
+        text: row.text,
+        pattern: row.pattern,
+        ipa: row.ipa,
+        translation: row.translation,
+        context: row.context,
+        source_type: row.source_type,
+        sourceType: determineSourceType(Boolean(analysis), row.source_type),
+        catalog_order: row.catalog_order,
+        status: row.status,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        analysis,
+      };
+    });
+  }
   return groupRows(rows).map(({ row, mechanisms }) => {
     const analysis = analysisFromRow(
       row,
@@ -100,7 +146,7 @@ export function mapPhraseRows(rows: CatalogJoinedRow[]) {
       translation: row.translation,
       context: row.context,
       source_type: row.source_type,
-      sourceType: analysis ? "catalog" as const : row.source_type === "custom" ? "custom" as const : "legacy" as const,
+      sourceType: determineSourceType(Boolean(analysis), row.source_type),
       catalog_order: row.catalog_order,
       status: row.status,
       created_at: row.created_at,

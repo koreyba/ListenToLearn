@@ -25,7 +25,7 @@ jobs:
           pr-mode: ${{ github.event_name == 'pull_request' }}
           upload-result: true
           artifact-name: qodana-report
-          args: ${{ hashFiles('.qodana/baseline.sarif.json') != '' && '--baseline,.qodana/baseline.sarif.json' || '' }}
+          args: ${{ hashFiles('.qodana/baseline.sarif.json') != '' && '--baseline .qodana/baseline.sarif.json' || '' }}
         env:
           QODANA_TOKEN: ${{ secrets.QODANA_TOKEN_801443181 }}
           QODANA_ENDPOINT: 'https://qodana.cloud'

@@ -3054,12 +3054,20 @@
         recordCaptionTrace("repeat.overshoot", { caption: tracedCaption, currentTime });
         return startRepeatReturn(target, currentTime, neighbor, "repeat-return", REPEAT_TAIL_SECONDS);
       }
+      return settleRepeatLanding(target, neighbor, currentTime, tracedCaption);
+    }
+
+    // A caption other than the looped one arrived while a return is pending:
+    // wait when the player is just before the target, correct a bounded number
+    // of unexpected landings, then follow the caption that is actually playing.
+    function settleRepeatLanding(target, neighbor, currentTime, tracedCaption) {
       recordRepeatLanding(currentTime);
       const targetStart = repeatAnchorStart(target);
       const landingPosition = currentTime ?? finiteCaptionTime(neighbor && neighbor.startTime);
-      if (targetStart !== null && landingPosition !== null
-          && landingPosition < targetStart
-          && targetStart - landingPosition <= REPEAT_APPROACH_WINDOW_SECONDS) {
+      const approaching = targetStart !== null && landingPosition !== null
+        && landingPosition < targetStart
+        && targetStart - landingPosition <= REPEAT_APPROACH_WINDOW_SECONDS;
+      if (approaching) {
         recordCaptionTrace("repeat.approaching", { caption: tracedCaption, currentTime });
         return true;
       }

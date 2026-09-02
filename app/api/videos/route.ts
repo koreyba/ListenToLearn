@@ -77,7 +77,16 @@ export async function GET(request: Request) {
       ORDER BY updated_at DESC, id ASC
       LIMIT 200
     `).bind(user.subject).all<SavedVideoRow>();
-    return json({ videos: result.results.map(publicVideo) });
+    const videos = result.results.map(publicVideo);
+    const etag = `W/"videos-${videos.length}-${videos[0]?.updatedAt || ""}-${user.subject}"`;
+    const cacheHeaders: Record<string, string> = {
+      "Cache-Control": "private, no-cache",
+      ETag: etag,
+    };
+    if (request.headers.get("if-none-match") === etag) {
+      return new Response(null, { status: 304, headers: cacheHeaders });
+    }
+    return Response.json({ videos }, { headers: cacheHeaders });
   } catch (error) {
     console.error("Videos GET failed:", error instanceof Error ? error.message : "unknown error");
     return json({ error: "Could not load saved videos." }, { status: 500 });

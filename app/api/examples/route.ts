@@ -129,9 +129,16 @@ export async function GET(request: Request) {
       return Response.json({ error: "Phrase not found." }, { status: 404 });
     }
 
-    return Response.json({
-      examples: visibleExamples(result.results),
-    });
+    const examples = visibleExamples(result.results);
+    const etag = `W/"examples-${phraseId}-${examples.length}-${examples[0]?.created_at || ""}-${user.subject}"`;
+    const cacheHeaders: Record<string, string> = {
+      "Cache-Control": "private, no-cache",
+      ETag: etag,
+    };
+    if (request.headers.get("if-none-match") === etag) {
+      return new Response(null, { status: 304, headers: cacheHeaders });
+    }
+    return Response.json({ examples }, { headers: cacheHeaders });
   } catch (error) {
     console.error("Examples GET failed:", error);
     return Response.json({ error: "Could not load saved examples." }, { status: 500 });

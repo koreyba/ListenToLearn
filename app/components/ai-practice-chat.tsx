@@ -29,11 +29,35 @@ export function AiPracticeChat() {
     };
   }, []);
 
-  const account = viewer
-    ? <SignedInSiteAccount user={viewer} />
-    : sessionReady
-      ? <a className="site-account-link" href={signInHref(returnTo)}>Sign in</a>
-      : <span aria-live="polite" className="site-account-name">Checking account…</span>;
+  let account: React.ReactNode;
+  if (viewer) {
+    account = <SignedInSiteAccount user={viewer} />;
+  } else if (sessionReady) {
+    account = <a className="site-account-link" href={signInHref(returnTo)}>Sign in</a>;
+  } else {
+    account = <span aria-live="polite" className="site-account-name">Checking account…</span>;
+  }
+
+  let chatContent: React.ReactNode;
+  if (!sessionReady) {
+    chatContent = <p aria-live="polite" className="ai-chat-account-state">Checking your account…</p>;
+  } else if (viewer) {
+    chatContent = (
+      <Suspense fallback={<p aria-live="polite" className="ai-chat-account-state">Loading your chats…</p>}>
+        <ChatWorkspace />
+      </Suspense>
+    );
+  } else {
+    chatContent = (
+      <section className="ai-chat-sign-in">
+        <h2>Keep the words and the conversation together</h2>
+        <p>Sign in with Google to start and keep your practice chats.</p>
+        <a className="landing-button landing-button-primary" href={signInHref(returnTo)}>
+          Sign in with Google
+        </a>
+      </section>
+    );
+  }
 
   return (
     <>
@@ -46,21 +70,7 @@ export function AiPracticeChat() {
           </div>
           <p>Practice in context, then select any useful phrase to translate or add to learning.</p>
         </section>
-        {!sessionReady ? (
-          <p aria-live="polite" className="ai-chat-account-state">Checking your account…</p>
-        ) : viewer ? (
-          <Suspense fallback={<p aria-live="polite" className="ai-chat-account-state">Loading your chats…</p>}>
-            <ChatWorkspace />
-          </Suspense>
-        ) : (
-          <section className="ai-chat-sign-in">
-            <h2>Keep the words and the conversation together</h2>
-            <p>Sign in with Google to start and keep your practice chats.</p>
-            <a className="landing-button landing-button-primary" href={signInHref(returnTo)}>
-              Sign in with Google
-            </a>
-          </section>
-        )}
+        {chatContent}
       </main>
     </>
   );

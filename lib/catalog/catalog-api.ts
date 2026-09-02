@@ -105,6 +105,12 @@ export function mapCatalogRows(rows: CatalogProjectionRow[]) {
   });
 }
 
+function determineSourceType(hasAnalysis: boolean, sourceType: string | null): "catalog" | "custom" | "legacy" {
+  if (hasAnalysis) return "catalog";
+  if (sourceType === "custom") return "custom";
+  return "legacy";
+}
+
 export function mapPhraseRows(rows: CatalogJoinedRow[]) {
   if (rows.length > 0 && "mechanisms_json" in rows[0]) {
     return rows.map((row) => {
@@ -118,7 +124,7 @@ export function mapPhraseRows(rows: CatalogJoinedRow[]) {
         translation: row.translation,
         context: row.context,
         source_type: row.source_type,
-        sourceType: analysis ? "catalog" as const : row.source_type === "custom" ? "custom" as const : "legacy" as const,
+        sourceType: determineSourceType(Boolean(analysis), row.source_type),
         catalog_order: row.catalog_order,
         status: row.status,
         created_at: row.created_at,
@@ -140,7 +146,7 @@ export function mapPhraseRows(rows: CatalogJoinedRow[]) {
       translation: row.translation,
       context: row.context,
       source_type: row.source_type,
-      sourceType: analysis ? "catalog" as const : row.source_type === "custom" ? "custom" as const : "legacy" as const,
+      sourceType: determineSourceType(Boolean(analysis), row.source_type),
       catalog_order: row.catalog_order,
       status: row.status,
       created_at: row.created_at,

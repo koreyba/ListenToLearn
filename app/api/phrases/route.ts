@@ -239,7 +239,10 @@ export async function GET(request: Request) {
     `).bind(user.subject, user.subject, user.subject).all<CatalogJoinedRow>();
     const phrases = mapPhraseRows(result.results);
     const needsBackfill = phrases.some((phrase) => phrase.status !== "pick" && !phrase.translation);
-    const etag = `W/"phrases-${phrases.length}-${phrases[0]?.updated_at || ""}-${user.subject}"`;
+    const body = JSON.stringify({ phrases, user: publicUser(user) });
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+    const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+    const etag = `W/"phrases-${user.subject}-${hash}"`;
     const cacheHeaders: Record<string, string> = {
       "Cache-Control": "private, no-cache",
       ETag: etag,
@@ -249,10 +252,12 @@ export async function GET(request: Request) {
     } else if (request.headers.get("if-none-match") === etag) {
       return new Response(null, { status: 304, headers: cacheHeaders });
     }
-    return Response.json(
-      { phrases, user: publicUser(user) },
-      { headers: cacheHeaders },
-    );
+    return new Response(body, {
+      headers: {
+        ...cacheHeaders,
+        "Content-Type": "application/json",
+      },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not load phrases.";
     return Response.json({ error: message }, { status: 500 });

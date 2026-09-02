@@ -12,10 +12,10 @@ import { CONNECTED_SPEECH_MECHANISMS, PRACTICE_FORMATS } from "../lib/catalog/co
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 class BenchmarkD1Statement {
-  constructor(database, sql, bindings = [], metrics) {
+  constructor(database, sql, bindings, metrics) {
     this.database = database;
     this.sql = sql;
-    this.bindings = bindings;
+    this.bindings = bindings || [];
     this.metrics = metrics;
   }
 

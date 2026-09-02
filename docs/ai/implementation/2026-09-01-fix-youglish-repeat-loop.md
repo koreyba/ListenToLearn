@@ -21,8 +21,10 @@ the trainer no longer issues a fetch for Repeat.
 
 Two provider facts drove the redesign:
 
-- YouGlish reports the end of caption N as `onCaptionConsumed(N)` followed
-  about 0.1 ms later by `onCaptionChange(N + 1)` that carries `current_time`.
+- YouGlish reports the end of caption N as `onCaptionConsumed(N)` and, in the
+  same callback burst (about a millisecond later in traces), `onCaptionChange(N + 1)`
+  that carries `current_time`. The 400 ms overshoot timeout is only a fallback
+  for a consumed callback that is not followed by that caption callback.
 - `widget.move(delta)` is applied relative to the player position at the moment
   the iframe processes the command. The previous `move(-elapsed)` return was
   therefore off by the command latency on every cycle, and the offset

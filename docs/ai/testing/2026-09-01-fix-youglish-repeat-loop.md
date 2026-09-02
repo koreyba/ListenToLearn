@@ -15,8 +15,9 @@ constants such as `REPEAT_OVERSHOOT_TIMEOUT_MS`.
 
 ## Scenarios (`tests/youglish-repeat-loop.test.mjs`)
 
-Every scenario feeds the provider's real sequence: `onCaptionConsumed(N)`
-followed by `onCaptionChange(N + 1)` with a playback position.
+Scenarios feed the provider's real sequence: `onCaptionConsumed(N)` followed
+by `onCaptionChange(N + 1)` with a playback position. The only exception is the
+consumed-only fallback scenario, which deliberately omits the caption callback.
 
 - The return seek is anchored to the consumed caption's cached start and stays
   identical across fifteen cycles; it never collapses into a sub-second loop.

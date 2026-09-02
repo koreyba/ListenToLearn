@@ -119,7 +119,9 @@ export async function createTrainer({
       if (replayError) throw replayError;
     }
 
-    setSpeed() {}
+    setSpeed(speed) {
+      widgetCalls.commands.push({ command: "setSpeed", speed });
+    }
   }
 
   const virtualConsole = new VirtualConsole();
@@ -166,7 +168,7 @@ export async function createTrainer({
     widgetEvents.onPlayerReady();
   };
   const emitPlayerStateChange = event => {
-    providerPlaying = Number(event && event.state) === 1;
+    providerPlaying = Number(event?.state) === 1;
     widgetEvents.onPlayerStateChange(event);
   };
   if (autoPlayerReady) emitPlayerReady();
@@ -212,9 +214,9 @@ export async function createTrainer({
   };
 }
 
-export function caption(id, time, text = id, video) {
+export function caption(id, time, text, video) {
   return {
-    caption: encodeURIComponent(text),
+    caption: encodeURIComponent(text ?? id),
     current_time: time,
     id,
     ...(video ? { video } : {}),

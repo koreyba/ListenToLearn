@@ -225,6 +225,47 @@ test("Repeat corrects an unexpected landing twice, then follows the caption that
   assert.match(trainer.controls.captionText.textContent, /seventh/);
 });
 
+test("Repeat follows the visible caption when the bounded history evicts the looped one", async t => {
+  const trainer = await openTrainer(t, { constants: { MAX_OBSERVED_CAPTIONS: 2 } });
+
+  observeVideo(trainer, "video-a", [
+    caption("a1", 600, "first"),
+    caption("a2", 603, "second"),
+  ]);
+  trainer.controls.previous.click();
+  trainer.events.onCaptionChange(caption("a1", 600, "first"));
+  trainer.controls.repeat.click();
+  const movesBefore = trainer.widgetCalls.move.length;
+
+  // The new neighbor pushes the looped first caption out of the two-entry history.
+  consumeInto(trainer, "a1", caption("a3", 607, "third"));
+
+  assert.equal(trainer.widgetCalls.move.length, movesBefore, "no return to a caption that is no longer cached");
+  assert.match(trainer.controls.captionText.textContent, /third/);
+  assert.equal(trainer.controls.repeat.getAttribute("aria-pressed"), "true");
+
+  consumeInto(trainer, "a3", caption("a4", 611, "fourth"));
+  assertDeltas(trainer.widgetCalls.move.slice(-1), [returnDelta(607, 611)]);
+});
+
+test("a forward wait during a correction does not calibrate the seek lag", async t => {
+  const trainer = await loopingTrainer(t, { trace: true });
+
+  consumeInto(trainer, "a2", caption("a3", 607, "third"));
+  assertDeltas(trainer.widgetCalls.move, [returnDelta(603, 607)]);
+
+  // The player reports a position far before the target: waiting is the only option.
+  trainer.events.onCaptionChange(caption("a0", 590, "zeroth"));
+  assert.equal(trainer.widgetCalls.move.length, 1);
+  assert.match(trainer.controls.captionText.textContent, /second/);
+
+  trainer.events.onCaptionChange(caption("a2", 603, "second"));
+  assert.equal(trainer.trace().events.at(-1).state.repeat.seekLag, null);
+
+  consumeInto(trainer, "a2", caption("a3", 607, "third"));
+  assertDeltas(trainer.widgetCalls.move.slice(-1), [returnDelta(603, 607)]);
+});
+
 test("Repeat loops an untimed first caption with a timed return once its duration is measured", async t => {
   const trainer = await openTrainer(t);
 

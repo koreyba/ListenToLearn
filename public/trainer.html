@@ -2911,7 +2911,8 @@
         delta = estimated - lead;
         aim = null;
       }
-      if (delta >= 0) return { command: "wait", aim };
+      // No seek is issued for "wait", so there is no landing to calibrate from.
+      if (delta >= 0) return { command: "wait", aim: null };
       return { command: "move", delta, aim };
     }
 
@@ -3015,7 +3016,8 @@
       const targetIndex = captionHistory.findIndex(item =>
         item.videoId === currentYouglishVideoId && item.id === target.id
       );
-      if (targetIndex < 0) return null;
+      // The bounded history evicted the looped caption: the cycle cannot continue.
+      if (targetIndex < 0) return { evicted: true };
       captionHistoryIndex = targetIndex;
       activeCaptionSegmentId = captionHistory[targetIndex].segmentId || activeCaptionSegmentId;
       storeActiveCaptionVideoState();
@@ -3042,7 +3044,8 @@
       if (captionId === target.id) return false;
       const neighbor = recordRepeatNeighbor(target, raw, text, captionId, currentTime);
       target = repeatTarget();
-      if (!target) {
+      if (!target || (neighbor && neighbor.evicted)) {
+        recordCaptionTrace("repeat.target-lost", { caption: tracedCaption });
         clearRepeatCycle();
         return false;
       }

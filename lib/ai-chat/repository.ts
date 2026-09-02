@@ -367,67 +367,13 @@ export function createAiChatRepository(
     }
   }
 
-  type SavedTarget = Extract<AiChatTargetInput, { source: "saved" }>;
-
-  async function resolveBatchSavedTargets(
-    userId: string,
-    savedTargets: readonly SavedTarget[],
-  ): Promise<TargetDraft[]> {
-    try {
-      if ("resolveSavedTargets" in practiceReader && typeof practiceReader.resolveSavedTargets === "function") {
-        return await practiceReader.resolveSavedTargets(
-          userId,
-          savedTargets.map((s) => ({
-            phraseId: s.phraseId,
-            meaningMode: s.meaningMode,
-            selectedMeaningId: s.selectedMeaningId,
-          })),
-        );
-      }
-      return await Promise.all(savedTargets.map((s) => resolveTarget(userId, s)));
-    } catch (error) {
-      if (error instanceof VocabularyPracticeReaderError) {
-        repositoryError(error.code, error.message);
-      }
-      throw error;
-    }
-  }
-
   async function resolveTargets(userId: string, targets: readonly AiChatTargetInput[]) {
     if (targets.length > AI_CHAT_LIMITS.targetCount) {
       repositoryError("target_limit", "Too many practice targets.");
     }
-    if (targets.length === 0) return [];
-    if (targets.length === 1) {
-      return [await resolveTarget(userId, targets[0])];
-    }
-
-    const allResolved: TargetDraft[] = new Array(targets.length);
-    const savedEntries: Array<{ index: number; target: SavedTarget }> = [];
-
-    for (let i = 0; i < targets.length; i++) {
-      const target = targets[i];
-      if (target.source === "ad_hoc") {
-        allResolved[i] = await resolveTarget(userId, target);
-      } else {
-        if (!isMeaningMode(target.meaningMode)) {
-          repositoryError("invalid_target", "Unsupported meaning mode.");
-        }
-        savedEntries.push({ index: i, target });
-      }
-    }
-
-    if (savedEntries.length > 0) {
-      const resolved = await resolveBatchSavedTargets(
-        userId,
-        savedEntries.map((e) => e.target),
-      );
-      for (let j = 0; j < savedEntries.length; j++) {
-        allResolved[savedEntries[j].index] = resolved[j];
-      }
-    }
-
-    return allResolved;
+    const resolved: TargetDraft[] = [];
+    for (const target of targets) resolved.push(await resolveTarget(userId, target));
+    return resolved;
   }
 
   function targetInsert(chatId: string, target: TargetDraft, timestamp: string) {

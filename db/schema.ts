@@ -161,8 +161,6 @@ export const aiChats = sqliteTable("ai_chats", {
   updatedAt: text("updated_at").notNull(),
 }, (table) => [
   index("idx_ai_chats_user_updated").on(table.userId, table.updatedAt),
-  index("idx_ai_chats_user_updated_id")
-    .on(table.userId, sql`${table.updatedAt} DESC`, sql`${table.id} DESC`),
 ]);
 
 export const aiChatPracticeItems = sqliteTable("ai_chat_practice_items", {

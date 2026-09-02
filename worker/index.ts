@@ -216,7 +216,12 @@ const worker = {
       console.warn("Application session lookup failed:", error instanceof Error ? error.message : "unknown error");
       return sessionUnavailableResponse();
     }
-    if (!identity) return unauthorizedResponse();
+    if (!identity) {
+      if (pathname === "/api/translate" && request.method === "POST") {
+        return handler.fetch(new Request(request, { headers }), env, ctx);
+      }
+      return unauthorizedResponse();
+    }
 
     headers.set(AUTHENTICATED_USER_HEADER, encodeUserContext(identity));
     const forwardedRequest = new Request(request, { headers });

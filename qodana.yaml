@@ -11,6 +11,7 @@ profile:
   name: qodana.recommended
 
 exclude:
+  - name: ESLint
   - name: All
     paths:
       - dist
@@ -20,6 +21,7 @@ exclude:
       - playwright-report
       - test-results
       - spikes
+      - examples
       - worker-configuration.d.ts
 
 include:

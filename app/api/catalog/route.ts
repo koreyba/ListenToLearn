@@ -37,7 +37,14 @@ export async function GET(request: Request) {
     `).all<CatalogProjectionRow>();
 
     const cards = mapCatalogRows(result.results);
-    const etag = `W/"catalog-${cards.length}"`;
+    const body = JSON.stringify({
+      cards,
+      formats: PRACTICE_FORMATS,
+      mechanisms: CONNECTED_SPEECH_MECHANISMS,
+    });
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+    const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+    const etag = `W/"catalog-${hash}"`;
     const cacheHeaders = {
       "Cache-Control": "public, max-age=300, stale-while-revalidate=86400",
       ETag: etag,
@@ -47,12 +54,11 @@ export async function GET(request: Request) {
       return new Response(null, { status: 304, headers: cacheHeaders });
     }
 
-    return Response.json({
-      cards,
-      formats: PRACTICE_FORMATS,
-      mechanisms: CONNECTED_SPEECH_MECHANISMS,
-    }, {
-      headers: cacheHeaders,
+    return new Response(body, {
+      headers: {
+        ...cacheHeaders,
+        "Content-Type": "application/json",
+      },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not load the catalog.";

@@ -7,7 +7,6 @@ import {
 import {
   VOCABULARY_LEGACY_MEANING_ID,
   type VocabularyMeaning,
-  type VocabularyMeaningMode,
 } from "../vocabulary/contracts.ts";
 import {
   createVocabularyPracticeReader,
@@ -377,8 +376,9 @@ export function createAiChatRepository(
       return [await resolveTarget(userId, targets[0])];
     }
 
+    type SavedTarget = Extract<AiChatTargetInput, { source: "saved" }>;
     const allResolved: TargetDraft[] = new Array(targets.length);
-    const savedTargets: Array<{ index: number; target: AiChatTargetInput }> = [];
+    const savedTargets: Array<{ index: number; target: SavedTarget }> = [];
 
     for (let i = 0; i < targets.length; i++) {
       const target = targets[i];
@@ -401,7 +401,7 @@ export function createAiChatRepository(
             userId,
             savedTargets.map((s) => ({
               phraseId: s.target.phraseId,
-              meaningMode: s.target.meaningMode as VocabularyMeaningMode,
+              meaningMode: s.target.meaningMode,
               selectedMeaningId: s.target.selectedMeaningId,
             })),
           );

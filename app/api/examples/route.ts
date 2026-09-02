@@ -130,7 +130,10 @@ export async function GET(request: Request) {
     }
 
     const examples = visibleExamples(result.results);
-    const etag = `W/"examples-${phraseId}-${examples.length}-${examples[0]?.created_at || ""}-${user.subject}"`;
+    const body = JSON.stringify({ examples });
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+    const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+    const etag = `W/"examples-${phraseId}-${user.subject}-${hash}"`;
     const cacheHeaders: Record<string, string> = {
       "Cache-Control": "private, no-cache",
       ETag: etag,
@@ -138,7 +141,12 @@ export async function GET(request: Request) {
     if (request.headers.get("if-none-match") === etag) {
       return new Response(null, { status: 304, headers: cacheHeaders });
     }
-    return Response.json({ examples }, { headers: cacheHeaders });
+    return new Response(body, {
+      headers: {
+        ...cacheHeaders,
+        "Content-Type": "application/json",
+      },
+    });
   } catch (error) {
     console.error("Examples GET failed:", error);
     return Response.json({ error: "Could not load saved examples." }, { status: 500 });

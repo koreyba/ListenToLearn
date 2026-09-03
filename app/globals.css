@@ -1647,14 +1647,47 @@ button { cursor: pointer; }
     font-weight: 750 !important;
     cursor: pointer !important;
   }
-  .mobile-practice-buttons {
-    display: flex !important;
-    gap: 8px !important;
-    width: 100% !important;
+  .practice-single-input-wrap {
+    padding: 0 10px !important;
+    gap: 6px !important;
   }
-  .mobile-practice-buttons button {
-    flex: 1 !important;
-    min-height: 44px !important;
+  .practice-single-input-wrap input {
+    font-size: 13.5px !important;
+  }
+  .practice-single-input-row {
+    gap: 5px !important;
+  }
+  .practice-icon-btn {
+    display: grid !important;
+    width: 38px !important;
+    height: 44px !important;
+    flex: 0 0 38px !important;
+    border: 1px solid var(--color-action-secondary-border, #546170) !important;
+    border-radius: 12px !important;
+    place-items: center !important;
+    background: var(--color-action-secondary-background, #202731) !important;
+    color: var(--color-action-secondary-text, #eef2ed) !important;
+    cursor: pointer !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    transition: background-color .15s ease, border-color .15s ease, transform .1s ease !important;
+  }
+  .practice-icon-btn:hover:not(:disabled) {
+    background: var(--app-control-hover) !important;
+    border-color: var(--color-interactive-border) !important;
+  }
+  .practice-icon-btn:disabled {
+    opacity: 0.35 !important;
+    cursor: not-allowed !important;
+  }
+  .practice-add-icon-btn {
+    background: var(--color-interactive-surface) !important;
+    border-color: transparent !important;
+    color: var(--color-on-interactive) !important;
+    box-shadow: 0 4px 14px var(--color-interactive-shadow) !important;
+  }
+  .practice-add-icon-btn:hover:not(:disabled) {
+    filter: brightness(1.1) !important;
   }
   .mobile-status-chips {
     display: flex !important;
@@ -1770,16 +1803,20 @@ button { cursor: pointer; }
     height: 44px !important;
     flex: 0 0 44px !important;
     margin: 0 !important;
+    padding: 0 !important;
+    line-height: 0 !important;
     border: 1px solid var(--color-action-secondary-border, #546170) !important;
     border-radius: 11px !important;
     place-items: center !important;
     background: var(--color-action-secondary-background, #202731) !important;
     color: var(--color-action-secondary-text, #eef2ed) !important;
-    font-size: 19px !important;
-    font-weight: 700 !important;
     cursor: pointer !important;
     box-shadow: none !important;
     transition: background-color .15s ease, border-color .15s ease !important;
+  }
+  .mobile-add-btn svg {
+    display: block !important;
+    margin: auto !important;
   }
   .workspace-main .practice-row .card-actions button.row-menu-btn,
   .workspace-main .practice-row .card-actions .row-menu-btn,
@@ -1857,6 +1894,66 @@ button { cursor: pointer; }
     font-weight: 800;
     cursor: pointer;
     margin-top: 8px;
+  }
+
+  /* Phrase Options Bottom Sheet */
+  .phrase-options-sheet {
+    gap: 16px !important;
+    padding: 12px 18px calc(24px + env(safe-area-inset-bottom)) !important;
+  }
+  .phrase-sheet-header {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 4px !important;
+    padding: 4px 0 12px !important;
+    border-bottom: 1px solid var(--color-border) !important;
+  }
+  .phrase-sheet-title {
+    color: var(--color-text-primary) !important;
+    font-size: 19px !important;
+    font-weight: 800 !important;
+    line-height: 1.25 !important;
+  }
+  .phrase-sheet-sub {
+    color: var(--color-text-secondary) !important;
+    font-size: 14px !important;
+  }
+  .phrase-sheet-actions {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+  .sheet-action-btn {
+    display: grid !important;
+    min-height: 48px !important;
+    width: 100% !important;
+    place-items: center !important;
+    border-radius: 12px !important;
+    font-size: 15px !important;
+    font-weight: 750 !important;
+    cursor: pointer !important;
+    transition: all .15s ease !important;
+  }
+  .sheet-action-btn.action-primary {
+    border: 0 !important;
+    background: var(--color-interactive-surface) !important;
+    color: var(--color-on-interactive) !important;
+    box-shadow: 0 4px 14px var(--color-interactive-shadow) !important;
+  }
+  .sheet-action-btn.action-primary:hover:not(:disabled) {
+    filter: brightness(1.1) !important;
+  }
+  .sheet-action-btn.action-danger {
+    border: 1px solid var(--color-danger-border) !important;
+    background: var(--color-danger-background) !important;
+    color: var(--danger) !important;
+  }
+  .sheet-action-btn.action-cancel {
+    border: 1px solid var(--line) !important;
+    background: var(--color-surface-subtle) !important;
+    color: var(--color-text-primary) !important;
+    margin-top: 4px !important;
   }
 }
 

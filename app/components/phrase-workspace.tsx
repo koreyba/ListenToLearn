@@ -857,7 +857,10 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
               onClick={() => changeStatus(phrase.id, "to_learn")}
               type="button"
             >
-              +
+              <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" viewBox="0 0 24 24" width="18">
+                <line x1="12" x2="12" y1="5" y2="19" />
+                <line x1="5" x2="19" y1="12" y2="12" />
+              </svg>
             </button>
           )}
           {phrase.status === "to_learn" && <button className="action-btn-primary desktop-only" disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Move to Learning Now</button>}
@@ -1034,7 +1037,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                       <input
                         id="practice-search-input"
                         onChange={(event) => setPracticeSearch(event.target.value)}
-                        placeholder="Find a phrase, or type a new one"
+                        placeholder="Search or add a new word"
                         type="text"
                         value={practiceSearch}
                       />
@@ -1054,6 +1057,30 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                       + To Learn
                     </button>
                     <button
+                      aria-label="Search"
+                      className="practice-icon-btn mobile-only"
+                      onClick={() => setPracticeSearch(practiceSearch)}
+                      title="Search"
+                      type="button"
+                    >
+                      <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" viewBox="0 0 24 24" width="16">
+                        <circle cx="11" cy="11" r="8" />
+                        <line x1="21" x2="16.65" y1="21" x2="16.65" />
+                      </svg>
+                    </button>
+                    <button
+                      aria-label="Add to Learn"
+                      className="practice-icon-btn practice-add-icon-btn mobile-only"
+                      disabled={busyId === "new" || !practiceSearch.trim()}
+                      title="Add to Learn"
+                      type="submit"
+                    >
+                      <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" viewBox="0 0 24 24" width="16">
+                        <line x1="12" x2="12" y1="5" y2="19" />
+                        <line x1="5" x2="19" y1="12" y2="12" />
+                      </svg>
+                    </button>
+                    <button
                       aria-label="Open filters"
                       className="mobile-filter-trigger mobile-only"
                       onClick={() => setMobileFilterOpen(true)}
@@ -1062,23 +1089,6 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                       <svg aria-hidden="true" className="mobile-filter-icon" fill="none" height="15" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="15">
                         <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
                       </svg> <span style={{ color: "var(--color-text-secondary)" }}>⌄</span>
-                    </button>
-                  </div>
-
-                  <div className="mobile-practice-buttons mobile-only">
-                    <button
-                      className="practice-search-btn"
-                      onClick={() => setPracticeSearch(practiceSearch)}
-                      type="button"
-                    >
-                      Search
-                    </button>
-                    <button
-                      className="practice-add-btn"
-                      disabled={busyId === "new" || !practiceSearch.trim()}
-                      type="submit"
-                    >
-                      + To Learn
                     </button>
                   </div>
 
@@ -1193,6 +1203,90 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
             </div>
           </>
         )}
+
+        {openMenuPhraseId && (() => {
+          const menuPhrase = phrases.find((p) => p.id === openMenuPhraseId);
+          if (!menuPhrase) return null;
+          const isLearningNow = menuPhrase.status === "learning_now";
+          const isToLearn = menuPhrase.status === "to_learn";
+          const isLearnt = menuPhrase.status === "learnt";
+
+          return (
+            <>
+              <div className="sheet-backdrop" onClick={() => setOpenMenuPhraseId(null)} />
+              <div aria-modal="true" className="bottom-sheet phrase-options-sheet" role="dialog">
+                <div className="sheet-drag-handle" />
+                <div className="phrase-sheet-header">
+                  <strong className="phrase-sheet-title">{menuPhrase.text}</strong>
+                  {menuPhrase.translation ? (
+                    <span className="phrase-sheet-sub">{menuPhrase.translation}</span>
+                  ) : menuPhrase.context ? (
+                    <span className="phrase-sheet-sub">{menuPhrase.context}</span>
+                  ) : null}
+                </div>
+                <div className="phrase-sheet-actions">
+                  {isToLearn && (
+                    <button
+                      className="sheet-action-btn action-primary"
+                      disabled={busyId === menuPhrase.id}
+                      onClick={async () => {
+                        await changeStatus(menuPhrase.id, "learning_now");
+                        setOpenMenuPhraseId(null);
+                      }}
+                      type="button"
+                    >
+                      Move to Learning Now
+                    </button>
+                  )}
+                  {isLearningNow && (
+                    <button
+                      className="sheet-action-btn action-primary"
+                      disabled={busyId === menuPhrase.id}
+                      onClick={async () => {
+                        await changeStatus(menuPhrase.id, "learnt");
+                        setOpenMenuPhraseId(null);
+                      }}
+                      type="button"
+                    >
+                      Mark as Learned
+                    </button>
+                  )}
+                  {isLearnt && (
+                    <button
+                      className="sheet-action-btn action-primary"
+                      disabled={busyId === menuPhrase.id}
+                      onClick={async () => {
+                        await changeStatus(menuPhrase.id, "learning_now");
+                        setOpenMenuPhraseId(null);
+                      }}
+                      type="button"
+                    >
+                      Learn Again
+                    </button>
+                  )}
+                  <button
+                    className="sheet-action-btn action-danger"
+                    disabled={busyId === menuPhrase.id}
+                    onClick={async () => {
+                      await removePhrase(menuPhrase);
+                      setOpenMenuPhraseId(null);
+                    }}
+                    type="button"
+                  >
+                    Remove from Library
+                  </button>
+                  <button
+                    className="sheet-action-btn action-cancel"
+                    onClick={() => setOpenMenuPhraseId(null)}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </>
+          );
+        })()}
       </main>
     </>
   );

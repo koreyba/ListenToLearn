@@ -268,3 +268,11 @@ test("Mechanism filters use accessible label with native checkbox to prevent red
   assert.match(globals, /\.mechanism-toggle-label\s*\{/);
   assert.match(globals, /\.visually-hidden\s*\{/);
 });
+
+test("Practice rows in Learning Now have a visible separator border", async () => {
+  const globals = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+
+  // Highlighted practice rows define a visible border-bottom matching interactive border
+  assert.match(globals, /\.workspace-main \.practice-row\.highlighted\s*\{[\s\S]*?border-bottom:\s*1px\s+solid\s+var\(--color-interactive-border/);
+  assert.match(globals, /\.workspace-main \.practice-row\.highlighted:last-child\s*\{[\s\S]*?border-bottom:\s*0/);
+});

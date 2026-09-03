@@ -1534,6 +1534,11 @@ button { cursor: pointer; }
 
 .workspace-main .practice-row.highlighted {
   background: var(--color-interactive-soft) !important;
+  border-bottom: 1px solid var(--color-interactive-border) !important;
+}
+
+.workspace-main .practice-row.highlighted:last-child {
+  border-bottom: 0 !important;
 }
 
 .workspace-main .practice-row .row-rank {

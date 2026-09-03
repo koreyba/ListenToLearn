@@ -1119,17 +1119,16 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                       <svg
                         aria-hidden="true"
                         fill="none"
-                        height="17"
+                        height="19"
                         stroke="currentColor"
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         strokeWidth="2.2"
                         style={{ display: "block", flexShrink: 0 }}
                         viewBox="0 0 24 24"
-                        width="17"
+                        width="19"
                       >
-                        <circle cx="11" cy="11" r="7.5" />
-                        <line x1="21" x2="16.5" y1="21" x2="16.5" />
+                        <path d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
                       </svg>
                     </button>
                     <button

@@ -1617,7 +1617,7 @@ button { cursor: pointer; }
     justify-content: center !important;
     gap: 4px !important;
     flex: 0 0 auto !important;
-    min-width: 38px !important;
+    min-width: 40px !important;
     height: 44px !important;
     padding: 0 9px !important;
     border: 1px solid var(--app-control-border) !important;
@@ -1721,9 +1721,9 @@ button { cursor: pointer; }
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    width: 38px !important;
+    width: 40px !important;
     height: 44px !important;
-    flex: 0 0 38px !important;
+    flex: 0 0 40px !important;
     border: 1px solid var(--app-control-border) !important;
     border-radius: 12px !important;
     background: var(--color-control-background) !important;

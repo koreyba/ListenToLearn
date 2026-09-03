@@ -19,3 +19,15 @@ test("feedback widget loads on both React pages and the standalone trainer", asy
   assert.match(styles, /\.feedback-image-preview/);
   assert.match(styles, /@media \(max-width: 760px\)/);
 });
+
+test("feedback success confirmation animates with a reduced-motion fallback", async () => {
+  const styles = await readFile(
+    new URL("../public/feedback-widget.css", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(styles, /@keyframes feedback-success-pop/);
+  assert.match(styles, /@keyframes feedback-success-check/);
+  assert.match(styles, /\.feedback-success-icon[\s\S]*animation:\s*feedback-success-pop/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.feedback-success-icon[\s\S]*animation:\s*none/s);
+});

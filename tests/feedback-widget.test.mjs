@@ -45,12 +45,18 @@ test("feedback widget opens an accessible three-category form", async () => {
   assert.ok(dom.window.document.querySelector('input[name="website"]'));
 });
 
-test("feedback widget posts the report with automatic page context and shows success", async () => {
+test("feedback widget replaces the form with a prominent timed success confirmation", async () => {
   const calls = [];
+  const timers = [];
   const dom = await setup(async (...args) => {
     calls.push(args);
     return Response.json({ ok: true, id: "feedback-1" }, { status: 201 });
   });
+  dom.window.setTimeout = (callback, delay) => {
+    timers.push({ callback, delay });
+    return timers.length;
+  };
+  dom.window.clearTimeout = () => {};
   dom.window.document.querySelector("[data-feedback-open]").click();
   dom.window.document.querySelector('select[name="category"]').value = "idea";
   dom.window.document.querySelector('textarea[name="message"]').value = "Add keyboard shortcuts.";
@@ -72,8 +78,19 @@ test("feedback widget posts the report with automatic page context and shows suc
   assert.equal(calls[0][1].body.get("pageUrl"), "https://unmumble.online/practice?tab=learning");
   assert.equal(calls[0][1].body.get("website"), "");
   assert.equal(calls[0][1].body.get("image").name, "screen.png");
-  assert.equal(dom.window.document.querySelector("[data-feedback-status]").textContent, "Thanks — feedback received.");
+  const confirmation = dom.window.document.querySelector("[data-feedback-success]");
+  assert.equal(form.hidden, true);
+  assert.equal(confirmation.hidden, false);
+  assert.match(confirmation.textContent, /Feedback sent/);
+  assert.match(confirmation.textContent, /Thanks.*received it/s);
+  assert.equal(dom.window.document.activeElement, confirmation);
+  assert.deepEqual(timers.map(({ delay }) => delay), [2_800]);
   assert.equal(dom.window.document.querySelector('textarea[name="message"]').value, "");
+
+  timers[0].callback();
+  assert.equal(dom.window.document.querySelector("[data-feedback-backdrop]").hidden, true);
+  assert.equal(form.hidden, false);
+  assert.equal(confirmation.hidden, true);
 });
 
 test("feedback widget previews a selected image and lets the user remove it", async () => {

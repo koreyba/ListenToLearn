@@ -94,6 +94,7 @@
 }
 
 .feedback-dialog form { display: grid; gap: 17px; }
+.feedback-dialog form[hidden] { display: none; }
 
 .feedback-dialog label {
   display: grid;
@@ -215,6 +216,77 @@
 
 .feedback-submit:disabled { cursor: wait; opacity: .66; }
 
+.feedback-success {
+  display: grid;
+  min-height: 330px;
+  align-content: center;
+  justify-items: center;
+  gap: 14px;
+  padding: 28px 18px 42px;
+  text-align: center;
+  animation: feedback-success-enter .28s ease-out both;
+}
+
+.feedback-success[hidden] { display: none; }
+
+.feedback-success-icon {
+  display: grid;
+  width: 88px;
+  height: 88px;
+  border: 1px solid var(--color-success-border);
+  border-radius: 50%;
+  background: var(--color-success-background);
+  color: var(--color-success);
+  box-shadow: 0 16px 38px color-mix(in srgb, var(--color-success) 20%, transparent);
+  place-items: center;
+  animation: feedback-success-pop .52s cubic-bezier(.2, .9, .3, 1.25) both;
+}
+
+.feedback-success-icon svg {
+  width: 48px;
+  height: 48px;
+  overflow: visible;
+}
+
+.feedback-success-icon path {
+  fill: none;
+  stroke: currentcolor;
+  stroke-dasharray: 32;
+  stroke-dashoffset: 32;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 4;
+  animation: feedback-success-check .42s .18s ease-out forwards;
+}
+
+.feedback-success h3 {
+  margin: 8px 0 0;
+  font-family: var(--app-display-font);
+  font-size: clamp(28px, 6vw, 36px);
+  line-height: 1;
+}
+
+.feedback-success p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font: 600 15px/1.5 var(--app-ui-font);
+}
+
+@keyframes feedback-success-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes feedback-success-pop {
+  0% { opacity: 0; transform: scale(.62); }
+  70% { opacity: 1; transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes feedback-success-check {
+  to { stroke-dashoffset: 0; }
+}
+
 @media (max-width: 760px) {
   .feedback-trigger {
     right: max(12px, env(safe-area-inset-right));
@@ -245,4 +317,12 @@
 
 @media (prefers-reduced-motion: reduce) {
   .feedback-trigger { transition: none; }
+
+  .feedback-success,
+  .feedback-success-icon,
+  .feedback-success-icon path {
+    animation: none;
+  }
+
+  .feedback-success-icon path { stroke-dashoffset: 0; }
 }

@@ -2,12 +2,13 @@
   if (!document.body || document.querySelector("[data-feedback-widget]")) return;
 
   const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+  const SUCCESS_VISIBLE_MS = 2_800;
   const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
   const root = document.createElement("div");
   root.dataset.feedbackWidget = "";
   root.innerHTML = `
-    <button class="feedback-trigger" data-feedback-open type="button" aria-haspopup="dialog">
+    <button aria-haspopup="dialog" aria-label="Feedback" class="feedback-trigger" data-feedback-open type="button">
       <span aria-hidden="true">💬</span>
       <span>Feedback</span>
     </button>
@@ -51,6 +52,15 @@
           <p aria-live="polite" class="feedback-status" data-feedback-status role="status"></p>
           <button class="feedback-submit" type="submit">Send feedback</button>
         </form>
+        <div aria-live="polite" class="feedback-success" data-feedback-success hidden role="status" tabindex="-1">
+          <div aria-hidden="true" class="feedback-success-icon">
+            <svg viewBox="0 0 48 48">
+              <path d="M13 25l7 7 15-17"></path>
+            </svg>
+          </div>
+          <h3>Feedback sent</h3>
+          <p>Thanks — we received it.</p>
+        </div>
       </section>
     </div>
   `;
@@ -68,8 +78,10 @@
   const imageRemove = root.querySelector("[data-feedback-image-remove]");
   const status = root.querySelector("[data-feedback-status]");
   const submit = root.querySelector(".feedback-submit");
+  const success = root.querySelector("[data-feedback-success]");
   let previousFocus = null;
   let imagePreviewGeneration = 0;
+  let successTimer = null;
 
   function clearImage() {
     imagePreviewGeneration += 1;
@@ -84,7 +96,15 @@
     imagePreview.hidden = true;
   }
 
+  function resetSuccess() {
+    if (successTimer !== null) window.clearTimeout(successTimer);
+    successTimer = null;
+    form.hidden = false;
+    success.hidden = true;
+  }
+
   function open() {
+    resetSuccess();
     previousFocus = document.activeElement;
     backdrop.hidden = false;
     document.body.classList.add("feedback-open");
@@ -94,6 +114,7 @@
   function close() {
     backdrop.hidden = true;
     document.body.classList.remove("feedback-open");
+    resetSuccess();
     previousFocus?.focus?.();
   }
 
@@ -175,7 +196,14 @@
       }
       form.reset();
       clearImage();
-      status.textContent = "Thanks — feedback received.";
+      status.textContent = "";
+      form.hidden = true;
+      success.hidden = false;
+      success.focus();
+      successTimer = window.setTimeout(() => {
+        successTimer = null;
+        close();
+      }, SUCCESS_VISIBLE_MS);
     } catch {
       status.textContent = "Could not send feedback. Try again.";
     } finally {

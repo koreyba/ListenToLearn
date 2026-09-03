@@ -193,4 +193,19 @@ test("Mobile bottom sheet positions mechanism explanation tooltips within bounds
   assert.doesNotMatch(globals, /\.sheet-panel \.mechanism-popover/);
 });
 
+test("Mobile bottom sheet features sticky floating CTA footer and scrollable filter body", async () => {
+  const [workspace, globals] = await Promise.all([
+    readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  // JSX structure in phrase-workspace.tsx
+  assert.match(workspace, /<div className="bottom-sheet"[\s\S]*?<div className="sheet-scroll-body">[\s\S]*?\{renderFiltersContent\(true\)\}[\s\S]*?<\/div>[\s\S]*?<div className="sheet-footer-sticky">[\s\S]*?<button[\s\S]*?className="sheet-apply-cta"/);
+
+  // CSS styling in globals.css
+  assert.match(globals, /\.sheet-scroll-body\s*\{[\s\S]*?overflow-y:\s*auto/);
+  assert.match(globals, /\.sheet-footer-sticky\s*\{[\s\S]*?position:\s*sticky[\s\S]*?bottom:\s*0[\s\S]*?env\(safe-area-inset-bottom\)/);
+});
+
+
 

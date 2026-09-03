@@ -1962,11 +1962,10 @@ button { cursor: pointer; }
     right: 0;
     z-index: 2600;
     max-height: 85vh;
-    overflow-y: auto;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: 10px 16px calc(20px + env(safe-area-inset-bottom));
+    padding: 10px 0 0;
     border-top: 1px solid var(--color-border-strong);
     border-radius: 20px 20px 0 0;
     background: var(--color-surface, #151a21);
@@ -1980,9 +1979,33 @@ button { cursor: pointer; }
   .sheet-drag-handle {
     width: 44px;
     height: 4px;
-    margin: 0 auto;
+    margin: 0 auto 10px;
     border-radius: 999px;
     background: var(--color-border-strong);
+    flex-shrink: 0;
+  }
+  .sheet-scroll-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 0 16px 16px;
+  }
+  .sheet-footer-sticky {
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    flex-shrink: 0;
+    padding: 10px 16px calc(14px + env(safe-area-inset-bottom));
+    background: var(--color-surface, #151a21);
+    border-top: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+    box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.25);
+    z-index: 200;
   }
   .sheet-apply-cta {
     display: grid;
@@ -1996,13 +2019,19 @@ button { cursor: pointer; }
     font-size: 15px;
     font-weight: 800;
     cursor: pointer;
-    margin-top: 8px;
+    margin: 0;
+    box-shadow: 0 4px 14px rgba(82, 197, 247, 0.25);
+    transition: filter .15s ease, transform .1s ease;
+  }
+  .sheet-apply-cta:active {
+    transform: scale(0.985);
   }
 
   /* Phrase Options Bottom Sheet */
   .phrase-options-sheet {
     gap: 16px !important;
     padding: 12px 18px calc(24px + env(safe-area-inset-bottom)) !important;
+    overflow-y: auto !important;
   }
   .phrase-sheet-header {
     display: flex !important;

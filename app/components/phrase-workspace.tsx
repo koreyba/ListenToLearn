@@ -1277,14 +1277,18 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
             <div className="sheet-backdrop" onClick={() => setMobileFilterOpen(false)} />
             <div className="bottom-sheet" role="dialog" aria-modal="true">
               <div className="sheet-drag-handle" />
-              {renderFiltersContent(true)}
-              <button
-                className="sheet-apply-cta"
-                onClick={() => setMobileFilterOpen(false)}
-                type="button"
-              >
-                Show {visible.length} cards
-              </button>
+              <div className="sheet-scroll-body">
+                {renderFiltersContent(true)}
+              </div>
+              <div className="sheet-footer-sticky">
+                <button
+                  className="sheet-apply-cta"
+                  onClick={() => setMobileFilterOpen(false)}
+                  type="button"
+                >
+                  Show {visible.length} cards
+                </button>
+              </div>
             </div>
           </>
         )}

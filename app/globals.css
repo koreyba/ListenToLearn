@@ -1263,6 +1263,44 @@ button { cursor: pointer; }
   box-shadow: 0 8px 20px var(--color-interactive-shadow) !important;
 }
 
+/* Card slide-out and collapse transition when moving between tabs */
+.workspace-main .phrase-card {
+  transition: opacity 0.26s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.26s cubic-bezier(0.4, 0, 0.2, 1),
+              max-height 0.26s cubic-bezier(0.4, 0, 0.2, 1),
+              padding 0.26s cubic-bezier(0.4, 0, 0.2, 1),
+              margin 0.26s cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 0.26s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.workspace-main .phrase-card.moving-out,
+.phrase-card.moving-out {
+  opacity: 0 !important;
+  transform: translateX(48px) scale(0.96) !important;
+  max-height: 0 !important;
+  min-height: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  border-color: transparent !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Tab indicator bounce / pulse when receiving a moved phrase */
+.tab.pulse-tab,
+.mobile-status-chip.pulse-tab,
+.practice-tab-card.pulse-tab {
+  animation: tabPulse 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes tabPulse {
+  0% { transform: scale(1); }
+  35% { transform: scale(1.14); filter: brightness(1.25); box-shadow: 0 0 12px var(--color-interactive-shadow, rgba(82, 197, 247, 0.4)); }
+  100% { transform: scale(1); }
+}
+
 /* Practice Elements */
 .workspace-main .custom-phrase-form,
 .workspace-main .practice-toolbar {

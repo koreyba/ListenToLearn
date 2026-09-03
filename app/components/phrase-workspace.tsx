@@ -206,6 +206,8 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
   const [recentlyAdded, setRecentlyAdded] = useState<string | null>(null);
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [openMenuPhraseId, setOpenMenuPhraseId] = useState<string | null>(null);
+  const [movingPhraseId, setMovingPhraseId] = useState<string | null>(null);
+  const [pulseTabId, setPulseTabId] = useState<string | null>(null);
   const phraseSortReady = useRef(false);
   const popoverRef = useRef<HTMLDivElement | null>(null);
 
@@ -459,9 +461,13 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
   async function changeStatus(id: string, status: PhraseStatus) {
     setBusyId(id);
     setError("");
+    if (surface === "practice") {
+      setMovingPhraseId(id);
+      setPulseTabId(status);
+      await new Promise((resolve) => setTimeout(resolve, 260));
+    }
     if (mode === "guest") {
       persistGuestState(setGuestPhraseStatus(guestLibrary, id, status));
-      if (surface === "practice") setActiveTab(status);
       if (surface === "library" && status === "to_learn") {
         setRecentlyAdded(id);
       } else if (status === "to_learn") {
@@ -470,6 +476,8 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
         setRecentlyAdded(null);
         setNotice("Returned to the catalog.");
       }
+      setMovingPhraseId(null);
+      setTimeout(() => setPulseTabId((current) => (current === status ? null : current)), 400);
       setBusyId(null);
       return;
     }
@@ -489,7 +497,6 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
             updated_at: data.updated_at || new Date().toISOString(),
           }
         : phrase));
-      if (surface === "practice") setActiveTab(data.status || status);
       if (surface === "library" && status === "to_learn") {
         setRecentlyAdded(id);
       } else if (status === "to_learn") {
@@ -501,6 +508,8 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not update the phrase status.");
     } finally {
+      setMovingPhraseId(null);
+      setTimeout(() => setPulseTabId((current) => (current === status ? null : current)), 400);
       setBusyId(null);
     }
   }
@@ -871,7 +880,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
 
     return (
       <article
-        className={`phrase-card ${isLibrary ? "catalog-row" : "practice-row"}${isLearningNow ? " highlighted" : ""}`}
+        className={`phrase-card ${isLibrary ? "catalog-row" : "practice-row"}${isLearningNow ? " highlighted" : ""}${movingPhraseId === phrase.id ? " moving-out" : ""}`}
         key={phrase.id}
       >
         <span className="row-rank">{rankText}</span>
@@ -1217,7 +1226,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                     const count = counts[tab.id] || 0;
                     return (
                       <button
-                        className={`mobile-status-chip${active ? " active" : ""}`}
+                        className={`mobile-status-chip${active ? " active" : ""}${pulseTabId === tab.id ? " pulse-tab" : ""}`}
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
                         type="button"
@@ -1238,7 +1247,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                     return (
                       <button
                         aria-selected={active}
-                        className={`practice-tab-card tab${active ? " active" : ""}`}
+                        className={`practice-tab-card tab${active ? " active" : ""}${pulseTabId === tab.id ? " pulse-tab" : ""}`}
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
                         role="tab"
@@ -1334,9 +1343,9 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                     <button
                       className="sheet-action-btn action-primary"
                       disabled={busyId === menuPhrase.id}
-                      onClick={async () => {
-                        await changeStatus(menuPhrase.id, "learning_now");
+                      onClick={() => {
                         setOpenMenuPhraseId(null);
+                        void changeStatus(menuPhrase.id, "learning_now");
                       }}
                       type="button"
                     >
@@ -1347,9 +1356,9 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                     <button
                       className="sheet-action-btn action-primary"
                       disabled={busyId === menuPhrase.id}
-                      onClick={async () => {
-                        await changeStatus(menuPhrase.id, "learnt");
+                      onClick={() => {
                         setOpenMenuPhraseId(null);
+                        void changeStatus(menuPhrase.id, "learnt");
                       }}
                       type="button"
                     >
@@ -1360,9 +1369,9 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                     <button
                       className="sheet-action-btn action-primary"
                       disabled={busyId === menuPhrase.id}
-                      onClick={async () => {
-                        await changeStatus(menuPhrase.id, "learning_now");
+                      onClick={() => {
                         setOpenMenuPhraseId(null);
+                        void changeStatus(menuPhrase.id, "learning_now");
                       }}
                       type="button"
                     >

@@ -231,3 +231,22 @@ test("Removing a phrase does not trigger native browser window.confirm modal dia
   assert.ok(removePhraseFn, "removePhrase function must exist");
   assert.doesNotMatch(removePhraseFn, /window\.confirm/);
 });
+
+test("Moving phrases between Practice tabs preserves current tab and animates card transition", async () => {
+  const [workspace, globals] = await Promise.all([
+    readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  // changeStatus does not switch active tab
+  const changeStatusFn = workspace.match(/async function changeStatus\([\s\S]*?\}\s*finally\s*\{[\s\S]*?\}\s*\}/)?.[0] || "";
+  assert.ok(changeStatusFn, "changeStatus function must exist");
+  assert.doesNotMatch(changeStatusFn, /setActiveTab/);
+
+  // JSX connects moving-out animation class
+  assert.match(workspace, /moving-out/);
+
+  // CSS contains moving-out and tabPulse animations
+  assert.match(globals, /\.phrase-card\.moving-out\s*\{/);
+  assert.match(globals, /@keyframes tabPulse/);
+});

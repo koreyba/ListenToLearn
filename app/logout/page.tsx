@@ -19,7 +19,7 @@ export default function LogoutPage() {
 
   return (
     <>
-      <SiteNavigation active="library" />
+      <SiteNavigation active="library" account={null} />
       <main className="library-shell">
         <p className="eyebrow">Account</p>
         <h1>{failed ? "Could not sign out" : "Signing you out…"}</h1>

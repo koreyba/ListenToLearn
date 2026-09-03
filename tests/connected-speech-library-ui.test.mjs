@@ -129,3 +129,150 @@ test("stored sorting is restored only when the current surface supports it", asy
   assert.match(workspace, /const storedSortOptions = surface === "library" \? catalogSortOptions : practiceSortOptions/);
   assert.match(workspace, /storedSortOptions\.some\(\(option\) => option\.value === stored\)/);
 });
+
+test("SearchIcon component is unified across Library and Practice with no legacy unicode search characters", async () => {
+  const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
+
+  // Verify SearchIcon component definition with Heroicons outline vector path
+  assert.match(workspace, /function SearchIcon\(\{[\s\S]*?size = 18/);
+  assert.match(workspace, /m21 21-5\.197-5\.197m0 0A7\.5 7\.5 0 1 0 5\.196 5\.196a7\.5 7\.5 0 0 0 10\.607 10\.607Z/);
+
+  // Verify SearchIcon is used in Library search field, Practice search field, and Practice mobile search button
+  assert.match(workspace, /<SearchIcon className="search-field-icon" size=\{17\} \/>/);
+  assert.match(workspace, /<SearchIcon className="search-field-icon desktop-only" size=\{17\} \/>/);
+  assert.match(workspace, /<SearchIcon size=\{19\} \/>/);
+
+  // Verify no legacy unicode telephone recorder / search character ⌕ remains
+  assert.doesNotMatch(workspace, /⌕/);
+});
+
+test("MobileFilterButton component is reused across Library and Practice with active count badge", async () => {
+  const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
+
+  // Verify MobileFilterButton definition
+  assert.match(workspace, /function MobileFilterButton\(\{[\s\S]*?activeCount,[\s\S]*?onClick,[\s\S]*?\}\)/);
+  assert.match(workspace, /activeCount > 0 \? \([\s\S]*?<span className="filter-count-badge">\{activeCount\}<\/span>/);
+
+  // Verify activeFiltersCount calculates for both surfaces
+  assert.match(workspace, /const activeFiltersCount = surface === "library"[\s\S]*?\? \(1 \+ selectedMechanisms\.size\)[\s\S]*?: \(selectedMechanisms\.size \+ \(practiceSources\.size < 2 \? 1 : 0\)\);/);
+
+  // Verify MobileFilterButton is invoked in both Library and Practice
+  const filterButtonCalls = workspace.match(/<MobileFilterButton\s+activeCount=\{activeFiltersCount\}\s+onClick=\{\(\) => setMobileFilterOpen\(true\)\}\s*\/>/g);
+  assert.equal(filterButtonCalls?.length, 2, "MobileFilterButton must be used in both Library and Practice");
+});
+
+test("Library preserves added phrases with green checkmark badge and suppresses undo banner", async () => {
+  const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
+
+  // Verify added phrases are not filtered out of the catalog
+  assert.match(workspace, /if \(surface === "library"\) \{\s+if \(phrase\.analysis\?\.kind === activeFormat\)/);
+  assert.doesNotMatch(workspace, /if \(phrase\.status === "pick" && phrase\.analysis\?\.kind === activeFormat\)/);
+
+  // Verify green Added badges are rendered on Library when status !== 'pick'
+  assert.match(workspace, /className="catalog-added-badge desktop-only"/);
+  assert.match(workspace, /className="catalog-added-badge-mobile mobile-only"/);
+
+  // Verify notice banner is suppressed on Library
+  assert.match(workspace, /\{notice && surface !== "library" && \(/);
+});
+
+test("Practice mobile toolbar renders search, add, and filter action group", async () => {
+  const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
+
+  assert.match(workspace, /className="practice-single-input-row"/);
+  assert.match(workspace, /className="practice-icon-btn practice-search-icon-btn mobile-only"/);
+  assert.match(workspace, /className=\{`practice-icon-btn practice-add-icon-btn mobile-only\$\{practiceSearch\.trim\(\) \? " has-text" : ""\}`\}/);
+});
+
+test("Mobile bottom sheet positions mechanism explanation tooltips within bounds without horizontal overflow", async () => {
+  const globals = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+
+  // Must target .bottom-sheet .mechanism-popover (not non-existent .sheet-panel)
+  assert.match(globals, /\.bottom-sheet \.mechanism-popover\s*\{[\s\S]*?left:\s*auto\s*!important[\s\S]*?right:\s*(-?[0-9]+px)\s*!important[\s\S]*?width:\s*min\(260px,\s*calc\(100vw\s*-\s*48px\)\)\s*!important/);
+  assert.match(globals, /\.bottom-sheet \.mechanism-popover::before\s*\{[\s\S]*?left:\s*auto\s*!important[\s\S]*?right:\s*([0-9]+px)\s*!important/);
+  assert.doesNotMatch(globals, /\.sheet-panel \.mechanism-popover/);
+});
+
+test("Mobile bottom sheet features sticky floating CTA footer and scrollable filter body", async () => {
+  const [workspace, globals] = await Promise.all([
+    readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  // JSX structure in phrase-workspace.tsx
+  assert.match(workspace, /<div className="bottom-sheet"[\s\S]*?<div className="sheet-scroll-body">[\s\S]*?\{renderFiltersContent\(true\)\}[\s\S]*?<\/div>[\s\S]*?<div className="sheet-footer-sticky">[\s\S]*?<button[\s\S]*?className="sheet-apply-cta"/);
+
+  // CSS styling in globals.css
+  assert.match(globals, /\.sheet-scroll-body\s*\{[\s\S]*?overflow-y:\s*auto/);
+  assert.match(globals, /\.sheet-footer-sticky\s*\{[\s\S]*?position:\s*sticky[\s\S]*?bottom:\s*0[\s\S]*?env\(safe-area-inset-bottom\)/);
+});
+
+test("Practice cards and source badges use sourceType and safely handle legacy phrases without analysis", async () => {
+  const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
+
+  // practiceSourceCounts used in badges
+  assert.match(workspace, /<span className="format-count">\{practiceSourceCounts\.catalog\}<\/span>/);
+  assert.match(workspace, /<span className="format-count">\{practiceSourceCounts\.custom\}<\/span>/);
+
+  // rank fallback uses phrase.sourceType === "custom"
+  assert.match(workspace, /phrase\.sourceType === "custom" \? "—" : "01"/);
+
+  // practice-row-sub handles legacy phrases safely
+  assert.match(workspace, /phrase\.sourceType === "legacy"[\s\S]*?\? \(phrase\.translation \? `Saved phrase · \$\{phrase\.translation\}` : "Saved phrase"\)/);
+
+  // No unused shouldVirtualizePracticeList import
+  assert.doesNotMatch(workspace, /shouldVirtualizePracticeList/);
+});
+
+test("Removing a phrase does not trigger native browser window.confirm modal dialog", async () => {
+  const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
+
+  const removePhraseFn = workspace.match(/async function removePhrase\([\s\S]*?\}\s*finally\s*\{[\s\S]*?\}\s*\}/)?.[0] || "";
+  assert.ok(removePhraseFn, "removePhrase function must exist");
+  assert.doesNotMatch(removePhraseFn, /window\.confirm/);
+});
+
+test("Moving phrases between Practice tabs preserves current tab and animates card transition", async () => {
+  const [workspace, globals] = await Promise.all([
+    readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  // changeStatus does not switch active tab
+  const changeStatusFn = workspace.match(/async function changeStatus\([\s\S]*?\}\s*finally\s*\{[\s\S]*?\}\s*\}/)?.[0] || "";
+  assert.ok(changeStatusFn, "changeStatus function must exist");
+  assert.doesNotMatch(changeStatusFn, /setActiveTab/);
+
+  // JSX connects moving-out animation class
+  assert.match(workspace, /moving-out/);
+
+  // CSS contains moving-out and tabPulse animations
+  assert.match(globals, /\.phrase-card\.moving-out\s*\{/);
+  assert.match(globals, /@keyframes tabPulse/);
+});
+
+test("Mechanism filters use accessible label with native checkbox to prevent redundant tab stops", async () => {
+  const [workspace, globals] = await Promise.all([
+    readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  // Mechanism row uses native input type="checkbox" inside a label
+  assert.match(workspace, /<label className="mechanism-toggle-label">[\s\S]*?<input[\s\S]*?type="checkbox"/);
+
+  // No redundant tabIndex={0} on span/div inside mechanism-list
+  assert.doesNotMatch(workspace, /className="checkbox-box[\s\S]*?tabIndex=\{0\}/);
+  assert.doesNotMatch(workspace, /className="mechanism-info"[\s\S]*?tabIndex=\{0\}/);
+
+  // CSS supports mechanism-toggle-label and visually-hidden
+  assert.match(globals, /\.mechanism-toggle-label\s*\{/);
+  assert.match(globals, /\.visually-hidden\s*\{/);
+});
+
+test("Practice rows in Learning Now have a visible separator border", async () => {
+  const globals = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+
+  // Highlighted practice rows define a visible border-bottom matching interactive border
+  assert.match(globals, /\.workspace-main \.practice-row\.highlighted\s*\{[\s\S]*?border-bottom:\s*1px\s+solid\s+var\(--color-interactive-border/);
+  assert.match(globals, /\.workspace-main \.practice-row\.highlighted:last-child\s*\{[\s\S]*?border-bottom:\s*0/);
+});

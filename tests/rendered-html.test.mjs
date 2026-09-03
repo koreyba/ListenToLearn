@@ -195,6 +195,19 @@ test("trainer can switch between Tatoeba and YouGlish", async () => {
   assert.match(audioRoute, /https:\/\/api\.tatoeba\.org\/v1\/audios\/\$\{id\}\/file/);
 });
 
+test("trainer defaults to YouGlish provider instead of Tatoeba", async () => {
+  const trainer = await readFile(
+    new URL("../public/trainer.html", import.meta.url),
+    "utf8",
+  );
+
+  // DEFAULT_STATE sets source to youglish
+  assert.match(trainer, /const DEFAULT_STATE = \{[\s\S]*?source:\s*"youglish"/);
+
+  // normalizeState fallback sets source to youglish
+  assert.match(trainer, /s\.source = \["tatoeba",\s*"youglish"\]\.includes\(s\.source\)\s*\?\s*s\.source\s*:\s*"youglish"/);
+});
+
 test("caption navigation is ready before the first YouGlish caption callback", async () => {
   const trainer = await readFile(
     new URL("../public/trainer.html", import.meta.url),

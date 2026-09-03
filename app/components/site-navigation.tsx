@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { DefaultAccountWidget } from "./default-account-widget";
 
-type SiteSection = "home" | "library" | "practice" | "chat" | "videos" | "settings";
+export type SiteSection = "home" | "library" | "practice" | "chat" | "videos" | "settings";
 
 const primaryLinks: Array<{ href: string; label: string; section: SiteSection }> = [
   { href: "/library", label: "Library", section: "library" },
@@ -62,7 +63,7 @@ export function SiteNavigation({
             <span aria-hidden="true" className="theme-toggle-sun">☀</span>
             <span aria-hidden="true" className="theme-toggle-moon">☾</span>
           </button>
-          {account}
+          {account !== undefined ? account : <DefaultAccountWidget active={active} />}
         </div>
       </div>
     </header>

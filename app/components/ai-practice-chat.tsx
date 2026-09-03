@@ -27,7 +27,7 @@ export function AiPracticeChat() {
   const account = viewer
     ? <SignedInSiteAccount user={viewer} />
     : sessionReady
-      ? <a className="site-account-link" href={signInHref(returnTo)}>Sign in</a>
+      ? <a className="site-account-link" href={signInHref(returnTo)}>Sign in with Google</a>
       : <span aria-live="polite" className="site-account-name">Checking account…</span>;
 
   return (

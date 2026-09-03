@@ -37,6 +37,8 @@ const PUBLIC_DOCUMENT_PATHS = new Set([
 ]);
 const PUBLIC_LONG_CACHE_PATHS = new Set([
   "/caption-navigation.js",
+  "/feedback-widget.css",
+  "/feedback-widget.js",
   "/video-progress-sync.js",
   "/favicon.svg",
   "/file.svg",

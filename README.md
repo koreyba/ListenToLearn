@@ -87,6 +87,37 @@ databases.
 Guest mode works locally without Cloudflare Access. Google sign-in and
 server-side integrations require additional Cloudflare configuration.
 
+## Beta feedback
+
+Every application page and the standalone trainer load the small Feedback
+widget. A valid report is saved to D1 first; Telegram delivery runs in the
+background and cannot make the stored report disappear.
+
+Reports may include JPEG, PNG, or WebP images up to 5 MB, limited to one optional
+image per report. Images are not stored in D1: they are passed directly to Telegram on a best-effort basis.
+If Telegram rejects an image, the stored text report is still sent without it.
+The public endpoint is limited to 5 requests per client and 50 requests per
+Worker location each minute.
+
+Apply migrations before testing locally:
+
+```bash
+npx wrangler d1 migrations apply DB --local --config wrangler.jsonc
+```
+
+Telegram is optional. Without its two secrets, reports remain in D1 with the
+`not_configured` delivery status. To enable notifications, create a bot with
+BotFather, send that bot a message, find the destination chat ID, and set both
+values as Worker secrets for the target environment:
+
+```bash
+npx wrangler secret put TELEGRAM_BOT_TOKEN --config wrangler.preview.jsonc
+npx wrangler secret put TELEGRAM_CHAT_ID --config wrangler.preview.jsonc
+```
+
+Use `wrangler.production.jsonc` instead when configuring production. Never put
+the bot token in source code, Wrangler vars, screenshots, or logs.
+
 ### Large-list demo data
 
 Create deterministic local-only catalog data for Library and a matching guest

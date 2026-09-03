@@ -36,6 +36,16 @@
       "name": "AI_CHAT_EDGE_AGGREGATE_RATE_LIMITER",
       "namespace_id": "310002",
       "simple": { "limit": 100, "period": 60 }
+    },
+    {
+      "name": "FEEDBACK_CLIENT_RATE_LIMITER",
+      "namespace_id": "310003",
+      "simple": { "limit": 5, "period": 60 }
+    },
+    {
+      "name": "FEEDBACK_EDGE_AGGREGATE_RATE_LIMITER",
+      "namespace_id": "310004",
+      "simple": { "limit": 50, "period": 60 }
     }
   ],
   "d1_databases": [

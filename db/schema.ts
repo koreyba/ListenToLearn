@@ -19,6 +19,31 @@ export const appSessions = sqliteTable("app_sessions", {
   index("idx_app_sessions_expires").on(table.expiresAt),
 ]);
 
+export const feedbackSubmissions = sqliteTable("feedback_submissions", {
+  id: text("id").primaryKey(),
+  category: text("category").notNull(),
+  message: text("message").notNull(),
+  pageUrl: text("page_url").notNull(),
+  userAgent: text("user_agent").notNull().default(""),
+  telegramStatus: text("telegram_status").notNull().default("pending"),
+  createdAt: text("created_at").notNull(),
+  telegramDeliveredAt: text("telegram_delivered_at"),
+}, (table) => [
+  index("idx_feedback_created").on(sql`${table.createdAt} DESC`),
+  check(
+    "feedback_submissions_category_check",
+    sql`${table.category} IN ('bug', 'idea', 'other')`,
+  ),
+  check(
+    "feedback_submissions_message_check",
+    sql`length(${table.message}) BETWEEN 1 AND 2000`,
+  ),
+  check(
+    "feedback_submissions_telegram_status_check",
+    sql`${table.telegramStatus} IN ('pending', 'sent', 'not_configured', 'failed')`,
+  ),
+]);
+
 export const phrases = sqliteTable("phrases", {
   id: text("id").primaryKey(),
   text: text("text").notNull(),

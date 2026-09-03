@@ -184,3 +184,13 @@ test("Practice mobile toolbar renders search, add, and filter action group", asy
   assert.match(workspace, /className=\{`practice-icon-btn practice-add-icon-btn mobile-only\$\{practiceSearch\.trim\(\) \? " has-text" : ""\}`\}/);
 });
 
+test("Mobile bottom sheet positions mechanism explanation tooltips within bounds without horizontal overflow", async () => {
+  const globals = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+
+  // Must target .bottom-sheet .mechanism-popover (not non-existent .sheet-panel)
+  assert.match(globals, /\.bottom-sheet \.mechanism-popover\s*\{[\s\S]*?left:\s*auto\s*!important[\s\S]*?right:\s*(-?[0-9]+px)\s*!important[\s\S]*?width:\s*min\(260px,\s*calc\(100vw\s*-\s*48px\)\)\s*!important/);
+  assert.match(globals, /\.bottom-sheet \.mechanism-popover::before\s*\{[\s\S]*?left:\s*auto\s*!important[\s\S]*?right:\s*([0-9]+px)\s*!important/);
+  assert.doesNotMatch(globals, /\.sheet-panel \.mechanism-popover/);
+});
+
+

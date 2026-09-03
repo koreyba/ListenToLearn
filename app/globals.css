@@ -1067,13 +1067,13 @@ button { cursor: pointer; }
   right: 12px !important;
 }
 
-.sheet-panel .mechanism-popover {
+.bottom-sheet .mechanism-popover {
   left: auto !important;
   right: -8px !important;
   width: min(260px, calc(100vw - 48px)) !important;
 }
 
-.sheet-panel .mechanism-popover::before {
+.bottom-sheet .mechanism-popover::before {
   left: auto !important;
   right: 12px !important;
 }

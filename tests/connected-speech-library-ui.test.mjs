@@ -207,5 +207,19 @@ test("Mobile bottom sheet features sticky floating CTA footer and scrollable fil
   assert.match(globals, /\.sheet-footer-sticky\s*\{[\s\S]*?position:\s*sticky[\s\S]*?bottom:\s*0[\s\S]*?env\(safe-area-inset-bottom\)/);
 });
 
+test("Practice cards and source badges use sourceType and safely handle legacy phrases without analysis", async () => {
+  const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
 
+  // practiceSourceCounts used in badges
+  assert.match(workspace, /<span className="format-count">\{practiceSourceCounts\.catalog\}<\/span>/);
+  assert.match(workspace, /<span className="format-count">\{practiceSourceCounts\.custom\}<\/span>/);
 
+  // rank fallback uses phrase.sourceType === "custom"
+  assert.match(workspace, /phrase\.sourceType === "custom" \? "—" : "01"/);
+
+  // practice-row-sub handles legacy phrases safely
+  assert.match(workspace, /phrase\.sourceType === "legacy"[\s\S]*?\? \(phrase\.translation \? `Saved phrase · \$\{phrase\.translation\}` : "Saved phrase"\)/);
+
+  // No unused shouldVirtualizePracticeList import
+  assert.doesNotMatch(workspace, /shouldVirtualizePracticeList/);
+});

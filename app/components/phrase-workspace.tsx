@@ -29,7 +29,7 @@ import {
   setGuestPhraseStatus,
   type GuestLibraryState,
 } from "@/lib/guest-library";
-import { filterPracticePhrases, shouldVirtualizePracticeList } from "@/lib/practice-list";
+import { filterPracticePhrases } from "@/lib/practice-list";
 
 type PhraseStatus = "pick" | "to_learn" | "learning_now" | "learnt";
 type Phrase = WorkspacePhrase;
@@ -335,13 +335,6 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     }
   }, []);
 
-  useEffect(() => {
-    if (surface === "practice" && activeTab === "pick") {
-      setActiveTab("learning_now");
-    } else if (surface === "library" && activeTab !== "pick") {
-      setActiveTab("pick");
-    }
-  }, [surface, activeTab]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -633,6 +626,8 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
 
   function openPhrase(phrase: Phrase) {
     const query = new URLSearchParams({ phrase: phrase.text, phraseId: phrase.id });
+    // /trainer is a static public HTML application outside the Next.js router
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination
     window.location.assign(`/trainer?${query.toString()}`);
   }
 
@@ -784,7 +779,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
             >
               <span className="checkbox-box">{practiceSources.has("catalog") ? "✓" : ""}</span>
               <span className="format-title">From catalog</span>
-              <span className="format-count">{phrases.filter((p) => p.source_type === "catalog").length}</span>
+              <span className="format-count">{practiceSourceCounts.catalog}</span>
             </button>
             <button
               aria-checked={practiceSources.has("custom")}
@@ -795,7 +790,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
             >
               <span className="checkbox-box">{practiceSources.has("custom") ? "✓" : ""}</span>
               <span className="format-title">Your phrases</span>
-              <span className="format-count">{phrases.filter((p) => p.source_type === "custom").length}</span>
+              <span className="format-count">{practiceSourceCounts.custom}</span>
             </button>
           </div>
         </div>
@@ -855,7 +850,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     const isLearningNow = phrase.status === "learning_now";
     const rankText = phrase.analysis?.rank
       ? String(phrase.analysis.rank).padStart(2, "0")
-      : (phrase.source_type === "custom" ? "—" : "01");
+      : (phrase.sourceType === "custom" ? "—" : "01");
 
     return (
       <article
@@ -867,9 +862,9 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
         <div className={`phrase-open phrase-summary ${isLibrary ? "row-phrase" : "practice-row-main"}`}>
           <span className="phrase-type sr-only">
             {surface === "practice"
-              ? phrase.source_type === "custom"
+              ? phrase.sourceType === "custom"
                 ? "Your phrase"
-                : phrase.source_type === "legacy"
+                : phrase.sourceType === "legacy"
                 ? "Saved phrase"
                 : phrase.analysis
                 ? PRACTICE_FORMATS[phrase.analysis.kind]?.title || "Phrase"
@@ -885,8 +880,10 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
 
           {!isLibrary && (
             <span className="practice-row-sub">
-              {phrase.source_type === "custom"
+              {phrase.sourceType === "custom"
                 ? (phrase.translation ? `Your phrase · ${phrase.translation}` : "Your phrase")
+                : phrase.sourceType === "legacy"
+                ? (phrase.translation ? `Saved phrase · ${phrase.translation}` : "Saved phrase")
                 : phrase.analysis
                 ? `${PRACTICE_FORMATS[phrase.analysis.kind]?.title || "Phrase"} · ${phrase.analysis.mechanisms.map((m) => CONNECTED_SPEECH_MECHANISMS[m]?.title.split("&")[0].trim()).filter(Boolean).join(", ")}${isLearningNow ? " · last opened" : ""}`
                 : "Your phrase"}
@@ -994,7 +991,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
         {notice && surface !== "library" && (
           <aside className="notice success notice-action" role="status">
             <span>{notice}</span>
-            {recentlyAdded && surface !== "library" && (
+            {recentlyAdded && (
               <button onClick={undoAdded} type="button">Undo</button>
             )}
           </aside>

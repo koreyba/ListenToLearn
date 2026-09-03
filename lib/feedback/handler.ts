@@ -1,6 +1,7 @@
 import { readFeedbackPayload } from "./contracts.ts";
 import { deliverFeedbackToTelegram } from "./delivery.ts";
 import { MAX_FEEDBACK_IMAGE_BYTES, validateFeedbackImage } from "./image.ts";
+import type { FeedbackRateLimitResult } from "./rate-limit.ts";
 import type { FeedbackRepository } from "./repository.ts";
 import type { FeedbackTelegramConfig } from "./telegram.ts";
 
@@ -8,6 +9,7 @@ type FeedbackPostHandlerDependencies = {
   repository: FeedbackRepository;
   getConfig: () => FeedbackTelegramConfig | null;
   schedule: (promise: Promise<void>) => void;
+  rateLimit: (request: Request) => Promise<FeedbackRateLimitResult>;
   deliver?: typeof deliverFeedbackToTelegram;
 };
 
@@ -70,12 +72,20 @@ export function createFeedbackPostHandler({
   repository,
   getConfig,
   schedule,
+  rateLimit,
   deliver = deliverFeedbackToTelegram,
 }: FeedbackPostHandlerDependencies) {
   return async function postFeedback(request: Request): Promise<Response> {
     const requestUrl = new URL(request.url);
     if (request.headers.get("Origin") !== requestUrl.origin) {
       return json({ error: "Invalid request origin." }, 403);
+    }
+    const rateLimitResult = await rateLimit(request);
+    if (!rateLimitResult.ok) {
+      const message = rateLimitResult.status === 429
+        ? "Too many feedback requests. Try again later."
+        : "Feedback is temporarily unavailable.";
+      return json({ error: message }, rateLimitResult.status);
     }
     const contentType = request.headers.get("Content-Type")?.toLowerCase() || "";
     const contentLength = Number(request.headers.get("Content-Length") || 0);

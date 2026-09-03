@@ -1,7 +1,11 @@
 import { env, waitUntil } from "cloudflare:workers";
 import { createFeedbackPostHandler } from "@/lib/feedback/handler";
+import { enforceFeedbackRateLimit } from "@/lib/feedback/rate-limit";
 import { createFeedbackRepository } from "@/lib/feedback/repository";
-import { readFeedbackTelegramConfig } from "@/lib/feedback/server-config";
+import {
+  readFeedbackRateLimitBindings,
+  readFeedbackTelegramConfig,
+} from "@/lib/feedback/server-config";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +16,10 @@ export async function POST(request: Request): Promise<Response> {
       repository,
       getConfig: () => readFeedbackTelegramConfig(env),
       schedule: (promise) => waitUntil(promise),
+      rateLimit: (incomingRequest) => enforceFeedbackRateLimit(
+        incomingRequest,
+        readFeedbackRateLimitBindings(env),
+      ),
     });
     return await postFeedback(request);
   } catch (error) {

@@ -157,11 +157,10 @@
 
 .feedback-image-preview[hidden] { display: none; }
 
-.feedback-image-preview img {
+.feedback-image-preview canvas {
   width: 72px;
   height: 56px;
   border-radius: 8px;
-  object-fit: cover;
 }
 
 .feedback-image-preview div {

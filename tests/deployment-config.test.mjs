@@ -161,7 +161,7 @@ test("preview accepts its Access application without widening production", () =>
   assert.ok(!productionAudiences.includes(PREVIEW_WORKER_ACCESS_AUD));
 });
 
-test("AI generation has account and per-location aggregate edge rate limits", () => {
+test("AI generation and public feedback have isolated rate limits", () => {
   const expectedLimits = [
     {
       name: "AI_CHAT_USER_RATE_LIMITER",
@@ -172,6 +172,16 @@ test("AI generation has account and per-location aggregate edge rate limits", ()
       name: "AI_CHAT_EDGE_AGGREGATE_RATE_LIMITER",
       namespace_id: "310002",
       simple: { limit: 100, period: 60 },
+    },
+    {
+      name: "FEEDBACK_CLIENT_RATE_LIMITER",
+      namespace_id: "310003",
+      simple: { limit: 5, period: 60 },
+    },
+    {
+      name: "FEEDBACK_EDGE_AGGREGATE_RATE_LIMITER",
+      namespace_id: "310004",
+      simple: { limit: 50, period: 60 },
     },
   ];
   const expectedPreviewLimits = expectedLimits.map((binding, index) => ({
@@ -186,7 +196,7 @@ test("AI generation has account and per-location aggregate edge rate limits", ()
   assert.equal(new Set([
     ...expectedLimits,
     ...expectedPreviewLimits,
-  ].map((binding) => binding.namespace_id)).size, 4);
+  ].map((binding) => binding.namespace_id)).size, 8);
 });
 
 test("AI generation uses the code-owned concrete OpenRouter model in every environment", () => {

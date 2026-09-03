@@ -18,7 +18,7 @@ function clean(value: unknown, limit: number) {
 }
 
 function isFeedbackCategory(value: unknown): value is FeedbackCategory {
-  return typeof value === "string" && FEEDBACK_CATEGORIES.some((category) => category === value);
+  return typeof value === "string" && FEEDBACK_CATEGORIES.includes(value as FeedbackCategory);
 }
 
 function sameOriginPage(value: unknown, requestOrigin: string) {

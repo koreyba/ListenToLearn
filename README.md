@@ -96,6 +96,8 @@ background and cannot make the stored report disappear.
 Reports may include JPEG, PNG, or WebP images up to 5 MB, limited to one optional
 image per report. Images are not stored in D1: they are passed directly to Telegram on a best-effort basis.
 If Telegram rejects an image, the stored text report is still sent without it.
+The public endpoint is limited to 5 requests per client and 50 requests per
+Worker location each minute.
 
 Apply migrations before testing locally:
 

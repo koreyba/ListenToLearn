@@ -12,8 +12,15 @@ async function setup(fetchImpl) {
     runScripts: "outside-only",
     url: "https://unmumble.online/practice?tab=learning",
   });
-  dom.window.URL.createObjectURL = () => "blob:feedback-preview";
-  dom.window.URL.revokeObjectURL = () => {};
+  dom.window.createImageBitmap = async () => ({
+    width: 144,
+    height: 112,
+    close() {},
+  });
+  dom.window.HTMLCanvasElement.prototype.getContext = () => ({
+    clearRect() {},
+    drawImage() {},
+  });
   if (fetchImpl) dom.window.fetch = fetchImpl;
   dom.window.eval(source);
   return dom;
@@ -76,14 +83,23 @@ test("feedback widget previews a selected image and lets the user remove it", as
   Object.defineProperty(input, "files", { configurable: true, value: [image] });
 
   input.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
   const preview = dom.window.document.querySelector("[data-feedback-image-preview]");
   assert.equal(preview.hidden, false);
-  assert.match(dom.window.document.querySelector("[data-feedback-image]").src, /blob:feedback-preview$/);
+  assert.equal(dom.window.document.querySelector("[data-feedback-image]").tagName, "CANVAS");
+  assert.equal(dom.window.document.querySelector("[data-feedback-image]").width, 144);
   assert.equal(dom.window.document.querySelector("[data-feedback-image-name]").textContent, "screen.png");
 
   dom.window.document.querySelector("[data-feedback-image-remove]").click();
   assert.equal(preview.hidden, true);
+});
+
+test("feedback widget rasterizes previews without assigning user-controlled URLs to the DOM", async () => {
+  const source = await readFile(new URL("../public/feedback-widget.js", import.meta.url), "utf8");
+  assert.match(source, /createImageBitmap\(image/);
+  assert.doesNotMatch(source, /URL\.createObjectURL|\.src\s*=/);
+  assert.doesNotMatch(source, /throw new Error\(result\?\.error/);
 });
 
 test("feedback widget rejects a selected image larger than 5 MB before upload", async () => {

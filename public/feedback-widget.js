@@ -38,7 +38,7 @@
             <input accept="image/jpeg,image/png,image/webp" name="image" type="file" />
           </label>
           <div class="feedback-image-preview" data-feedback-image-preview hidden>
-            <img alt="Selected feedback screenshot" data-feedback-image />
+            <canvas aria-label="Selected feedback screenshot" data-feedback-image height="112" width="144"></canvas>
             <div>
               <span data-feedback-image-name></span>
               <button data-feedback-image-remove type="button">Remove</button>
@@ -69,13 +69,17 @@
   const status = root.querySelector("[data-feedback-status]");
   const submit = root.querySelector(".feedback-submit");
   let previousFocus = null;
-  let imagePreviewUrl = null;
+  let imagePreviewGeneration = 0;
 
   function clearImage() {
-    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
-    imagePreviewUrl = null;
+    imagePreviewGeneration += 1;
     imageInput.value = "";
-    imagePreviewElement.removeAttribute("src");
+    imagePreviewElement.getContext("2d")?.clearRect(
+      0,
+      0,
+      imagePreviewElement.width,
+      imagePreviewElement.height,
+    );
     imageName.textContent = "";
     imagePreview.hidden = true;
   }
@@ -95,7 +99,7 @@
 
   trigger.addEventListener("click", open);
   closeButton.addEventListener("click", close);
-  imageInput.addEventListener("change", () => {
+  imageInput.addEventListener("change", async () => {
     const image = imageInput.files?.[0];
     if (!image) {
       clearImage();
@@ -112,11 +116,35 @@
       return;
     }
     status.textContent = "";
-    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
-    imagePreviewUrl = URL.createObjectURL(image);
-    imagePreviewElement.src = imagePreviewUrl;
-    imageName.textContent = image.name;
-    imagePreview.hidden = false;
+    const previewGeneration = ++imagePreviewGeneration;
+    try {
+      const bitmap = await createImageBitmap(image, {
+        resizeWidth: 144,
+        resizeHeight: 112,
+        resizeQuality: "high",
+      });
+      if (previewGeneration !== imagePreviewGeneration) {
+        bitmap.close();
+        return;
+      }
+      imagePreviewElement.width = bitmap.width;
+      imagePreviewElement.height = bitmap.height;
+      const context = imagePreviewElement.getContext("2d");
+      if (!context) {
+        bitmap.close();
+        clearImage();
+        status.textContent = "Could not preview this image.";
+        return;
+      }
+      context.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      imageName.textContent = image.name;
+      imagePreview.hidden = false;
+    } catch {
+      if (previewGeneration !== imagePreviewGeneration) return;
+      clearImage();
+      status.textContent = "Could not preview this image.";
+    }
   });
   imageRemove.addEventListener("click", clearImage);
   backdrop.addEventListener("click", (event) => {
@@ -142,15 +170,14 @@
       });
       const result = await response.json().catch(() => null);
       if (!response.ok) {
-        throw new Error(result?.error || "Could not send feedback. Try again.");
+        status.textContent = result?.error || "Could not send feedback. Try again.";
+        return;
       }
       form.reset();
       clearImage();
       status.textContent = "Thanks — feedback received.";
-    } catch (error) {
-      status.textContent = error instanceof Error
-        ? error.message
-        : "Could not send feedback. Try again.";
+    } catch {
+      status.textContent = "Could not send feedback. Try again.";
     } finally {
       submit.disabled = false;
     }

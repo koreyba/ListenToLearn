@@ -125,6 +125,32 @@ function MobileFilterButton({
   );
 }
 
+function SearchIcon({
+  size = 18,
+  className,
+}: {
+  size?: number;
+  className?: string;
+}) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      height={size}
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="2.2"
+      style={{ display: "block", flexShrink: 0 }}
+      viewBox="0 0 24 24"
+      width={size}
+    >
+      <path d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+    </svg>
+  );
+}
+
 function comparePhrases(a: Phrase, b: Phrase, sort: PhraseSort) {
   if (sort === "recommended") {
     return (a.analysis?.rank ?? Number.MAX_SAFE_INTEGER) - (b.analysis?.rank ?? Number.MAX_SAFE_INTEGER)
@@ -998,7 +1024,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
               <>
                 <div className="catalog-search-bar">
                   <div className="search-field">
-                    <span aria-hidden="true">⌕</span>
+                    <SearchIcon className="search-field-icon" size={17} />
                     <input
                       aria-label="Search the catalog"
                       onChange={(event) => setCatalogSearch(event.target.value)}
@@ -1086,7 +1112,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                   <label className="sr-only" htmlFor="practice-search-input">Search your phrases</label>
                   <div className="practice-single-input-row">
                     <div className="practice-single-input-wrap">
-                      <span aria-hidden="true" className="desktop-only" style={{ color: "#b5bec8" }}>⌕</span>
+                      <SearchIcon className="search-field-icon desktop-only" size={17} />
                       <input
                         id="practice-search-input"
                         onChange={(event) => setPracticeSearch(event.target.value)}
@@ -1112,24 +1138,15 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                     <button
                       aria-label="Search"
                       className="practice-icon-btn practice-search-icon-btn mobile-only"
-                      onClick={() => setPracticeSearch(practiceSearch)}
+                      onClick={() => {
+                        setPracticeSearch(practiceSearch);
+                        const input = document.getElementById("practice-search-input");
+                        input?.focus();
+                      }}
                       title="Search"
                       type="button"
                     >
-                      <svg
-                        aria-hidden="true"
-                        fill="none"
-                        height="19"
-                        stroke="currentColor"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2.2"
-                        style={{ display: "block", flexShrink: 0 }}
-                        viewBox="0 0 24 24"
-                        width="19"
-                      >
-                        <path d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-                      </svg>
+                      <SearchIcon size={19} />
                     </button>
                     <button
                       aria-label="Add to Learn"

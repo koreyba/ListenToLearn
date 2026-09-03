@@ -129,3 +129,58 @@ test("stored sorting is restored only when the current surface supports it", asy
   assert.match(workspace, /const storedSortOptions = surface === "library" \? catalogSortOptions : practiceSortOptions/);
   assert.match(workspace, /storedSortOptions\.some\(\(option\) => option\.value === stored\)/);
 });
+
+test("SearchIcon component is unified across Library and Practice with no legacy unicode search characters", async () => {
+  const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
+
+  // Verify SearchIcon component definition with Heroicons outline vector path
+  assert.match(workspace, /function SearchIcon\(\{[\s\S]*?size = 18/);
+  assert.match(workspace, /m21 21-5\.197-5\.197m0 0A7\.5 7\.5 0 1 0 5\.196 5\.196a7\.5 7\.5 0 0 0 10\.607 10\.607Z/);
+
+  // Verify SearchIcon is used in Library search field, Practice search field, and Practice mobile search button
+  assert.match(workspace, /<SearchIcon className="search-field-icon" size=\{17\} \/>/);
+  assert.match(workspace, /<SearchIcon className="search-field-icon desktop-only" size=\{17\} \/>/);
+  assert.match(workspace, /<SearchIcon size=\{19\} \/>/);
+
+  // Verify no legacy unicode telephone recorder / search character ⌕ remains
+  assert.doesNotMatch(workspace, /⌕/);
+});
+
+test("MobileFilterButton component is reused across Library and Practice with active count badge", async () => {
+  const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
+
+  // Verify MobileFilterButton definition
+  assert.match(workspace, /function MobileFilterButton\(\{[\s\S]*?activeCount,[\s\S]*?onClick,[\s\S]*?\}\)/);
+  assert.match(workspace, /activeCount > 0 \? \([\s\S]*?<span className="filter-count-badge">\{activeCount\}<\/span>/);
+
+  // Verify activeFiltersCount calculates for both surfaces
+  assert.match(workspace, /const activeFiltersCount = surface === "library"[\s\S]*?\? \(1 \+ selectedMechanisms\.size\)[\s\S]*?: \(selectedMechanisms\.size \+ \(practiceSources\.size < 2 \? 1 : 0\)\);/);
+
+  // Verify MobileFilterButton is invoked in both Library and Practice
+  const filterButtonCalls = workspace.match(/<MobileFilterButton\s+activeCount=\{activeFiltersCount\}\s+onClick=\{\(\) => setMobileFilterOpen\(true\)\}\s*\/>/g);
+  assert.equal(filterButtonCalls?.length, 2, "MobileFilterButton must be used in both Library and Practice");
+});
+
+test("Library preserves added phrases with green checkmark badge and suppresses undo banner", async () => {
+  const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
+
+  // Verify added phrases are not filtered out of the catalog
+  assert.match(workspace, /if \(surface === "library"\) \{\s+if \(phrase\.analysis\?\.kind === activeFormat\)/);
+  assert.doesNotMatch(workspace, /if \(phrase\.status === "pick" && phrase\.analysis\?\.kind === activeFormat\)/);
+
+  // Verify green Added badges are rendered on Library when status !== 'pick'
+  assert.match(workspace, /className="catalog-added-badge desktop-only"/);
+  assert.match(workspace, /className="catalog-added-badge-mobile mobile-only"/);
+
+  // Verify notice banner is suppressed on Library
+  assert.match(workspace, /\{notice && surface !== "library" && \(/);
+});
+
+test("Practice mobile toolbar renders search, add, and filter action group", async () => {
+  const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
+
+  assert.match(workspace, /className="practice-single-input-row"/);
+  assert.match(workspace, /className="practice-icon-btn practice-search-icon-btn mobile-only"/);
+  assert.match(workspace, /className=\{`practice-icon-btn practice-add-icon-btn mobile-only\$\{practiceSearch\.trim\(\) \? " has-text" : ""\}`\}/);
+});
+

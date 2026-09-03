@@ -809,6 +809,12 @@ button { cursor: pointer; }
   font-size: 15px;
 }
 
+.search-field-icon {
+  display: block !important;
+  flex-shrink: 0 !important;
+  color: var(--color-text-tertiary, #909ba7) !important;
+}
+
 .catalog-search-bar .search-field input {
   flex: 1;
   min-width: 0;

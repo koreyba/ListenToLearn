@@ -273,6 +273,14 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
   }, []);
 
   useEffect(() => {
+    if (surface === "practice" && activeTab === "pick") {
+      setActiveTab("learning_now");
+    } else if (surface === "library" && activeTab !== "pick") {
+      setActiveTab("pick");
+    }
+  }, [surface, activeTab]);
+
+  useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const signedIn = params.get("signedIn") === "1";
     if (signedIn) window.history.replaceState(null, "", window.location.pathname);
@@ -284,7 +292,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
       });
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [loadAccount, loadGuestState]);
+  }, [loadAccount, loadGuestState, surface]);
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
@@ -792,12 +800,16 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
         <div className={`phrase-open phrase-summary ${isLibrary ? "row-phrase" : "practice-row-main"}`}>
           <span className="phrase-type sr-only">
             {surface === "practice"
-              ? phrase.sourceType === "custom"
+              ? phrase.source_type === "custom"
                 ? "Your phrase"
-                : phrase.sourceType === "legacy"
+                : phrase.source_type === "legacy"
                 ? "Saved phrase"
-                : PRACTICE_FORMATS[phrase.analysis!.kind].title
-              : `${PRACTICE_FORMATS[phrase.analysis!.kind].title} · #${phrase.analysis!.rank}`}
+                : phrase.analysis
+                ? PRACTICE_FORMATS[phrase.analysis.kind]?.title || "Phrase"
+                : "Phrase"
+              : phrase.analysis
+              ? `${PRACTICE_FORMATS[phrase.analysis.kind]?.title || "Phrase"} · #${phrase.analysis.rank}`
+              : "Phrase"}
           </span>
           <span className={`phrase-text phrase-arc-text${isLearningNow ? " highlighted" : ""}`}>
             {phrase.analysis ? renderPattern(phrase.analysis.pattern) : phrase.text}
@@ -806,9 +818,11 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
 
           {!isLibrary && (
             <span className="practice-row-sub">
-              {phrase.sourceType === "custom"
+              {phrase.source_type === "custom"
                 ? (phrase.translation ? `Your phrase · ${phrase.translation}` : "Your phrase")
-                : `${PRACTICE_FORMATS[phrase.analysis!.kind].title} · ${phrase.analysis?.mechanisms.map((m) => CONNECTED_SPEECH_MECHANISMS[m]?.title.split("&")[0].trim()).join(", ")}${isLearningNow ? " · last opened" : ""}`}
+                : phrase.analysis
+                ? `${PRACTICE_FORMATS[phrase.analysis.kind]?.title || "Phrase"} · ${phrase.analysis.mechanisms.map((m) => CONNECTED_SPEECH_MECHANISMS[m]?.title.split("&")[0].trim()).filter(Boolean).join(", ")}${isLearningNow ? " · last opened" : ""}`
+                : "Your phrase"}
             </span>
           )}
           {surface === "practice" && phrase.status !== "pick" && phrase.translation && (
@@ -936,7 +950,10 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                     onClick={() => setMobileFilterOpen(true)}
                     type="button"
                   >
-                    ⚟ {activeFiltersCount > 0 && <span className="filter-count-badge">{activeFiltersCount}</span>}
+                    <svg aria-hidden="true" className="mobile-filter-icon" fill="none" height="15" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="15">
+                      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                    </svg>
+                    {activeFiltersCount > 0 && <span className="filter-count-badge">{activeFiltersCount}</span>}
                   </button>
                   <div className="sort-select-wrap desktop-only">
                     <select
@@ -1042,7 +1059,9 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                       onClick={() => setMobileFilterOpen(true)}
                       type="button"
                     >
-                      ⚟ <span style={{ color: "var(--color-text-secondary)" }}>⌄</span>
+                      <svg aria-hidden="true" className="mobile-filter-icon" fill="none" height="15" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="15">
+                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+                      </svg> <span style={{ color: "var(--color-text-secondary)" }}>⌄</span>
                     </button>
                   </div>
 

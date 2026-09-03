@@ -1292,20 +1292,22 @@ button { cursor: pointer; }
   min-height: 46px !important;
   flex: 0 0 auto !important;
   padding: 0 16px !important;
-  border: 1px solid #546170 !important;
+  border: 1px solid var(--color-action-secondary-border, #546170) !important;
   border-radius: 12px !important;
   place-items: center !important;
-  background: #202731 !important;
-  color: #eef2ed !important;
+  background: var(--color-action-secondary-background, #202731) !important;
+  color: var(--color-action-secondary-text, #eef2ed) !important;
   font-size: 14px !important;
   font-weight: 800 !important;
   cursor: pointer !important;
   box-shadow: none !important;
   margin: 0 !important;
+  transition: background-color .15s ease, border-color .15s ease !important;
 }
 
 .workspace-main .practice-search-btn:hover {
-  background: #2a3340 !important;
+  background: var(--app-control-hover) !important;
+  border-color: var(--color-interactive-border) !important;
 }
 
 .workspace-main .practice-add-btn {
@@ -1567,7 +1569,7 @@ button { cursor: pointer; }
     display: flex !important;
   }
   .library-shell {
-    padding: 12px 12px 50px;
+    padding: 12px 12px calc(84px + env(safe-area-inset-bottom)) !important;
   }
   .workspace-layout {
     grid-template-columns: 1fr !important;
@@ -1673,12 +1675,12 @@ button { cursor: pointer; }
     color: var(--color-text-secondary) !important;
     font-size: 13px !important;
     font-weight: 700 !important;
-    background: transparent !important;
+    background: var(--color-surface-raised, #1c232c) !important;
     cursor: pointer !important;
   }
   .mobile-status-chip.active {
     border-color: var(--color-interactive-border) !important;
-    background: var(--color-interactive-soft) !important;
+    background: linear-gradient(var(--color-interactive-soft), var(--color-interactive-soft)), var(--color-surface-raised, #1c232c) !important;
     color: var(--color-text-primary) !important;
   }
 
@@ -1747,6 +1749,16 @@ button { cursor: pointer; }
     column-gap: 12px !important;
     row-gap: 3px !important;
   }
+  .workspace-main .catalog-row .card-actions,
+  .workspace-main .practice-row .card-actions {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    flex: 0 0 auto !important;
+    width: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
   .workspace-main .catalog-row .row-ipa {
     display: none !important;
   }
@@ -1757,15 +1769,17 @@ button { cursor: pointer; }
     width: 44px !important;
     height: 44px !important;
     flex: 0 0 44px !important;
-    margin-left: auto !important;
-    border: 1px solid #546170 !important;
+    margin: 0 !important;
+    border: 1px solid var(--color-action-secondary-border, #546170) !important;
     border-radius: 11px !important;
     place-items: center !important;
-    background: #202731 !important;
-    color: #eef2ed !important;
+    background: var(--color-action-secondary-background, #202731) !important;
+    color: var(--color-action-secondary-text, #eef2ed) !important;
     font-size: 19px !important;
     font-weight: 700 !important;
     cursor: pointer !important;
+    box-shadow: none !important;
+    transition: background-color .15s ease, border-color .15s ease !important;
   }
   .workspace-main .practice-row .card-actions button.row-menu-btn,
   .workspace-main .practice-row .card-actions .row-menu-btn,
@@ -1774,13 +1788,23 @@ button { cursor: pointer; }
     width: 32px !important;
     height: 44px !important;
     flex: 0 0 32px !important;
-    margin-left: auto !important;
+    margin: 0 !important;
     place-items: center !important;
-    color: var(--color-text-tertiary) !important;
-    font-size: 14px !important;
+    color: var(--color-text-tertiary, #909ba7) !important;
+    font-size: 16px !important;
+    line-height: 1 !important;
     background: transparent !important;
     border: 0 !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
     cursor: pointer !important;
+    padding: 0 !important;
+    transition: color .15s ease, background-color .15s ease !important;
+  }
+  .workspace-main .practice-row .card-actions button.row-menu-btn:hover,
+  .row-menu-btn:hover {
+    color: var(--color-text-primary) !important;
+    background: var(--color-surface-subtle) !important;
   }
 
   /* Bottom sheet modal */

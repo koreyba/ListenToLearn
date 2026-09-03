@@ -635,6 +635,28 @@ button { cursor: pointer; }
   gap: 2px;
 }
 
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.mechanism-toggle-label {
+  display: contents;
+  cursor: pointer;
+}
+
+.mechanism-toggle-label input:focus-visible ~ .checkbox-box {
+  outline: 2px solid var(--color-interactive-link);
+  outline-offset: 2px;
+}
+
 .mechanism-row-btn {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) 20px 18px;

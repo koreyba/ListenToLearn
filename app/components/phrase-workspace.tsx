@@ -831,36 +831,22 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
             const count = mechanismCounts[mechKey] || 0;
             return (
               <div className="mechanism-row-btn" key={mechKey}>
-                <span
-                  aria-checked={checked}
-                  className={`checkbox-box${checked ? " checked" : ""}`}
-                  onClick={() => toggleMechanism(mechKey)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      toggleMechanism(mechKey);
-                    }
-                  }}
-                  role="checkbox"
-                  tabIndex={0}
-                >
-                  {checked ? "✓" : ""}
-                </span>
-                <div
-                  className="mechanism-info"
-                  onClick={() => toggleMechanism(mechKey)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      toggleMechanism(mechKey);
-                    }
-                  }}
-                  role="button"
-                  tabIndex={0}
-                >
-                  <span className="mechanism-title">{mechDef.title}</span>
-                  <span className="mechanism-hint">{mechDef.hint}</span>
-                </div>
+                <label className="mechanism-toggle-label">
+                  <input
+                    aria-label={mechDef.title}
+                    checked={checked}
+                    className="visually-hidden"
+                    onChange={() => toggleMechanism(mechKey)}
+                    type="checkbox"
+                  />
+                  <span aria-hidden="true" className={`checkbox-box${checked ? " checked" : ""}`}>
+                    {checked ? "✓" : ""}
+                  </span>
+                  <span className="mechanism-info">
+                    <span className="mechanism-title">{mechDef.title}</span>
+                    <span className="mechanism-hint">{mechDef.hint}</span>
+                  </span>
+                </label>
                 {renderHelpButton(mechKey, `filter:${mechKey}${isMobile ? "-mobile" : ""}`, mechDef.title)}
                 {surface === "library" && <span className="format-count">{count}</span>}
               </div>

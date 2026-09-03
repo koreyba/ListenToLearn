@@ -250,3 +250,21 @@ test("Moving phrases between Practice tabs preserves current tab and animates ca
   assert.match(globals, /\.phrase-card\.moving-out\s*\{/);
   assert.match(globals, /@keyframes tabPulse/);
 });
+
+test("Mechanism filters use accessible label with native checkbox to prevent redundant tab stops", async () => {
+  const [workspace, globals] = await Promise.all([
+    readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  // Mechanism row uses native input type="checkbox" inside a label
+  assert.match(workspace, /<label className="mechanism-toggle-label">[\s\S]*?<input[\s\S]*?type="checkbox"/);
+
+  // No redundant tabIndex={0} on span/div inside mechanism-list
+  assert.doesNotMatch(workspace, /className="checkbox-box[\s\S]*?tabIndex=\{0\}/);
+  assert.doesNotMatch(workspace, /className="mechanism-info"[\s\S]*?tabIndex=\{0\}/);
+
+  // CSS supports mechanism-toggle-label and visually-hidden
+  assert.match(globals, /\.mechanism-toggle-label\s*\{/);
+  assert.match(globals, /\.visually-hidden\s*\{/);
+});

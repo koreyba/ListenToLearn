@@ -1614,17 +1614,33 @@ button { cursor: pointer; }
   .mobile-filter-trigger {
     display: flex !important;
     align-items: center !important;
-    gap: 6px !important;
+    justify-content: center !important;
+    gap: 4px !important;
     flex: 0 0 auto !important;
+    min-width: 38px !important;
     height: 44px !important;
-    padding: 0 12px !important;
-    border: 1px solid var(--color-interactive-border) !important;
+    padding: 0 9px !important;
+    border: 1px solid var(--app-control-border) !important;
     border-radius: 12px !important;
-    background: var(--color-interactive-soft) !important;
-    color: var(--color-text-primary) !important;
+    background: var(--color-control-background) !important;
+    color: var(--color-text-secondary) !important;
     font-size: 13px !important;
     font-weight: 750 !important;
     cursor: pointer !important;
+    transition: background-color .15s ease, border-color .15s ease, color .15s ease, transform .1s ease !important;
+  }
+  .mobile-filter-trigger:hover {
+    background: var(--app-control-hover) !important;
+    border-color: var(--color-interactive-border) !important;
+    color: var(--color-text-primary) !important;
+  }
+  .mobile-filter-trigger:active {
+    transform: scale(0.96) !important;
+  }
+  .mobile-filter-trigger.has-active-filters {
+    background: var(--color-interactive-soft) !important;
+    border-color: var(--color-interactive-border) !important;
+    color: var(--color-text-primary) !important;
   }
   .filter-count-badge {
     display: grid !important;
@@ -1674,47 +1690,51 @@ button { cursor: pointer; }
   .practice-single-input-row {
     display: flex !important;
     align-items: center !important;
-    gap: 6px !important;
+    gap: 5px !important;
     width: 100% !important;
   }
   .practice-single-input-wrap {
     display: flex !important;
     align-items: center !important;
-    flex: 1 !important;
+    flex: 1 1 auto !important;
     min-width: 0 !important;
     height: 44px !important;
-    padding: 0 12px !important;
+    padding: 0 10px !important;
     border: 1px solid var(--app-control-border) !important;
     border-radius: 12px !important;
     background: var(--color-control-background) !important;
+    box-sizing: border-box !important;
   }
   .practice-single-input-wrap input {
-    flex: 1 !important;
+    flex: 1 1 auto !important;
     min-width: 0 !important;
     height: 100% !important;
     border: 0 !important;
     background: transparent !important;
     color: var(--color-text-primary) !important;
-    font-size: 14px !important;
+    font-size: 13.5px !important;
     outline: none !important;
     padding: 0 !important;
+    box-sizing: border-box !important;
   }
   .practice-icon-btn {
-    display: grid !important;
-    width: 40px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 38px !important;
     height: 44px !important;
-    flex: 0 0 40px !important;
+    flex: 0 0 38px !important;
     border: 1px solid var(--app-control-border) !important;
     border-radius: 12px !important;
-    place-items: center !important;
     background: var(--color-control-background) !important;
     color: var(--color-text-secondary) !important;
     cursor: pointer !important;
     padding: 0 !important;
     box-shadow: none !important;
+    box-sizing: border-box !important;
     transition: background-color .15s ease, border-color .15s ease, color .15s ease, transform .1s ease !important;
   }
-  .practice-icon-btn:hover {
+  .practice-icon-btn:hover:not(:disabled) {
     background: var(--app-control-hover) !important;
     border-color: var(--color-interactive-border) !important;
     color: var(--color-text-primary) !important;
@@ -1723,30 +1743,24 @@ button { cursor: pointer; }
     transform: scale(0.96) !important;
   }
   .practice-icon-btn:disabled {
-    opacity: 0.45 !important;
     cursor: default !important;
   }
+  .practice-icon-btn svg,
+  .mobile-filter-trigger svg {
+    display: block !important;
+    flex-shrink: 0 !important;
+  }
   .practice-add-icon-btn {
+    color: var(--color-text-secondary) !important;
+    opacity: 0.8 !important;
+  }
+  .practice-add-icon-btn.has-text,
+  .practice-add-icon-btn:not(:disabled) {
     background: var(--color-interactive-surface) !important;
     border-color: transparent !important;
     color: var(--color-on-interactive) !important;
-    box-shadow: 0 2px 8px var(--color-interactive-shadow) !important;
+    box-shadow: 0 2px 10px var(--color-interactive-shadow) !important;
     opacity: 1 !important;
-  }
-  .practice-add-icon-btn:disabled {
-    background: var(--color-control-background) !important;
-    border: 1px solid var(--app-control-border) !important;
-    color: var(--color-text-tertiary, #909ba7) !important;
-    box-shadow: none !important;
-    opacity: 0.55 !important;
-    cursor: default !important;
-  }
-  .practice-filter-btn {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    width: 44px !important;
-    flex: 0 0 44px !important;
   }
   .mobile-status-chips {
     display: flex !important;

@@ -88,6 +88,43 @@ function phraseTieBreaker(a: Phrase, b: Phrase) {
   return catalogA - catalogB || a.id.localeCompare(b.id);
 }
 
+function MobileFilterButton({
+  activeCount,
+  onClick,
+}: {
+  activeCount: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      aria-label={`Open filters${activeCount > 0 ? ` (${activeCount} active)` : ""}`}
+      className={`mobile-filter-trigger mobile-only${activeCount > 0 ? " has-active-filters" : ""}`}
+      onClick={onClick}
+      type="button"
+    >
+      <svg
+        aria-hidden="true"
+        className="mobile-filter-icon"
+        fill="none"
+        height="15"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="2"
+        viewBox="0 0 24 24"
+        width="15"
+      >
+        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+      </svg>
+      {activeCount > 0 ? (
+        <span className="filter-count-badge">{activeCount}</span>
+      ) : (
+        <span aria-hidden="true" className="filter-caret" style={{ color: "var(--color-text-secondary)", fontSize: "11px", marginLeft: "1px" }}>⌄</span>
+      )}
+    </button>
+  );
+}
+
 function comparePhrases(a: Phrase, b: Phrase, sort: PhraseSort) {
   if (sort === "recommended") {
     return (a.analysis?.rank ?? Number.MAX_SAFE_INTEGER) - (b.analysis?.rank ?? Number.MAX_SAFE_INTEGER)
@@ -623,7 +660,9 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
   }
 
   const sortOptions = surface === "library" ? catalogSortOptions : practiceSortOptions;
-  const activeFiltersCount = (surface === "library" ? 1 : 0) + selectedMechanisms.size;
+  const activeFiltersCount = surface === "library"
+    ? (1 + selectedMechanisms.size)
+    : (selectedMechanisms.size + (practiceSources.size < 2 ? 1 : 0));
 
   const getMechanismExample = useCallback((mech: ConnectedSpeechMechanism) => {
     const card = catalogCards.find((c) => c.analysis.mechanisms.includes(mech))
@@ -968,17 +1007,10 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                       value={catalogSearch}
                     />
                   </div>
-                  <button
-                    aria-label="Open filters"
-                    className="mobile-filter-trigger mobile-only"
+                  <MobileFilterButton
+                    activeCount={activeFiltersCount}
                     onClick={() => setMobileFilterOpen(true)}
-                    type="button"
-                  >
-                    <svg aria-hidden="true" className="mobile-filter-icon" fill="none" height="15" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="15">
-                      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-                    </svg>
-                    {activeFiltersCount > 0 && <span className="filter-count-badge">{activeFiltersCount}</span>}
-                  </button>
+                  />
                   <div className="sort-select-wrap desktop-only">
                     <select
                       aria-label="Sort catalog"
@@ -1079,39 +1111,54 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                     </button>
                     <button
                       aria-label="Search"
-                      className="practice-icon-btn mobile-only"
+                      className="practice-icon-btn practice-search-icon-btn mobile-only"
                       onClick={() => setPracticeSearch(practiceSearch)}
                       title="Search"
                       type="button"
                     >
-                      <svg aria-hidden="true" fill="none" height="17" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="17">
-                        <circle cx="11" cy="11" r="8" />
-                        <line x1="21" x2="16.65" y1="21" x2="16.65" />
+                      <svg
+                        aria-hidden="true"
+                        fill="none"
+                        height="17"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2.2"
+                        style={{ display: "block", flexShrink: 0 }}
+                        viewBox="0 0 24 24"
+                        width="17"
+                      >
+                        <circle cx="11" cy="11" r="7.5" />
+                        <line x1="21" x2="16.5" y1="21" x2="16.5" />
                       </svg>
                     </button>
                     <button
                       aria-label="Add to Learn"
-                      className="practice-icon-btn practice-add-icon-btn mobile-only"
+                      className={`practice-icon-btn practice-add-icon-btn mobile-only${practiceSearch.trim() ? " has-text" : ""}`}
                       disabled={busyId === "new" || !practiceSearch.trim()}
                       title="Add to Learn"
                       type="submit"
                     >
-                      <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" viewBox="0 0 24 24" width="18">
+                      <svg
+                        aria-hidden="true"
+                        fill="none"
+                        height="18"
+                        stroke="currentColor"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2.5"
+                        style={{ display: "block", flexShrink: 0 }}
+                        viewBox="0 0 24 24"
+                        width="18"
+                      >
                         <line x1="12" x2="12" y1="5" y2="19" />
                         <line x1="5" x2="19" y1="12" y2="12" />
                       </svg>
                     </button>
-                    <button
-                      aria-label="Open filters"
-                      className="practice-icon-btn practice-filter-btn mobile-only"
+                    <MobileFilterButton
+                      activeCount={activeFiltersCount}
                       onClick={() => setMobileFilterOpen(true)}
-                      type="button"
-                    >
-                      <svg aria-hidden="true" className="mobile-filter-icon" fill="none" height="15" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="15">
-                        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-                      </svg>
-                      <span style={{ fontSize: "11px", marginLeft: "1px", opacity: 0.7 }}>⌄</span>
-                    </button>
+                    />
                   </div>
 
                   <div className="practice-input-helper-row">

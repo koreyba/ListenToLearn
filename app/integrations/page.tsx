@@ -13,7 +13,7 @@ type Integration = {
   provider: "deepl";
   label: string;
   configured: boolean;
-  source: "integrations" | null;
+  source: "integrations" | "default" | null;
 };
 type IntegrationsResponse = { integrations?: Integration[]; error?: string };
 
@@ -64,7 +64,7 @@ export default function IntegrationsPage() {
       setIntegration((current) => current
         ? { ...current, configured: true, source: "integrations" }
         : { provider: "deepl", label: "DeepL", configured: true, source: "integrations" });
-      setNotice("Key saved. Its value is no longer shown in the app.");
+      setNotice("Personal key saved. It will be used instead of the default key.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not save the API key.");
     } finally {
@@ -80,10 +80,19 @@ export default function IntegrationsPage() {
       const response = await fetch("/api/integrations?provider=deepl", { method: "DELETE" });
       const data = await response.json() as IntegrationsResponse & { error?: string };
       if (!response.ok) throw new Error(data.error || "Could not delete the API key.");
+      const updated = data.integrations?.[0];
       setIntegration((current) => current
-        ? { ...current, configured: false, source: null }
-        : current);
-      setNotice("The key saved on this page was deleted.");
+        ? {
+            ...current,
+            configured: updated?.configured ?? false,
+            source: updated?.source ?? null,
+          }
+        : null);
+      setNotice(
+        updated?.source === "default"
+          ? "Personal key removed. The shared beta key is now active."
+          : "The key saved on this page was deleted."
+      );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not delete the API key.");
     } finally {
@@ -93,7 +102,9 @@ export default function IntegrationsPage() {
 
   const sourceText = integration?.source === "integrations"
     ? "The key is encrypted and saved only for this account."
-    : "The key is not configured yet.";
+    : integration?.source === "default"
+      ? "Using the shared beta translation key. You can also connect your own key below."
+      : "The key is not configured yet.";
 
   if (loading) {
     return (
@@ -158,24 +169,38 @@ export default function IntegrationsPage() {
             <p>Translate English phrases into Russian.</p>
           </div>
           <span className={integration?.configured ? "integration-status configured" : "integration-status"}>
-            {loading ? "Checking…" : integration?.configured ? "Connected" : "Not connected"}
+            {loading ? "Checking…" : integration?.configured ? (integration?.source === "default" ? "Connected (Beta)" : "Connected") : "Not connected"}
           </span>
         </div>
 
         <p className="integration-source">{sourceText}</p>
         <div className="integration-form">
-          <label htmlFor="deepl-key">DeepL API key</label>
+          <label htmlFor="deepl-key">
+            {integration?.source === "default" ? "Personal DeepL API key (optional)" : "DeepL API key"}
+          </label>
           <input
             autoComplete="new-password"
             id="deepl-key"
             onChange={(event) => setKey(event.target.value)}
-            placeholder={integration?.configured ? "Enter a replacement key" : "Paste your DeepL key"}
+            placeholder={
+              integration?.source === "integrations"
+                ? "Enter a replacement key"
+                : integration?.source === "default"
+                  ? "Paste your DeepL key to override default"
+                  : "Paste your DeepL key"
+            }
             type="password"
             value={key}
           />
           <div className="integration-actions">
-            <button disabled={busy || !key.trim()} onClick={() => void saveKey()} type="button">{integration?.configured ? "Replace key" : "Save key"}</button>
-            {integration?.configured && <button className="secondary" disabled={busy} onClick={() => void removeKey()} type="button">Delete</button>}
+            <button disabled={busy || !key.trim()} onClick={() => void saveKey()} type="button">
+              {integration?.source === "integrations" ? "Replace key" : "Save key"}
+            </button>
+            {integration?.source === "integrations" && (
+              <button className="secondary" disabled={busy} onClick={() => void removeKey()} type="button">
+                Delete
+              </button>
+            )}
           </div>
         </div>
         <p className="integration-security">The key is sent over HTTPS, encrypted on the Worker with AES-GCM, and stored in D1. It is never included in API responses.</p>

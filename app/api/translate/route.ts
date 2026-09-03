@@ -1,5 +1,4 @@
 import { cleanTranslationText, DeepLError, translateEnglishToRussian } from "@/lib/deepl";
-import { getCurrentUser, unauthorizedResponse } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -8,8 +7,6 @@ function cleanText(value: unknown) {
 }
 
 export async function POST(request: Request) {
-  const user = await getCurrentUser(request);
-  if (!user) return unauthorizedResponse();
 
   try {
     const siteUrl = new URL(request.url);

@@ -174,8 +174,10 @@ const phraseProjection = `
     analysis.ipa AS analysis_ipa,
     analysis.search_query AS analysis_search_query,
     analysis.alternate_query AS analysis_alternate_query,
-    mechanisms.mechanism,
-    mechanisms.display_order AS mechanism_order
+    CASE WHEN count(mechanisms.mechanism) > 0
+      THEN json_group_array(json_array(mechanisms.mechanism, mechanisms.display_order))
+      ELSE '[]'
+    END AS mechanisms_json
   FROM phrases AS p
   LEFT JOIN phrase_progress AS progress
     ON progress.phrase_id = p.id AND progress.user_id = ?
@@ -203,7 +205,7 @@ export async function GET(request: Request) {
     if (phraseId) {
       const result = await db.prepare(`${phraseProjection}
         WHERE p.id = ? AND (p.source_type = 'preset' OR p.owner_id = ?)
-        ORDER BY mechanisms.display_order
+        GROUP BY p.id
       `).bind(user.subject, user.subject, phraseId, user.subject).all<CatalogJoinedRow>();
       const examples = await db.prepare(`
         SELECT
@@ -229,18 +231,33 @@ export async function GET(request: Request) {
 
     const result = await db.prepare(`${phraseProjection}
       WHERE p.source_type = 'preset' OR p.owner_id = ?
+      GROUP BY p.id
       ORDER BY
         CASE WHEN COALESCE(progress.status, 'pick') = 'pick' THEN 0 ELSE 1 END,
         CASE WHEN COALESCE(progress.status, 'pick') = 'pick' THEN p.catalog_order END ASC,
-        p.updated_at DESC,
-        mechanisms.display_order
+        p.updated_at DESC
     `).bind(user.subject, user.subject, user.subject).all<CatalogJoinedRow>();
     const phrases = mapPhraseRows(result.results);
     const needsBackfill = phrases.some((phrase) => phrase.status !== "pick" && !phrase.translation);
-    return Response.json(
-      { phrases, user: publicUser(user) },
-      needsBackfill ? { headers: { "X-Unmumble-Backfill": "1" } } : undefined,
-    );
+    const body = JSON.stringify({ phrases, user: publicUser(user) });
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+    const hash = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
+    const etag = `W/"phrases-${user.subject}-${hash}"`;
+    const cacheHeaders: Record<string, string> = {
+      "Cache-Control": "private, no-cache",
+      ETag: etag,
+    };
+    if (needsBackfill) {
+      cacheHeaders["X-Unmumble-Backfill"] = "1";
+    } else if (request.headers.get("if-none-match") === etag) {
+      return new Response(null, { status: 304, headers: cacheHeaders });
+    }
+    return new Response(body, {
+      headers: {
+        ...cacheHeaders,
+        "Content-Type": "application/json",
+      },
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not load phrases.";
     return Response.json({ error: message }, { status: 500 });

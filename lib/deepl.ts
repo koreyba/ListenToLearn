@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import {
   IntegrationSecretError,
   readIntegrationSecret,
@@ -20,6 +21,26 @@ export class DeepLError extends Error {
 
 const DEEPL_TIMEOUT_MS = 8_000;
 
+type DeeplCloudflareEnvironment = {
+  DEEPL_DEFAULT_API_KEY?: string;
+  DEEPL_API_KEY?: string;
+};
+
+export function getDefaultDeeplApiKey(): string | undefined {
+  let workerKey: string | undefined;
+  try {
+    const serverEnv = env as unknown as DeeplCloudflareEnvironment;
+    workerKey = serverEnv?.DEEPL_DEFAULT_API_KEY?.trim() || serverEnv?.DEEPL_API_KEY?.trim();
+  } catch {
+    // env binding not present in non-worker environments
+  }
+  if (workerKey) return workerKey;
+  if (typeof process !== "undefined" && process?.env) {
+    return process.env.DEEPL_DEFAULT_API_KEY?.trim() || process.env.DEEPL_API_KEY?.trim() || undefined;
+  }
+  return undefined;
+}
+
 export function cleanTranslationText(value: unknown) {
   return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
 }
@@ -40,6 +61,9 @@ export async function translateEnglishToRussian(
     } catch (error) {
       if (!(error instanceof IntegrationSecretError)) throw error;
     }
+  }
+  if (!apiKey) {
+    apiKey = getDefaultDeeplApiKey();
   }
   if (!apiKey) {
     throw new DeepLError("Translation is not configured yet.", "not_configured");

@@ -1583,7 +1583,7 @@
       tag: "all",
       custom: [],
       selectedId: "base-0",
-      source: "tatoeba",
+      source: "youglish",
       speed: 1,
       exampleMode: "all"
     };
@@ -1905,7 +1905,7 @@
       s.hideDone = Boolean(s.hideDone);
       s.tag = typeof s.tag === "string" ? s.tag : "all";
       s.selectedId = typeof s.selectedId === "string" ? s.selectedId : "base-0";
-      s.source = ["tatoeba", "youglish"].includes(s.source) ? s.source : "tatoeba";
+      s.source = ["tatoeba", "youglish"].includes(s.source) ? s.source : "youglish";
       s.speed = [0.75, 1].includes(Number(s.speed)) ? Number(s.speed) : 1;
       s.exampleMode = ["all", "saved"].includes(s.exampleMode) ? s.exampleMode : "all";
       delete s.exampleOrder;

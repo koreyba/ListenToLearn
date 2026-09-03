@@ -714,6 +714,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
           <div
             className="mechanism-popover"
             onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
             role="tooltip"
           >
             <div className="mechanism-popover-header">
@@ -823,15 +824,32 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
             return (
               <div className="mechanism-row-btn" key={mechKey}>
                 <span
+                  aria-checked={checked}
                   className={`checkbox-box${checked ? " checked" : ""}`}
                   onClick={() => toggleMechanism(mechKey)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      toggleMechanism(mechKey);
+                    }
+                  }}
                   role="checkbox"
-                  aria-checked={checked}
                   tabIndex={0}
                 >
                   {checked ? "✓" : ""}
                 </span>
-                <div className="mechanism-info" onClick={() => toggleMechanism(mechKey)}>
+                <div
+                  className="mechanism-info"
+                  onClick={() => toggleMechanism(mechKey)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      toggleMechanism(mechKey);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                >
                   <span className="mechanism-title">{mechDef.title}</span>
                   <span className="mechanism-hint">{mechDef.hint}</span>
                 </div>
@@ -1120,7 +1138,10 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                     </div>
                     <button
                       className="practice-search-btn desktop-only"
-                      onClick={() => setPracticeSearch(practiceSearch)}
+                      onClick={() => {
+                        const input = document.getElementById("practice-search-input");
+                        input?.focus();
+                      }}
                       type="button"
                     >
                       Search
@@ -1136,7 +1157,6 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                       aria-label="Search"
                       className="practice-icon-btn practice-search-icon-btn mobile-only"
                       onClick={() => {
-                        setPracticeSearch(practiceSearch);
                         const input = document.getElementById("practice-search-input");
                         input?.focus();
                       }}
@@ -1271,7 +1291,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
 
         {mobileFilterOpen && (
           <>
-            <div className="sheet-backdrop" onClick={() => setMobileFilterOpen(false)} />
+            <button aria-label="Close filters" className="sheet-backdrop" onClick={() => setMobileFilterOpen(false)} type="button" />
             <div className="bottom-sheet" role="dialog" aria-modal="true">
               <div className="sheet-drag-handle" />
               <div className="sheet-scroll-body">
@@ -1299,7 +1319,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
 
           return (
             <>
-              <div className="sheet-backdrop" onClick={() => setOpenMenuPhraseId(null)} />
+              <button aria-label="Close actions" className="sheet-backdrop" onClick={() => setOpenMenuPhraseId(null)} type="button" />
               <div aria-modal="true" className="bottom-sheet phrase-options-sheet" role="dialog">
                 <div className="sheet-drag-handle" />
                 <div className="phrase-sheet-header">

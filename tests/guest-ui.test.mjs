@@ -154,3 +154,23 @@ test("worker exchanges Access only at login and authorizes every account API wit
   assert.doesNotMatch(worker, /hasAppSignedOutMarker/);
   assert.doesNotMatch(worker, /cdn-cgi\/access\/logout/);
 });
+
+test("all pages consistently use 'Sign in with Google' and SiteNavigation provides it on Home page", async () => {
+  const [chat, workspace, navigation, defaultAccount] = await Promise.all([
+    readFile(new URL("../app/components/ai-practice-chat.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/site-navigation.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/default-account-widget.tsx", import.meta.url), "utf8"),
+  ]);
+
+  // AI chat uses 'Sign in with Google' in header instead of bare 'Sign in'
+  assert.match(chat, />Sign in with Google<\/a>/);
+  assert.doesNotMatch(chat, />Sign in<\/a>/);
+
+  // Phrase workspace mobile guest card uses 'Sign in with Google'
+  assert.doesNotMatch(workspace, /className="site-account-link"[\s\S]*?>\s*Sign in\s*<\/a>/);
+
+  // SiteNavigation delegates default account to DefaultAccountWidget with 'Sign in with Google'
+  assert.match(navigation, /DefaultAccountWidget/);
+  assert.match(defaultAccount, /Sign in with Google/);
+});

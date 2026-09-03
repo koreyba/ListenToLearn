@@ -1276,7 +1276,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
               <div className="mobile-guest-card mobile-only">
                 <span style={{ color: "var(--color-text-secondary)" }}>Progress is saved in this browser</span>
                 <a className="site-account-link" href={signInHref(surface === "practice" ? "/practice" : "/library")}>
-                  Sign in
+                  Sign in with Google
                 </a>
               </div>
             )}

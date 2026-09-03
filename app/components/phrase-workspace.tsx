@@ -741,30 +741,28 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
       >
         <span className="row-rank">{rankText}</span>
 
-        <div className="phrase-open phrase-summary row-phrase">
-          <div className={isLibrary ? "row-phrase" : "practice-row-main"}>
-            <span className="phrase-type sr-only">
-              {surface === "practice"
-                ? phrase.sourceType === "custom"
-                  ? "Your phrase"
-                  : phrase.sourceType === "legacy"
-                  ? "Saved phrase"
-                  : PRACTICE_FORMATS[phrase.analysis!.kind].title
-                : `${PRACTICE_FORMATS[phrase.analysis!.kind].title} · #${phrase.analysis!.rank}`}
-            </span>
-            <span className={`phrase-text phrase-arc-text${isLearningNow ? " highlighted" : ""}`}>
-              {phrase.analysis ? renderPattern(phrase.analysis.pattern) : phrase.text}
-            </span>
-            <PracticeAction onClick={() => openPhrase(phrase)} />
+        <div className={`phrase-open phrase-summary ${isLibrary ? "row-phrase" : "practice-row-main"}`}>
+          <span className="phrase-type sr-only">
+            {surface === "practice"
+              ? phrase.sourceType === "custom"
+                ? "Your phrase"
+                : phrase.sourceType === "legacy"
+                ? "Saved phrase"
+                : PRACTICE_FORMATS[phrase.analysis!.kind].title
+              : `${PRACTICE_FORMATS[phrase.analysis!.kind].title} · #${phrase.analysis!.rank}`}
+          </span>
+          <span className={`phrase-text phrase-arc-text${isLearningNow ? " highlighted" : ""}`}>
+            {phrase.analysis ? renderPattern(phrase.analysis.pattern) : phrase.text}
+          </span>
+          <PracticeAction onClick={() => openPhrase(phrase)} />
 
-            {!isLibrary && (
-              <span className="practice-row-sub">
-                {phrase.sourceType === "custom"
-                  ? (phrase.translation ? `Your phrase · ${phrase.translation}` : "Your phrase")
-                  : `${PRACTICE_FORMATS[phrase.analysis!.kind].title} · ${phrase.analysis?.mechanisms.map((m) => CONNECTED_SPEECH_MECHANISMS[m]?.title.split("&")[0].trim()).join(", ")}${isLearningNow ? " · last opened" : ""}`}
-              </span>
-            )}
-          </div>
+          {!isLibrary && (
+            <span className="practice-row-sub">
+              {phrase.sourceType === "custom"
+                ? (phrase.translation ? `Your phrase · ${phrase.translation}` : "Your phrase")
+                : `${PRACTICE_FORMATS[phrase.analysis!.kind].title} · ${phrase.analysis?.mechanisms.map((m) => CONNECTED_SPEECH_MECHANISMS[m]?.title.split("&")[0].trim()).join(", ")}${isLearningNow ? " · last opened" : ""}`}
+            </span>
+          )}
           {surface === "practice" && phrase.status !== "pick" && phrase.translation && (
             <span className="phrase-translation">{phrase.translation}</span>
           )}

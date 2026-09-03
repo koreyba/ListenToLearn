@@ -156,11 +156,12 @@ test("worker exchanges Access only at login and authorizes every account API wit
 });
 
 test("all pages consistently use 'Sign in with Google' and SiteNavigation provides it on Home page", async () => {
-  const [chat, workspace, navigation, defaultAccount] = await Promise.all([
+  const [chat, workspace, navigation, defaultAccount, logout] = await Promise.all([
     readFile(new URL("../app/components/ai-practice-chat.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/site-navigation.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/components/default-account-widget.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/logout/page.tsx", import.meta.url), "utf8"),
   ]);
 
   // AI chat uses 'Sign in with Google' in header instead of bare 'Sign in'
@@ -173,4 +174,7 @@ test("all pages consistently use 'Sign in with Google' and SiteNavigation provid
   // SiteNavigation delegates default account to DefaultAccountWidget with 'Sign in with Google'
   assert.match(navigation, /DefaultAccountWidget/);
   assert.match(defaultAccount, /Sign in with Google/);
+
+  // Logout page suppresses account widget mid-sign-out
+  assert.match(logout, /<SiteNavigation active="library" account=\{null\} \/>/);
 });

@@ -98,7 +98,7 @@ export default function IntegrationsPage() {
   if (loading) {
     return (
       <>
-        <SiteNavigation active="settings" />
+        <SiteNavigation active="settings" account={<span aria-live="polite" className="site-account-name">Checking account…</span>} />
         <main className="integrations-shell">
           <p className="eyebrow">Unmumble</p>
           <h1>Settings</h1>

@@ -1,5 +1,7 @@
 const publicAssetPaths = new Set([
   "/caption-navigation.js",
+  "/feedback-widget.css",
+  "/feedback-widget.js",
   "/youglish-video-restore.js",
   "/video-progress-sync.js",
   "/favicon.svg",
@@ -29,8 +31,9 @@ const publicLoginReturnPaths = new Set([
 ]);
 
 export function isPublicGuestRequest(request: Request) {
-  if (request.method !== "GET" && request.method !== "HEAD") return false;
   const pathname = new URL(request.url).pathname;
+  if (request.method === "POST" && pathname === "/api/feedback") return true;
+  if (request.method !== "GET" && request.method !== "HEAD") return false;
   if (
     pathname === "/"
     || pathname === "/library"

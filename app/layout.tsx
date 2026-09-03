@@ -31,7 +31,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <meta name="theme-color" content="#0d1116" />
         <Script src="/theme-controller.js" strategy="beforeInteractive" />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        <Script src="/feedback-widget.js" strategy="afterInteractive" />
+      </body>
     </html>
   );
 }

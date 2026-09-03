@@ -31,6 +31,8 @@ test("guest allowlist exposes only UI, static assets and read-only Tatoeba", () 
     "/api/session",
     "/api/catalog",
     "/caption-navigation.js",
+    "/feedback-widget.css",
+    "/feedback-widget.js",
     "/youglish-video-restore.js",
     "/video-progress-sync.js",
     "/favicon.svg",
@@ -58,6 +60,11 @@ test("guest allowlist rejects account APIs, integrations, login and unknown path
   }
   assert.equal(isPublicGuestRequest(request("/api/tatoeba", "POST")), false);
   assert.equal(isPublicGuestRequest(request("/api/catalog", "POST")), false);
+});
+
+test("guest allowlist accepts feedback submissions without requiring an account", () => {
+  assert.equal(isPublicGuestRequest(request("/api/feedback", "POST")), true);
+  assert.equal(isPublicGuestRequest(request("/api/feedback", "GET")), false);
 });
 
 test("login redirect is fixed to the public home marker and cannot become an open redirect", () => {

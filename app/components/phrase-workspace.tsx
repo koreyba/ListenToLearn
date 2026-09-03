@@ -29,7 +29,7 @@ import {
   setGuestPhraseStatus,
   type GuestLibraryState,
 } from "@/lib/guest-library";
-import { filterPracticePhrases } from "@/lib/practice-list";
+import { filterPracticePhrases, shouldVirtualizePracticeList } from "@/lib/practice-list";
 
 type PhraseStatus = "pick" | "to_learn" | "learning_now" | "learnt";
 type Phrase = WorkspacePhrase;
@@ -50,9 +50,9 @@ type PhraseMutationResponse = {
 type Viewer = AccountSessionUser;
 
 const practiceTabs: Array<{ id: Exclude<PhraseStatus, "pick">; label: string; hint: string }> = [
-  { id: "to_learn", label: "To Learn", hint: "Saved for later." },
-  { id: "learning_now", label: "Learning Now", hint: "What you are listening to now." },
-  { id: "learnt", label: "Learned", hint: "Phrases you have already mastered." },
+  { id: "to_learn", label: "To Learn", hint: "saved for later" },
+  { id: "learning_now", label: "Learning Now", hint: "what you are listening to now" },
+  { id: "learnt", label: "Learned", hint: "already mastered" },
 ];
 
 type PhraseSort = "recommended" | "added_desc" | "added_asc" | "alpha_asc" | "alpha_desc";
@@ -61,6 +61,7 @@ const PHRASE_SORT_STORAGE_KEY = "unmumble-library-sort-v1";
 const LEGACY_PHRASE_SORT_STORAGE_KEYS = ["listen-to-learn-library-sort-v1"] as const;
 const GUEST_TRAINER_STORAGE_KEY = "unmumble-trainer-v1:anonymous";
 const LEGACY_GUEST_TRAINER_STORAGE_KEYS = ["connected-speech-trainer-v1:anonymous"] as const;
+
 const practiceSortOptions: Array<{ value: PhraseSort; label: string }> = [
   { value: "added_desc", label: "Added · newest first" },
   { value: "added_asc", label: "Added · oldest first" },
@@ -68,7 +69,7 @@ const practiceSortOptions: Array<{ value: PhraseSort; label: string }> = [
   { value: "alpha_desc", label: "Alphabetical · Z–A" },
 ];
 const catalogSortOptions: Array<{ value: PhraseSort; label: string }> = [
-  { value: "recommended", label: "Recommended order" },
+  { value: "recommended", label: "Recommended" },
   { value: "alpha_asc", label: "Alphabetical · A–Z" },
   { value: "alpha_desc", label: "Alphabetical · Z–A" },
 ];
@@ -113,8 +114,8 @@ function renderPattern(pattern: string) {
 
 function PracticeAction({ onClick }: { onClick: () => void }) {
   return (
-    <button className="listen-link" onClick={onClick} type="button">
-      Practice <span aria-hidden="true">↗</span>
+    <button aria-label="Open in trainer" className="phrase-play-btn listen-link" onClick={onClick} type="button">
+      ▶
     </button>
   );
 }
@@ -134,10 +135,14 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
   const [customText, setCustomText] = useState("");
   const [phraseSort, setPhraseSort] = useState<PhraseSort>(surface === "library" ? "recommended" : "added_desc");
   const [activeFormat, setActiveFormat] = useState<PracticeFormat>("atom");
-  const [activeMechanism, setActiveMechanism] = useState<ConnectedSpeechMechanism | "all">("all");
+  const [selectedMechanisms, setSelectedMechanisms] = useState<Set<ConnectedSpeechMechanism>>(new Set());
+  const [explainedMechanism, setExplainedMechanism] = useState<ConnectedSpeechMechanism | null>(null);
+  const [practiceSources, setPracticeSources] = useState<Set<"catalog" | "custom">>(new Set(["catalog", "custom"]));
   const [catalogSearch, setCatalogSearch] = useState("");
   const [practiceSearch, setPracticeSearch] = useState("");
   const [recentlyAdded, setRecentlyAdded] = useState<string | null>(null);
+  const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
+  const [openMenuPhraseId, setOpenMenuPhraseId] = useState<string | null>(null);
   const phraseSortReady = useRef(false);
 
   useEffect(() => {
@@ -284,18 +289,51 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     phrases.filter((phrase) => phrase.status === "pick" && phrase.analysis?.kind === kind).length,
   ])) as Record<PracticeFormat, number>, [phrases]);
 
+  const mechanismCounts = useMemo(() => {
+    const formatPhrases = phrases.filter((p) => p.status === "pick" && p.analysis?.kind === activeFormat);
+    return Object.fromEntries(mechanismChoices.map(([mech]) => [
+      mech,
+      formatPhrases.filter((p) => p.analysis?.mechanisms.includes(mech)).length,
+    ])) as Record<ConnectedSpeechMechanism, number>;
+  }, [activeFormat, phrases]);
+
+  const practiceSourceCounts = useMemo(() => ({
+    catalog: phrases.filter((p) => p.status === activeTab && p.sourceType !== "custom").length,
+    custom: phrases.filter((p) => p.status === activeTab && p.sourceType === "custom").length,
+  }), [activeTab, phrases]);
+
   const sortedForSurface = useMemo(
     () => phrases
-      .filter((phrase) => surface === "library"
-        ? phrase.status === "pick"
-          && phrase.analysis?.kind === activeFormat
-          && (activeMechanism === "all" || phrase.analysis.mechanisms.includes(activeMechanism))
-          && (!catalogSearch.trim() || `${phrase.text} ${phrase.analysis.pattern}`
-            .toLocaleLowerCase("en")
-            .includes(catalogSearch.trim().toLocaleLowerCase("en")))
-        : phrase.status === activeTab)
+      .filter((phrase) => {
+        if (surface === "library") {
+          if (phrase.status === "pick" && phrase.analysis?.kind === activeFormat) {
+            if (selectedMechanisms.size > 0 && !phrase.analysis.mechanisms.some((m) => selectedMechanisms.has(m))) {
+              return false;
+            }
+            if (catalogSearch.trim()) {
+              const query = catalogSearch.trim().toLocaleLowerCase("en");
+              const haystack = `${phrase.text} ${phrase.analysis.pattern} ${phrase.analysis.ipa}`.toLocaleLowerCase("en");
+              return haystack.includes(query);
+            }
+            return true;
+          }
+          return false;
+        }
+
+        if (phrase.status !== activeTab) return false;
+        if (practiceSources.size < 2) {
+          if (!practiceSources.has("catalog") && phrase.sourceType !== "custom") return false;
+          if (!practiceSources.has("custom") && phrase.sourceType === "custom") return false;
+        }
+        if (selectedMechanisms.size > 0) {
+          if (!phrase.analysis || !phrase.analysis.mechanisms.some((m) => selectedMechanisms.has(m))) {
+            return false;
+          }
+        }
+        return true;
+      })
       .sort((a, b) => comparePhrases(a, b, phraseSort)),
-    [activeFormat, activeMechanism, activeTab, catalogSearch, phraseSort, phrases, surface]
+    [activeFormat, activeTab, catalogSearch, phraseSort, phrases, practiceSources, selectedMechanisms, surface]
   );
 
   const visible = useMemo(
@@ -304,6 +342,34 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
       : sortedForSurface,
     [practiceSearch, sortedForSurface, surface],
   );
+
+  const libraryGroups = useMemo(() => {
+    if (surface !== "library") return [];
+    if (catalogSearch.trim() || selectedMechanisms.size > 0) {
+      return [{
+        key: "filtered",
+        title: selectedMechanisms.size === 1
+          ? CONNECTED_SPEECH_MECHANISMS[Array.from(selectedMechanisms)[0]].title
+          : "Matching phrases",
+        hint: selectedMechanisms.size === 1
+          ? CONNECTED_SPEECH_MECHANISMS[Array.from(selectedMechanisms)[0]].hint
+          : `${visible.length} cards found`,
+        mechanismKey: selectedMechanisms.size === 1 ? Array.from(selectedMechanisms)[0] : null,
+        rows: visible,
+      }];
+    }
+
+    return mechanismChoices.map(([mechKey, mechDef]) => {
+      const rows = sortedForSurface.filter((p) => p.analysis?.mechanisms.includes(mechKey));
+      return {
+        key: mechKey,
+        title: mechDef.title,
+        hint: mechDef.hint,
+        mechanismKey: mechKey,
+        rows,
+      };
+    }).filter((group) => group.rows.length > 0);
+  }, [catalogSearch, selectedMechanisms, sortedForSurface, surface, visible]);
 
   async function changeStatus(id: string, status: PhraseStatus) {
     setBusyId(id);
@@ -385,7 +451,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
 
   async function addCustom(event: FormEvent) {
     event.preventDefault();
-    const text = customText.trim();
+    const text = (customText || practiceSearch).trim();
     if (!text) return;
     setBusyId("new");
     setError("");
@@ -396,6 +462,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
         const nextStatus = existing.status === "pick" ? "to_learn" : existing.status;
         persistGuestState(setGuestPhraseStatus(guestLibrary, existing.id, nextStatus));
         setCustomText("");
+        setPracticeSearch("");
         setActiveTab(nextStatus);
         setNotice("This phrase was already in the guest library.");
       } else {
@@ -403,6 +470,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
         if (result.phrase) {
           persistGuestState(result.state);
           setCustomText("");
+          setPracticeSearch("");
           setActiveTab("to_learn");
           setNotice("Phrase added to the guest library. Translation is available after signing in with Google.");
         }
@@ -419,6 +487,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
       const data = await response.json() as PhraseMutationResponse;
       if (!response.ok) throw new Error(data.error || "Could not add the phrase.");
       setCustomText("");
+      setPracticeSearch("");
       const nextStatus = data.status || "to_learn";
       if (data.created === false && data.id) {
         setPhrases((currentPhrases) => currentPhrases.map((phrase) => phrase.id === data.id
@@ -487,43 +556,268 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     setNotice("Guest progress cleared.");
   }
 
-  const current = surface === "library"
-    ? { id: "pick", label: PRACTICE_FORMATS[activeFormat].title, hint: PRACTICE_FORMATS[activeFormat].hint }
-    : practiceTabs.find((tab) => tab.id === activeTab) || practiceTabs[1];
+  function toggleMechanism(mech: ConnectedSpeechMechanism) {
+    setSelectedMechanisms((prev) => {
+      const next = new Set(prev);
+      if (next.has(mech)) next.delete(mech);
+      else next.add(mech);
+      return next;
+    });
+  }
+
+  function togglePracticeSource(src: "catalog" | "custom") {
+    setPracticeSources((prev) => {
+      const next = new Set(prev);
+      if (next.has(src)) {
+        if (next.size > 1) next.delete(src);
+      } else {
+        next.add(src);
+      }
+      return next;
+    });
+  }
+
+  function resetFilters() {
+    if (surface === "library") {
+      setActiveFormat("atom");
+      setSelectedMechanisms(new Set());
+      setCatalogSearch("");
+    } else {
+      setPracticeSources(new Set(["catalog", "custom"]));
+      setSelectedMechanisms(new Set());
+      setPracticeSearch("");
+      setCustomText("");
+    }
+    setExplainedMechanism(null);
+  }
+
   const sortOptions = surface === "library" ? catalogSortOptions : practiceSortOptions;
-  const renderPhraseCard = (phrase: Phrase) => (
-    <article className="phrase-card" key={phrase.id}>
-      <div className="phrase-open phrase-summary">
-        <span className="phrase-type">{surface === "practice"
-          ? phrase.sourceType === "custom"
-            ? "Your phrase"
-            : phrase.sourceType === "legacy"
-            ? "Saved phrase"
-            : PRACTICE_FORMATS[phrase.analysis!.kind].title
-          : `${PRACTICE_FORMATS[phrase.analysis!.kind].title} · #${phrase.analysis!.rank}`}</span>
-        <span className="phrase-text">{phrase.text}</span>
-        {surface === "practice" && phrase.status !== "pick" && phrase.translation && (
-          <span className="phrase-translation">{phrase.translation}</span>
+  const activeFiltersCount = (surface === "library" ? 1 : 0) + selectedMechanisms.size;
+
+  const getMechanismExample = useCallback((mech: ConnectedSpeechMechanism) => {
+    const card = catalogCards.find((c) => c.analysis.mechanisms.includes(mech))
+      || phrases.find((p) => p.analysis?.mechanisms.includes(mech));
+    return card ? `${card.text} → ${card.analysis?.ipa || ""}` : "";
+  }, [catalogCards, phrases]);
+
+  const renderFiltersContent = (isMobile = false) => (
+    <>
+      <div className="sidebar-header">
+        <strong>Filters</strong>
+        <button className="sidebar-reset-btn" onClick={resetFilters} type="button">Reset</button>
+      </div>
+
+      {surface === "library" ? (
+        <div className="sidebar-section">
+          <span className="sidebar-section-title">Practice format</span>
+          <div className="format-options" role="radiogroup">
+            {practiceFormatTabs.map(([kind, def]) => {
+              const active = activeFormat === kind;
+              const count = formatCounts[kind] ?? 0;
+              return (
+                <button
+                  aria-checked={active}
+                  className={`format-option-btn${active ? " active" : ""}`}
+                  key={kind}
+                  onClick={() => setActiveFormat(kind)}
+                  role="radio"
+                  type="button"
+                >
+                  <span aria-hidden="true" className="format-radio-dot" />
+                  <span>{def.title}</span>
+                  <span className="format-count">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <div className="sidebar-section">
+          <span className="sidebar-section-title">Source</span>
+          <div className="format-options">
+            <button
+              className="mechanism-row-btn"
+              onClick={() => togglePracticeSource("catalog")}
+              type="button"
+            >
+              <span className={`checkbox-box${practiceSources.has("catalog") ? " checked" : ""}`}>
+                {practiceSources.has("catalog") ? "✓" : ""}
+              </span>
+              <span className="mechanism-title">From catalog</span>
+              <span className="format-count">{practiceSourceCounts.catalog}</span>
+            </button>
+            <button
+              className="mechanism-row-btn"
+              onClick={() => togglePracticeSource("custom")}
+              type="button"
+            >
+              <span className={`checkbox-box${practiceSources.has("custom") ? " checked" : ""}`}>
+                {practiceSources.has("custom") ? "✓" : ""}
+              </span>
+              <span className="mechanism-title">Your phrases</span>
+              <span className="format-count">{practiceSourceCounts.custom}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="sidebar-section sidebar-section-divider">
+        <div className="sidebar-section-header">
+          <span className="sidebar-section-title">Mechanism</span>
+          <span className="sidebar-section-hint">{isMobile ? "tap ? for definition" : "? explains it"}</span>
+        </div>
+        <div className="mechanism-list">
+          {surface === "library" && (
+            <button
+              className={`mechanism-row-btn${selectedMechanisms.size === 0 ? " all-active" : ""}`}
+              onClick={() => setSelectedMechanisms(new Set())}
+              type="button"
+            >
+              <span className="checkbox-box">
+                {selectedMechanisms.size === 0 ? "✓" : ""}
+              </span>
+              <span className="mechanism-title">All mechanisms</span>
+              <span className="format-count">{formatCounts[activeFormat] || 18}</span>
+            </button>
+          )}
+
+          {mechanismChoices.map(([mechKey, mechDef]) => {
+            const checked = selectedMechanisms.has(mechKey);
+            const count = mechanismCounts[mechKey] || 0;
+            return (
+              <div className="mechanism-row-btn" key={mechKey}>
+                <span
+                  className={`checkbox-box${checked ? " checked" : ""}`}
+                  onClick={() => toggleMechanism(mechKey)}
+                  role="checkbox"
+                  aria-checked={checked}
+                  tabIndex={0}
+                >
+                  {checked ? "✓" : ""}
+                </span>
+                <div className="mechanism-info" onClick={() => toggleMechanism(mechKey)}>
+                  <span className="mechanism-title">{mechDef.title}</span>
+                  <span className="mechanism-hint">{mechDef.hint}</span>
+                </div>
+                <button
+                  aria-label={`Explain ${mechDef.title}`}
+                  className="help-question-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setExplainedMechanism(explainedMechanism === mechKey ? null : mechKey);
+                  }}
+                  type="button"
+                >
+                  ?
+                </button>
+                {surface === "library" && <span className="format-count">{count}</span>}
+              </div>
+            );
+          })}
+        </div>
+
+        {explainedMechanism && (
+          <div className="mechanism-explanation-card">
+            <strong>{CONNECTED_SPEECH_MECHANISMS[explainedMechanism].title}</strong>
+            <p>{CONNECTED_SPEECH_MECHANISMS[explainedMechanism].description}</p>
+            <span className="example">{getMechanismExample(explainedMechanism)}</span>
+          </div>
         )}
-        {surface === "practice" && phrase.context && <span className="phrase-context">Context: {phrase.context}</span>}
-        {phrase.analysis && <>
-          <span className="phrase-pattern">{renderPattern(phrase.analysis.pattern)}</span>
-          <span className="phrase-ipa">{phrase.analysis.ipa}</span>
-          <span className="mechanism-badges">{phrase.analysis.mechanisms.map((mechanism) => (
-            <span className="mechanism-badge" key={mechanism}>{CONNECTED_SPEECH_MECHANISMS[mechanism].title}</span>
-          ))}</span>
-        </>}
-        <PracticeAction onClick={() => openPhrase(phrase)} />
       </div>
-      <div className="card-actions">
-        {phrase.status === "pick" && <button className={surface === "library" ? "save-action" : undefined} disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "to_learn")} type="button">Add to Learn</button>}
-        {phrase.status === "to_learn" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Move to Learning Now</button>}
-        {phrase.status === "learning_now" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learnt")} type="button">Mark as Learned</button>}
-        {phrase.status === "learnt" && <button disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Learn Again</button>}
-        {phrase.status !== "pick" && <button className="secondary" disabled={busyId === phrase.id} onClick={() => removePhrase(phrase)} type="button">Remove</button>}
-      </div>
-    </article>
+    </>
   );
+
+  const renderPhraseCard = (phrase: Phrase) => {
+    const isLibrary = surface === "library";
+    const isLearningNow = phrase.status === "learning_now";
+    const rankText = phrase.analysis?.rank
+      ? String(phrase.analysis.rank).padStart(2, "0")
+      : (phrase.source_type === "custom" ? "—" : "01");
+
+    return (
+      <article
+        className={`phrase-card ${isLibrary ? "catalog-row" : "practice-row"}${isLearningNow ? " highlighted" : ""}`}
+        key={phrase.id}
+      >
+        <span className="row-rank">{rankText}</span>
+
+        <div className="phrase-open phrase-summary row-phrase">
+          <div className={isLibrary ? "row-phrase" : "practice-row-main"}>
+            <span className="phrase-type sr-only">
+              {surface === "practice"
+                ? phrase.sourceType === "custom"
+                  ? "Your phrase"
+                  : phrase.sourceType === "legacy"
+                  ? "Saved phrase"
+                  : PRACTICE_FORMATS[phrase.analysis!.kind].title
+                : `${PRACTICE_FORMATS[phrase.analysis!.kind].title} · #${phrase.analysis!.rank}`}
+            </span>
+            <span className={`phrase-text phrase-arc-text${isLearningNow ? " highlighted" : ""}`}>
+              {phrase.analysis ? renderPattern(phrase.analysis.pattern) : phrase.text}
+            </span>
+            <PracticeAction onClick={() => openPhrase(phrase)} />
+
+            {!isLibrary && (
+              <span className="practice-row-sub">
+                {phrase.sourceType === "custom"
+                  ? (phrase.translation ? `Your phrase · ${phrase.translation}` : "Your phrase")
+                  : `${PRACTICE_FORMATS[phrase.analysis!.kind].title} · ${phrase.analysis?.mechanisms.map((m) => CONNECTED_SPEECH_MECHANISMS[m]?.title.split("&")[0].trim()).join(", ")}${isLearningNow ? " · last opened" : ""}`}
+              </span>
+            )}
+          </div>
+          {surface === "practice" && phrase.status !== "pick" && phrase.translation && (
+            <span className="phrase-translation">{phrase.translation}</span>
+          )}
+          {surface === "practice" && phrase.context && <span className="phrase-context sr-only">{phrase.context}</span>}
+          {phrase.analysis && (
+            <span className="phrase-pattern sr-only">{renderPattern(phrase.analysis.pattern)}</span>
+          )}
+        </div>
+
+        {isLibrary ? (
+          <span className="row-ipa phrase-ipa">{phrase.analysis?.ipa}</span>
+        ) : null}
+
+        <div className="card-actions row-actions-cell">
+          {phrase.status === "pick" && (
+            <button
+              className={surface === "library" ? "save-action" : undefined}
+              disabled={busyId === phrase.id}
+              onClick={() => changeStatus(phrase.id, "to_learn")}
+              type="button"
+            >
+              Add to Learn
+            </button>
+          )}
+          {phrase.status === "pick" && (
+            <button
+              aria-label="Add to Learn"
+              className="mobile-add-btn mobile-only"
+              disabled={busyId === phrase.id}
+              onClick={() => changeStatus(phrase.id, "to_learn")}
+              type="button"
+            >
+              +
+            </button>
+          )}
+          {phrase.status === "to_learn" && <button className="action-btn-primary desktop-only" disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Move to Learning Now</button>}
+          {phrase.status === "learning_now" && <button className="action-btn-primary desktop-only" disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learnt")} type="button">Mark as Learned</button>}
+          {phrase.status === "learnt" && <button className="action-btn-primary desktop-only" disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Learn Again</button>}
+          {phrase.status !== "pick" && <button className="secondary" disabled={busyId === phrase.id} onClick={() => removePhrase(phrase)} type="button">Remove</button>}
+          {phrase.status !== "pick" && (
+            <button
+              aria-label="Options"
+              className="row-menu-btn mobile-only"
+              onClick={() => setOpenMenuPhraseId(openMenuPhraseId === phrase.id ? null : phrase.id)}
+              type="button"
+            >
+              ⋯
+            </button>
+          )}
+        </div>
+      </article>
+    );
+  };
 
   return (
     <>
@@ -535,161 +829,307 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
           <SignedInSiteAccount user={viewer} />
         )}
       />
+
       <main className="library-shell">
-      <header className="library-header">
-        <div>
-          <p className="eyebrow">Unmumble</p>
-          <h1>{surface === "library" ? (
-            <>Train connected speech.<br />Know what changes.</>
-          ) : (
-            <>Practice your phrases.<br />Learn through real speech.</>
-          )}</h1>
-        </div>
-        <div className="header-tools">
-          {mode === "guest" && <button className="account-link" onClick={resetGuest} type="button">Clear guest data</button>}
-          <div className="header-total">
-            <strong>{surface === "library" ? visible.length : phrases.length - counts.pick}</strong>
-            <span>{surface === "library" ? "matching cards" : "phrases in practice"}</span>
+        <header className="library-header sr-only">
+          <div>
+            <p className="eyebrow">Unmumble</p>
+            <h1>Train connected speech.</h1>
           </div>
-        </div>
-      </header>
+          <div className="header-tools">
+            {mode === "guest" && <button className="account-link" onClick={resetGuest} type="button">Clear guest data</button>}
+          </div>
+        </header>
 
-      {mode === "guest" && <output className="notice">Guest mode: progress is stored only in this browser. Sign in with Google to save it to your account.</output>}
-
-      {surface === "practice" && (
-      <nav className="tabs" aria-label="Learning sections" role="tablist">
-        {practiceTabs.map((tab) => (
-          <button
-            className={activeTab === tab.id ? "tab active" : "tab"}
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            role="tab"
-            aria-selected={activeTab === tab.id}
-            type="button"
-          >
-            <span>{tab.label}</span><strong>{counts[tab.id] || 0}</strong>
-          </button>
-        ))}
-      </nav>
-      )}
-
-      {surface === "library" && (
-        <>
-          <nav className="tabs catalog-formats" aria-label="Practice formats" role="tablist">
-            {practiceFormatTabs.map(([kind, format]) => (
-              <button
-                aria-selected={activeFormat === kind}
-                className={activeFormat === kind ? "tab active" : "tab"}
-                key={kind}
-                onClick={() => setActiveFormat(kind)}
-                role="tab"
-                type="button"
-              >
-                <span><b>{format.title}</b><small>{format.hint}</small></span>
-                <strong>{formatCounts[kind]}</strong>
-              </button>
-            ))}
-          </nav>
-          <section className="mechanism-filter" aria-labelledby="mechanism-filter-title">
-            <div className="filter-heading">
-              <h2 id="mechanism-filter-title">Phonetic mechanism</h2>
-              <p>Practice one listening challenge at a time, or show all.</p>
-            </div>
-            <div className="mechanism-options">
-              <button
-                aria-pressed={activeMechanism === "all"}
-                className={activeMechanism === "all" ? "mechanism-option active" : "mechanism-option"}
-                onClick={() => setActiveMechanism("all")}
-                type="button"
-              ><b>All mechanisms</b><span>Show every card in this format</span></button>
-              {mechanismChoices.map(([mechanism, metadata]) => (
-                <button
-                  aria-pressed={activeMechanism === mechanism}
-                  className={activeMechanism === mechanism ? "mechanism-option active" : "mechanism-option"}
-                  key={mechanism}
-                  onClick={() => setActiveMechanism(mechanism)}
-                  type="button"
-                ><b>{metadata.title}</b><span>{metadata.hint}</span></button>
-              ))}
-            </div>
-          </section>
-        </>
-      )}
-
-      <section className="library-section" role={surface === "practice" ? "tabpanel" : undefined}>
-        <div className="section-heading">
-          <div><h2>{current.label}</h2><p>{current.hint}</p></div>
-          <div className="section-tools">
-            {surface === "library" && (
-              <label className="search-control">
-                <span>Search the catalog</span>
-                <input
-                  onChange={(event) => setCatalogSearch(event.target.value)}
-                  placeholder="Phrase or sound grouping"
-                  type="search"
-                  value={catalogSearch}
-                />
-              </label>
+        {error && <aside className="notice error" role="alert">{error}</aside>}
+        {notice && (
+          <aside className="notice success notice-action" role="status">
+            <span>{notice}</span>
+            {recentlyAdded && surface === "library" && (
+              <button onClick={undoAdded} type="button">Undo</button>
             )}
-            {surface === "practice" && (
-              <label className="search-control">
-                <span>Search your phrases</span>
-                <input
-                  onChange={(event) => setPracticeSearch(event.target.value)}
-                  placeholder="Word, translation, context, or sound"
-                  type="search"
-                  value={practiceSearch}
-                />
-              </label>
-            )}
-            <label className="sort-control">
-              <span>Sort</span>
-              <select
-                aria-label="Sort phrases"
-                className="phrase-sort"
-                onChange={(event) => setPhraseSort(event.target.value as PhraseSort)}
-                value={phraseSort}
-              >
-                {sortOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            </label>
-          </div>
-        </div>
-
-        {surface === "practice" && <form className="add-form custom-phrase-form" onSubmit={addCustom}>
-          <div><strong>Add your own</strong><span>Text is enough. Phonetic analysis is optional.</span></div>
-          <input
-            aria-label="Your word or phrase"
-            maxLength={240}
-            onChange={(event) => setCustomText(event.target.value)}
-            placeholder="Enter a word or phrase"
-            value={customText}
-          />
-          <button disabled={busyId === "new" || !customText.trim()} type="submit">+ To Learn</button>
-        </form>}
-
-        {error && <div className="notice error" role="alert">{error}</div>}
-        {notice && <output className="notice success notice-action">
-          <span>{notice}</span>
-          {recentlyAdded && <button disabled={busyId === recentlyAdded} onClick={() => void undoAdded()} type="button">Undo</button>}
-        </output>}
-        {loading ? <div className="notice">Loading library…</div> : visible.length === 0 ? (
-          <div className="empty-state">
-            <strong>Nothing here yet</strong>
-            <span>{surface === "library"
-              ? "No cards match this format, mechanism and search."
-              : practiceSearch.trim()
-              ? "No phrases match your search."
-              : activeTab === "learning_now"
-              ? "Start a phrase from To Learn."
-              : "Move your first phrase here."}</span>
-          </div>
-        ) : surface === "practice" ? (
-          <PracticePhraseGrid items={visible} renderItem={renderPhraseCard} />
-        ) : (
-          <div className="phrase-grid">{visible.map(renderPhraseCard)}</div>
+          </aside>
         )}
-      </section>
+
+        <div className="workspace-layout">
+          <aside aria-label="Filters" className="workspace-sidebar desktop-only">
+            {renderFiltersContent(false)}
+          </aside>
+
+          <section className="workspace-main">
+            <div className="workspace-top-heading">
+              <h2>{surface === "library" ? "Catalog" : "Practice"}</h2>
+              <span className="meta">
+                {surface === "library" ? (
+                  <>
+                    {visible.length} cards · {PRACTICE_FORMATS[activeFormat].title.toLowerCase()} ·{" "}
+                    <span style={{ color: "var(--color-text-secondary)" }}>▶ opens the trainer</span>
+                  </>
+                ) : (
+                  `${visible.length} phrases · ${counts.learning_now || 0} in progress`
+                )}
+              </span>
+            </div>
+
+            {surface === "library" && (
+              <>
+                <div className="catalog-search-bar">
+                  <div className="search-field">
+                    <span aria-hidden="true">⌕</span>
+                    <input
+                      aria-label="Search the catalog"
+                      onChange={(event) => setCatalogSearch(event.target.value)}
+                      placeholder="Search phrase or sound"
+                      type="search"
+                      value={catalogSearch}
+                    />
+                  </div>
+                  <button
+                    aria-label="Open filters"
+                    className="mobile-filter-trigger mobile-only"
+                    onClick={() => setMobileFilterOpen(true)}
+                    type="button"
+                  >
+                    ⚟ {activeFiltersCount > 0 && <span className="filter-count-badge">{activeFiltersCount}</span>}
+                  </button>
+                  <div className="sort-select-wrap desktop-only">
+                    <select
+                      aria-label="Sort catalog"
+                      className="sort-select phrase-sort"
+                      onChange={(event) => setPhraseSort(event.target.value as PhraseSort)}
+                      value={phraseSort}
+                    >
+                      {sortOptions.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                    <span aria-hidden="true" className="sort-select-arrow">⌄</span>
+                  </div>
+                </div>
+
+                <div className="mobile-chips-scroll mobile-only">
+                  <span className="mobile-chip">
+                    {PRACTICE_FORMATS[activeFormat].title}
+                  </span>
+                  {selectedMechanisms.size > 0 && Array.from(selectedMechanisms).map((m) => (
+                    <button
+                      className="mobile-chip"
+                      key={m}
+                      onClick={() => toggleMechanism(m)}
+                      type="button"
+                    >
+                      {CONNECTED_SPEECH_MECHANISMS[m].title.split("&")[0].trim()}
+                      <span aria-hidden="true" style={{ color: "#aee8ff" }}>✕</span>
+                    </button>
+                  ))}
+                  {(selectedMechanisms.size > 0 || catalogSearch) && (
+                    <button className="mobile-clear-btn" onClick={resetFilters} type="button">
+                      Clear all
+                    </button>
+                  )}
+                </div>
+
+                <div className="catalog-groups">
+                  {loading ? (
+                    <div className="empty-state"><span>Loading catalog...</span></div>
+                  ) : libraryGroups.length === 0 ? (
+                    <div className="empty-state">
+                      <strong>No matching cards found</strong>
+                      <span>Try adjusting your filters or search term.</span>
+                    </div>
+                  ) : (
+                    libraryGroups.map((group) => (
+                      <div className="catalog-group-card" key={group.key}>
+                        <div className="catalog-group-header">
+                          <span className="group-title">{group.title}</span>
+                          {group.mechanismKey && (
+                            <button
+                              aria-label={`Explain ${group.title}`}
+                              className="help-question-btn"
+                              onClick={() => setExplainedMechanism(explainedMechanism === group.mechanismKey ? null : group.mechanismKey)}
+                              type="button"
+                            >
+                              ?
+                            </button>
+                          )}
+                          <span className="group-hint">{group.hint}</span>
+                          <span className="group-count">{String(group.rows.length).padStart(2, "0")}</span>
+                        </div>
+                        {group.rows.map(renderPhraseCard)}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+
+            {surface === "practice" && (
+              <>
+                {surface === "practice" && <form className="add-form custom-phrase-form" onSubmit={addCustom}>
+                  <label className="sr-only" htmlFor="practice-search-input">Search your phrases</label>
+                  <div className="practice-single-input-row">
+                    <div className="practice-single-input-wrap">
+                      <span aria-hidden="true" style={{ color: "#b5bec8" }}>⌕</span>
+                      <input
+                        id="practice-search-input"
+                        onChange={(event) => setPracticeSearch(event.target.value)}
+                        placeholder="Find a phrase, or type a new one"
+                        type="text"
+                        value={practiceSearch}
+                      />
+                    </div>
+                    <button
+                      className="practice-search-btn desktop-only"
+                      onClick={() => setPracticeSearch(practiceSearch)}
+                      type="button"
+                    >
+                      Search
+                    </button>
+                    <button
+                      className="practice-add-btn desktop-only"
+                      disabled={busyId === "new" || !practiceSearch.trim()}
+                      type="submit"
+                    >
+                      + To Learn
+                    </button>
+                    <button
+                      aria-label="Open filters"
+                      className="mobile-filter-trigger mobile-only"
+                      onClick={() => setMobileFilterOpen(true)}
+                      type="button"
+                    >
+                      ⚟ <span style={{ color: "var(--color-text-secondary)" }}>⌄</span>
+                    </button>
+                  </div>
+
+                  <div className="mobile-practice-buttons mobile-only">
+                    <button
+                      className="practice-search-btn"
+                      onClick={() => setPracticeSearch(practiceSearch)}
+                      type="button"
+                    >
+                      Search
+                    </button>
+                    <button
+                      className="practice-add-btn"
+                      disabled={busyId === "new" || !practiceSearch.trim()}
+                      type="submit"
+                    >
+                      + To Learn
+                    </button>
+                  </div>
+
+                  <div className="practice-input-helper-row">
+                    <span>One field: search what you have, or add what you just heard. Text is enough — phonetics are optional.</span>
+                    <div className="sort-select-wrap desktop-only" style={{ marginLeft: "auto" }}>
+                      <select
+                        aria-label="Sort phrases"
+                        className="sort-select phrase-sort"
+                        onChange={(event) => setPhraseSort(event.target.value as PhraseSort)}
+                        value={phraseSort}
+                      >
+                        {sortOptions.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                      <span aria-hidden="true" className="sort-select-arrow">⌄</span>
+                    </div>
+                  </div>
+                </form>}
+
+                <div className="mobile-status-chips mobile-only">
+                  {practiceTabs.map((tab) => {
+                    const active = activeTab === tab.id;
+                    const count = counts[tab.id] || 0;
+                    return (
+                      <button
+                        className={`mobile-status-chip${active ? " active" : ""}`}
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        type="button"
+                      >
+                        <span>{tab.label}</span>
+                        <span style={{ fontWeight: 800, color: active ? "var(--color-interactive-link)" : undefined }}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div aria-label="Learning sections" className="practice-tabs tabs desktop-only" role="tablist">
+                  {practiceTabs.map((tab) => {
+                    const active = activeTab === tab.id;
+                    const count = counts[tab.id] || 0;
+                    return (
+                      <button
+                        aria-selected={active}
+                        className={`practice-tab-card tab${active ? " active" : ""}`}
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        role="tab"
+                        type="button"
+                      >
+                        <span className="tab-labels">
+                          <b>{tab.label}</b>
+                          <small>{tab.hint}</small>
+                        </span>
+                        <strong className="tab-counter">{count}</strong>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {loading ? (
+                  <div className="empty-state"><span>Loading phrases...</span></div>
+                ) : visible.length === 0 ? (
+                  <div className="empty-state">
+                    <strong>Nothing here yet</strong>
+                    <span>
+                      {activeTab === "learning_now"
+                        ? "Start a phrase from To Learn or add one above."
+                        : activeTab === "to_learn"
+                        ? "Save phrases from the catalog or type your own above."
+                        : "Phrases you complete in the trainer will appear here."}
+                    </span>
+                  </div>
+                ) : surface === "practice" ? (
+                  <PracticePhraseGrid items={visible} renderItem={renderPhraseCard} />
+                ) : (
+                  <div className="phrase-grid">
+                    {visible.map(renderPhraseCard)}
+                  </div>
+                )}
+              </>
+            )}
+
+            {mode === "guest" && (
+              <div className="mobile-guest-card mobile-only">
+                <span style={{ color: "var(--color-text-secondary)" }}>Progress is saved in this browser</span>
+                <a className="site-account-link" href={signInHref(surface === "practice" ? "/practice" : "/library")}>
+                  Sign in
+                </a>
+              </div>
+            )}
+          </section>
+        </div>
+
+        {mobileFilterOpen && (
+          <>
+            <div className="sheet-backdrop" onClick={() => setMobileFilterOpen(false)} />
+            <div className="bottom-sheet" role="dialog" aria-modal="true">
+              <div className="sheet-drag-handle" />
+              {renderFiltersContent(true)}
+              <button
+                className="sheet-apply-cta"
+                onClick={() => setMobileFilterOpen(false)}
+                type="button"
+              >
+                Show {visible.length} cards
+              </button>
+            </div>
+          </>
+        )}
       </main>
     </>
   );

@@ -335,7 +335,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
     () => phrases
       .filter((phrase) => {
         if (surface === "library") {
-          if (phrase.status === "pick" && phrase.analysis?.kind === activeFormat) {
+          if (phrase.analysis?.kind === activeFormat) {
             if (selectedMechanisms.size > 0 && !phrase.analysis.mechanisms.some((m) => selectedMechanisms.has(m))) {
               return false;
             }
@@ -408,6 +408,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
       if (surface === "practice") setActiveTab(status);
       if (surface === "library" && status === "to_learn") {
         setRecentlyAdded(id);
+      } else if (status === "to_learn") {
         setNotice("Added to To Learn. Guest progress is saved in this browser.");
       } else if (status === "pick") {
         setRecentlyAdded(null);
@@ -435,6 +436,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
       if (surface === "practice") setActiveTab(data.status || status);
       if (surface === "library" && status === "to_learn") {
         setRecentlyAdded(id);
+      } else if (status === "to_learn") {
         setNotice("Added to To Learn.");
       } else if (status === "pick") {
         setRecentlyAdded(null);
@@ -839,43 +841,62 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
         ) : null}
 
         <div className="card-actions row-actions-cell">
-          {phrase.status === "pick" && (
-            <button
-              className={surface === "library" ? "save-action" : undefined}
-              disabled={busyId === phrase.id}
-              onClick={() => changeStatus(phrase.id, "to_learn")}
-              type="button"
-            >
-              Add to Learn
-            </button>
-          )}
-          {phrase.status === "pick" && (
-            <button
-              aria-label="Add to Learn"
-              className="mobile-add-btn mobile-only"
-              disabled={busyId === phrase.id}
-              onClick={() => changeStatus(phrase.id, "to_learn")}
-              type="button"
-            >
-              <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" viewBox="0 0 24 24" width="18">
-                <line x1="12" x2="12" y1="5" y2="19" />
-                <line x1="5" x2="19" y1="12" y2="12" />
-              </svg>
-            </button>
-          )}
-          {phrase.status === "to_learn" && <button className="action-btn-primary desktop-only" disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Move to Learning Now</button>}
-          {phrase.status === "learning_now" && <button className="action-btn-primary desktop-only" disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learnt")} type="button">Mark as Learned</button>}
-          {phrase.status === "learnt" && <button className="action-btn-primary desktop-only" disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Learn Again</button>}
-          {phrase.status !== "pick" && <button className="secondary" disabled={busyId === phrase.id} onClick={() => removePhrase(phrase)} type="button">Remove</button>}
-          {phrase.status !== "pick" && (
-            <button
-              aria-label="Options"
-              className="row-menu-btn mobile-only"
-              onClick={() => setOpenMenuPhraseId(openMenuPhraseId === phrase.id ? null : phrase.id)}
-              type="button"
-            >
-              ⋯
-            </button>
+          {isLibrary ? (
+            phrase.status === "pick" ? (
+              <>
+                <button
+                  className={surface === "library" ? "save-action" : undefined}
+                  disabled={busyId === phrase.id}
+                  onClick={() => changeStatus(phrase.id, "to_learn")}
+                  type="button"
+                >
+                  Add to Learn
+                </button>
+                <button
+                  aria-label="Add to Learn"
+                  className="mobile-add-btn mobile-only"
+                  disabled={busyId === phrase.id}
+                  onClick={() => changeStatus(phrase.id, "to_learn")}
+                  type="button"
+                >
+                  <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" viewBox="0 0 24 24" width="18">
+                    <line x1="12" x2="12" y1="5" y2="19" />
+                    <line x1="5" x2="19" y1="12" y2="12" />
+                  </svg>
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="catalog-added-badge desktop-only" title="Added to your list">
+                  <svg aria-hidden="true" fill="none" height="14" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" viewBox="0 0 24 24" width="14">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                  <span>Added</span>
+                </span>
+                <span aria-label="Added to your phrases" className="catalog-added-badge-mobile mobile-only" title="Added">
+                  <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" viewBox="0 0 24 24" width="18">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </span>
+              </>
+            )
+          ) : (
+            <>
+              {phrase.status === "to_learn" && <button className="action-btn-primary desktop-only" disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Move to Learning Now</button>}
+              {phrase.status === "learning_now" && <button className="action-btn-primary desktop-only" disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learnt")} type="button">Mark as Learned</button>}
+              {phrase.status === "learnt" && <button className="action-btn-primary desktop-only" disabled={busyId === phrase.id} onClick={() => changeStatus(phrase.id, "learning_now")} type="button">Learn Again</button>}
+              {phrase.status !== "pick" && <button className="secondary" disabled={busyId === phrase.id} onClick={() => removePhrase(phrase)} type="button">Remove</button>}
+              {phrase.status !== "pick" && (
+                <button
+                  aria-label="Options"
+                  className="row-menu-btn mobile-only"
+                  onClick={() => setOpenMenuPhraseId(openMenuPhraseId === phrase.id ? null : phrase.id)}
+                  type="button"
+                >
+                  ⋯
+                </button>
+              )}
+            </>
           )}
         </div>
       </article>
@@ -905,10 +926,10 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
         </header>
 
         {error && <aside className="notice error" role="alert">{error}</aside>}
-        {notice && (
+        {notice && surface !== "library" && (
           <aside className="notice success notice-action" role="status">
             <span>{notice}</span>
-            {recentlyAdded && surface === "library" && (
+            {recentlyAdded && surface !== "library" && (
               <button onClick={undoAdded} type="button">Undo</button>
             )}
           </aside>
@@ -1033,7 +1054,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                   <label className="sr-only" htmlFor="practice-search-input">Search your phrases</label>
                   <div className="practice-single-input-row">
                     <div className="practice-single-input-wrap">
-                      <span aria-hidden="true" style={{ color: "#b5bec8" }}>⌕</span>
+                      <span aria-hidden="true" className="desktop-only" style={{ color: "#b5bec8" }}>⌕</span>
                       <input
                         id="practice-search-input"
                         onChange={(event) => setPracticeSearch(event.target.value)}
@@ -1063,7 +1084,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                       title="Search"
                       type="button"
                     >
-                      <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" viewBox="0 0 24 24" width="16">
+                      <svg aria-hidden="true" fill="none" height="17" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="17">
                         <circle cx="11" cy="11" r="8" />
                         <line x1="21" x2="16.65" y1="21" x2="16.65" />
                       </svg>
@@ -1075,20 +1096,21 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                       title="Add to Learn"
                       type="submit"
                     >
-                      <svg aria-hidden="true" fill="none" height="16" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" viewBox="0 0 24 24" width="16">
+                      <svg aria-hidden="true" fill="none" height="18" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.2" viewBox="0 0 24 24" width="18">
                         <line x1="12" x2="12" y1="5" y2="19" />
                         <line x1="5" x2="19" y1="12" y2="12" />
                       </svg>
                     </button>
                     <button
                       aria-label="Open filters"
-                      className="mobile-filter-trigger mobile-only"
+                      className="practice-icon-btn practice-filter-btn mobile-only"
                       onClick={() => setMobileFilterOpen(true)}
                       type="button"
                     >
                       <svg aria-hidden="true" className="mobile-filter-icon" fill="none" height="15" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" viewBox="0 0 24 24" width="15">
                         <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-                      </svg> <span style={{ color: "var(--color-text-secondary)" }}>⌄</span>
+                      </svg>
+                      <span style={{ fontSize: "11px", marginLeft: "1px", opacity: 0.7 }}>⌄</span>
                     </button>
                   </div>
 

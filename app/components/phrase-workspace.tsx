@@ -136,7 +136,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
   const [phraseSort, setPhraseSort] = useState<PhraseSort>(surface === "library" ? "recommended" : "added_desc");
   const [activeFormat, setActiveFormat] = useState<PracticeFormat>("atom");
   const [selectedMechanisms, setSelectedMechanisms] = useState<Set<ConnectedSpeechMechanism>>(new Set());
-  const [explainedMechanism, setExplainedMechanism] = useState<ConnectedSpeechMechanism | null>(null);
+  const [openHelpKey, setOpenHelpKey] = useState<string | null>(null);
   const [practiceSources, setPracticeSources] = useState<Set<"catalog" | "custom">>(new Set(["catalog", "custom"]));
   const [catalogSearch, setCatalogSearch] = useState("");
   const [practiceSearch, setPracticeSearch] = useState("");
@@ -144,6 +144,27 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [openMenuPhraseId, setOpenMenuPhraseId] = useState<string | null>(null);
   const phraseSortReady = useRef(false);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!openHelpKey) return;
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
+        setOpenHelpKey(null);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenHelpKey(null);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [openHelpKey]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -588,7 +609,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
       setPracticeSearch("");
       setCustomText("");
     }
-    setExplainedMechanism(null);
+    setOpenHelpKey(null);
   }
 
   const sortOptions = surface === "library" ? catalogSortOptions : practiceSortOptions;
@@ -599,6 +620,50 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
       || phrases.find((p) => p.analysis?.mechanisms.includes(mech));
     return card ? `${card.text} → ${card.analysis?.ipa || ""}` : "";
   }, [catalogCards, phrases]);
+
+  const renderHelpButton = (mechKey: ConnectedSpeechMechanism, helpId: string, label: string) => {
+    const isOpen = openHelpKey === helpId;
+    const mech = CONNECTED_SPEECH_MECHANISMS[mechKey];
+    const example = getMechanismExample(mechKey);
+
+    return (
+      <div className="help-question-wrap" ref={isOpen ? popoverRef : undefined}>
+        <button
+          aria-expanded={isOpen}
+          aria-label={`Explain ${label}`}
+          className={`help-question-btn${isOpen ? " active" : ""}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            setOpenHelpKey(isOpen ? null : helpId);
+          }}
+          type="button"
+        >
+          ?
+        </button>
+        {isOpen && (
+          <div
+            className="mechanism-popover"
+            onClick={(event) => event.stopPropagation()}
+            role="tooltip"
+          >
+            <div className="mechanism-popover-header">
+              <strong className="popover-title">{mech.title}</strong>
+              <button
+                aria-label="Close explanation"
+                className="popover-close-btn"
+                onClick={() => setOpenHelpKey(null)}
+                type="button"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="popover-desc">{mech.description}</p>
+            {example && <span className="popover-example">{example}</span>}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const renderFiltersContent = (isMobile = false) => (
     <>
@@ -623,8 +688,8 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                   role="radio"
                   type="button"
                 >
-                  <span aria-hidden="true" className="format-radio-dot" />
-                  <span>{def.title}</span>
+                  <span className="radio-dot" />
+                  <span className="format-title">{def.title}</span>
                   <span className="format-count">{count}</span>
                 </button>
               );
@@ -636,46 +701,47 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
           <span className="sidebar-section-title">Source</span>
           <div className="format-options">
             <button
-              className="mechanism-row-btn"
+              aria-checked={practiceSources.has("catalog")}
+              className={`format-option-btn${practiceSources.has("catalog") ? " active" : ""}`}
               onClick={() => togglePracticeSource("catalog")}
+              role="checkbox"
               type="button"
             >
-              <span className={`checkbox-box${practiceSources.has("catalog") ? " checked" : ""}`}>
-                {practiceSources.has("catalog") ? "✓" : ""}
-              </span>
-              <span className="mechanism-title">From catalog</span>
-              <span className="format-count">{practiceSourceCounts.catalog}</span>
+              <span className="checkbox-box">{practiceSources.has("catalog") ? "✓" : ""}</span>
+              <span className="format-title">From catalog</span>
+              <span className="format-count">{phrases.filter((p) => p.source_type === "catalog").length}</span>
             </button>
             <button
-              className="mechanism-row-btn"
+              aria-checked={practiceSources.has("custom")}
+              className={`format-option-btn${practiceSources.has("custom") ? " active" : ""}`}
               onClick={() => togglePracticeSource("custom")}
+              role="checkbox"
               type="button"
             >
-              <span className={`checkbox-box${practiceSources.has("custom") ? " checked" : ""}`}>
-                {practiceSources.has("custom") ? "✓" : ""}
-              </span>
-              <span className="mechanism-title">Your phrases</span>
-              <span className="format-count">{practiceSourceCounts.custom}</span>
+              <span className="checkbox-box">{practiceSources.has("custom") ? "✓" : ""}</span>
+              <span className="format-title">Your phrases</span>
+              <span className="format-count">{phrases.filter((p) => p.source_type === "custom").length}</span>
             </button>
           </div>
         </div>
       )}
 
-      <div className="sidebar-section sidebar-section-divider">
-        <div className="sidebar-section-header">
+      <div className="sidebar-section">
+        <div className="sidebar-section-title-wrap">
           <span className="sidebar-section-title">Mechanism</span>
-          <span className="sidebar-section-hint">{isMobile ? "tap ? for definition" : "? explains it"}</span>
+          <span className="sidebar-section-hint">? explains it</span>
         </div>
+
         <div className="mechanism-list">
           {surface === "library" && (
             <button
-              className={`mechanism-row-btn${selectedMechanisms.size === 0 ? " all-active" : ""}`}
+              aria-checked={selectedMechanisms.size === 0}
+              className={`mechanism-row-btn all-mechanisms-btn${selectedMechanisms.size === 0 ? " active" : ""}`}
               onClick={() => setSelectedMechanisms(new Set())}
+              role="checkbox"
               type="button"
             >
-              <span className="checkbox-box">
-                {selectedMechanisms.size === 0 ? "✓" : ""}
-              </span>
+              <span className="checkbox-box">{selectedMechanisms.size === 0 ? "✓" : ""}</span>
               <span className="mechanism-title">All mechanisms</span>
               <span className="format-count">{formatCounts[activeFormat] || 18}</span>
             </button>
@@ -699,30 +765,12 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                   <span className="mechanism-title">{mechDef.title}</span>
                   <span className="mechanism-hint">{mechDef.hint}</span>
                 </div>
-                <button
-                  aria-label={`Explain ${mechDef.title}`}
-                  className="help-question-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setExplainedMechanism(explainedMechanism === mechKey ? null : mechKey);
-                  }}
-                  type="button"
-                >
-                  ?
-                </button>
+                {renderHelpButton(mechKey, `filter:${mechKey}${isMobile ? "-mobile" : ""}`, mechDef.title)}
                 {surface === "library" && <span className="format-count">{count}</span>}
               </div>
             );
           })}
         </div>
-
-        {explainedMechanism && (
-          <div className="mechanism-explanation-card">
-            <strong>{CONNECTED_SPEECH_MECHANISMS[explainedMechanism].title}</strong>
-            <p>{CONNECTED_SPEECH_MECHANISMS[explainedMechanism].description}</p>
-            <span className="example">{getMechanismExample(explainedMechanism)}</span>
-          </div>
-        )}
       </div>
     </>
   );
@@ -936,26 +984,24 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
                       <span>Try adjusting your filters or search term.</span>
                     </div>
                   ) : (
-                    libraryGroups.map((group) => (
-                      <div className="catalog-group-card" key={group.key}>
-                        <div className="catalog-group-header">
-                          <span className="group-title">{group.title}</span>
-                          {group.mechanismKey && (
-                            <button
-                              aria-label={`Explain ${group.title}`}
-                              className="help-question-btn"
-                              onClick={() => setExplainedMechanism(explainedMechanism === group.mechanismKey ? null : group.mechanismKey)}
-                              type="button"
-                            >
-                              ?
-                            </button>
-                          )}
-                          <span className="group-hint">{group.hint}</span>
-                          <span className="group-count">{String(group.rows.length).padStart(2, "0")}</span>
+                    libraryGroups.map((group) => {
+                      const isHelpOpen = openHelpKey === `group:${group.key}`;
+                      return (
+                        <div className={`catalog-group-card${isHelpOpen ? " has-open-help" : ""}`} key={group.key}>
+                          <div className="catalog-group-header">
+                            <span className="group-title">{group.title}</span>
+                            {group.mechanismKey ? (
+                              renderHelpButton(group.mechanismKey, `group:${group.key}`, group.title)
+                            ) : (
+                              <span className="help-question-placeholder" />
+                            )}
+                            <span className="group-hint">{group.hint}</span>
+                            <span className="group-count">{String(group.rows.length).padStart(2, "0")}</span>
+                          </div>
+                          {group.rows.map(renderPhraseCard)}
                         </div>
-                        {group.rows.map(renderPhraseCard)}
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </>

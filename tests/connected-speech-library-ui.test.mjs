@@ -223,3 +223,11 @@ test("Practice cards and source badges use sourceType and safely handle legacy p
   // No unused shouldVirtualizePracticeList import
   assert.doesNotMatch(workspace, /shouldVirtualizePracticeList/);
 });
+
+test("Removing a phrase does not trigger native browser window.confirm modal dialog", async () => {
+  const workspace = await readFile(new URL("../app/components/phrase-workspace.tsx", import.meta.url), "utf8");
+
+  const removePhraseFn = workspace.match(/async function removePhrase\([\s\S]*?\}\s*finally\s*\{[\s\S]*?\}\s*\}/)?.[0] || "";
+  assert.ok(removePhraseFn, "removePhrase function must exist");
+  assert.doesNotMatch(removePhraseFn, /window\.confirm/);
+});

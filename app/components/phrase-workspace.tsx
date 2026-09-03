@@ -511,7 +511,6 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
   }
 
   async function removePhrase(phrase: Phrase) {
-    if (phrase.source_type === "custom" && !window.confirm(`Remove “${phrase.text}”?`)) return;
     setBusyId(phrase.id);
     setError("");
     if (mode === "guest") {
@@ -524,7 +523,7 @@ export function PhraseWorkspace({ surface }: { surface: "library" | "practice" }
       const response = await fetch(`/api/phrases?id=${encodeURIComponent(phrase.id)}`, { method: "DELETE" });
       const data = await response.json() as PhraseMutationResponse;
       if (!response.ok) throw new Error(data.error || "Could not remove the phrase.");
-      setPhrases((currentPhrases) => phrase.source_type === "preset"
+      setPhrases((currentPhrases) => phrase.sourceType !== "custom"
         ? currentPhrases.map((currentPhrase) => currentPhrase.id === phrase.id
           ? { ...currentPhrase, status: "pick", updated_at: new Date().toISOString() }
           : currentPhrase)
